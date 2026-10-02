@@ -1,9 +1,10 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using FizzWare.NBuilder;
 using FluentAssertions;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using N_Tier.API;
 using N_Tier.Api.IntegrationTests.Common;
@@ -11,7 +12,6 @@ using N_Tier.Api.IntegrationTests.Common.Constants;
 using N_Tier.Api.IntegrationTests.Helpers;
 using N_Tier.Application.Models;
 using N_Tier.Application.Models.User;
-using N_Tier.DataAccess.Identity;
 using N_Tier.DataAccess.Persistence;
 using Xunit;
 
@@ -22,7 +22,7 @@ public class UsersEndpointTests
     private readonly ApiApplicationFactory<Program> _factory = new();
 
     [Fact]
-    public async Task Create_User_Should_Add_User_To_Database()
+    public async Task Register_User_Should_Add_User_To_Database()
     {
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
@@ -32,29 +32,36 @@ public class UsersEndpointTests
             .With(cu => cu.Email = "IntegrationTest@gmail.com")
             .With(cu => cu.UserName = "IntegrationTest")
             .With(cu => cu.Password = "Password.1!")
+            .With(cu => cu.PhoneNumber = "0987654321")
             .Build();
 
         // Act
-        var apiResponse = await client.PostAsync("/api/users", new JsonContent(createModel));
+        var apiResponse = await client.PostAsync("/api/users/register", new JsonContent(createModel));
 
         // Assert
         apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var response = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(apiResponse);
         CheckResponse.Succeeded(response);
-        context.Users.Should().Contain(u => u.Id == response.Result.Id.ToString());
+        var userInDb = await context.Users.FirstOrDefaultAsync(u => u.Id == response.Result.Id.ToString());
+        userInDb.Should().NotBeNull();
+        userInDb.PhoneNumber.Should().Be("0987654321");
+        userInDb.PasswordHash.Should().NotBeNullOrEmpty();
+        userInDb.PasswordHash.Should().NotBe("Password.1!");
     }
 
     [Fact]
-    public async Task Create_User_Should_Return_BadRequest_If_The_Email_Is_Incorrect()
+    public async Task Register_User_Should_Return_BadRequest_If_The_Email_Is_Incorrect()
     {
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
         var createModel = Builder<CreateUserModel>.CreateNew()
             .With(cu => cu.Email = "BadEmail")
+            .With(cu => cu.PhoneNumber = "0987654321")
+            .With(cu => cu.Password = "Password.1!")
             .Build();
 
         // Act
-        var apiResponse = await client.PostAsync("/api/users", new JsonContent(createModel));
+        var apiResponse = await client.PostAsync("/api/users/register", new JsonContent(createModel));
 
         // Assert
         apiResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -63,7 +70,7 @@ public class UsersEndpointTests
     }
 
     [Fact]
-    public async Task Create_User_Should_Return_BadRequest_If_The_Username_Is_Incorrect()
+    public async Task Register_User_Should_Return_BadRequest_If_The_Username_Is_Incorrect()
     {
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
@@ -71,10 +78,11 @@ public class UsersEndpointTests
             .With(cu => cu.Email = "nuyonu@gmail.com")
             .With(cu => cu.UserName = "Len")
             .With(cu => cu.Password = "Password.1!")
+            .With(cu => cu.PhoneNumber = "0987654321")
             .Build();
 
         // Act
-        var apiResponse = await client.PostAsync("/api/users", new JsonContent(createModel));
+        var apiResponse = await client.PostAsync("/api/users/register", new JsonContent(createModel));
 
         // Assert
         apiResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -83,17 +91,44 @@ public class UsersEndpointTests
     }
 
     [Fact]
-    public async Task Create_User_Should_Return_BadRequest_If_The_Password_Is_Incorrect()
+    public async Task Register_User_Should_Return_BadRequest_If_The_Password_Is_Incorrect()
     {
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
         var createModel = Builder<CreateUserModel>.CreateNew()
             .With(cu => cu.Email = "nuyonu@gmail.com")
+            .With(cu => cu.UserName = "ValidUser")
+            .With(cu => cu.PhoneNumber = "0987654321")
             .With(cu => cu.Password = "incorrect")
             .Build();
 
         // Act
-        var apiResponse = await client.PostAsync("/api/users", new JsonContent(createModel));
+        var apiResponse = await client.PostAsync("/api/users/register", new JsonContent(createModel));
+
+        // Assert
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var response = await ResponseHelper.GetApiResultAsync<string>(apiResponse);
+        CheckResponse.Failure(response);
+    }
+
+    [Theory]
+    [InlineData("0123456789")]
+    [InlineData("123456789")]
+    [InlineData("09876")]
+    [InlineData("badphone")]
+    public async Task Register_User_Should_Return_BadRequest_If_The_PhoneNumber_Is_Incorrect(string invalidPhone)
+    {
+        // Arrange
+        var client = await _factory.CreateDefaultClientAsync();
+        var createModel = Builder<CreateUserModel>.CreateNew()
+            .With(cu => cu.Email = "validphone@gmail.com")
+            .With(cu => cu.UserName = "ValidPhoneUser")
+            .With(cu => cu.Password = "Password.1!")
+            .With(cu => cu.PhoneNumber = invalidPhone)
+            .Build();
+
+        // Act
+        var apiResponse = await client.PostAsync("/api/users/register", new JsonContent(createModel));
 
         // Assert
         apiResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -161,172 +196,55 @@ public class UsersEndpointTests
     }
 
     [Fact]
-    public async Task ConfirmEmail_Should_Update_User_Status()
+    public async Task GetAll_Users_Should_Return_Registered_Accounts()
+    {
+        // Arrange
+        var client = await _factory.CreateDefaultClientAsync();
+
+        // Act
+        var apiResponse = await client.GetAsync("/api/users");
+
+        // Assert
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var response = await ResponseHelper.GetApiResultAsync<List<UserResponseModel>>(apiResponse);
+        CheckResponse.Succeeded(response);
+        response.Result.Should().NotBeNull();
+        response.Result.Should().Contain(u => u.UserName == UserConstants.DefaultUserDb.Username);
+    }
+
+    [Fact]
+    public async Task GetById_User_Should_Return_User_Information()
     {
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
         var context = _factory.GetRequiredService<DatabaseContext>();
-        var user = Builder<ApplicationUser>.CreateNew()
-            .With(u => u.UserName = "ConfirmEmailUser")
-            .With(u => u.Email = "ConfirmEmailUser@email.com")
-            .Build();
-
-        var userManager = _factory.GetRequiredService<UserManager<ApplicationUser>>();
-
-        await userManager.CreateAsync(user, "Password.1!");
-
-        var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
-
-        var confirmEmailModel = Builder<ConfirmEmailModel>.CreateNew()
-            .With(ce => ce.UserId = user.Id)
-            .With(ce => ce.Token = token)
-            .Build();
+        var userInDb = await context.Users.FirstAsync(u => u.UserName == UserConstants.DefaultUserDb.Username);
 
         // Act
-        var apiResponse = await client.PostAsync("/api/users/confirmEmail", new JsonContent(confirmEmailModel));
+        var apiResponse = await client.GetAsync($"/api/users/{userInDb.Id}");
 
         // Assert
-        var response = await ResponseHelper.GetApiResultAsync<ConfirmEmailResponseModel>(apiResponse);
-        var userFromDatabase = await context.Users.FirstOrDefaultAsync(u => u.Id == user.Id);
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var response = await ResponseHelper.GetApiResultAsync<UserResponseModel>(apiResponse);
         CheckResponse.Succeeded(response);
-        response.Result.Confirmed.Should().BeTrue();
-        userFromDatabase.EmailConfirmed.Should().BeTrue();
+        response.Result.Should().NotBeNull();
+        response.Result.Id.Should().Be(userInDb.Id);
+        response.Result.UserName.Should().Be(userInDb.UserName);
+        response.Result.Email.Should().Be(userInDb.Email);
     }
 
     [Fact]
-    public async Task ConfirmEmail_Should_Return_UnprocessableEntity_If_Token_Or_UserId_Are_Incorrect()
+    public async Task GetById_User_Should_Return_NotFound_When_Not_Exists()
     {
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
-        var user = Builder<ApplicationUser>.CreateNew()
-            .With(u => u.UserName = "ConfirmEmailUser2")
-            .With(u => u.Email = "ConfirmEmailUser2@email.com")
-            .Build();
-
-        var userManager = _factory.GetRequiredService<UserManager<ApplicationUser>>();
-
-        await userManager.CreateAsync(user, "Password.1!");
-
-        var confirmEmailModel = Builder<ConfirmEmailModel>.CreateNew()
-            .With(ce => ce.UserId = user.Id)
-            .With(ce => ce.Token = "InvalidToken")
-            .Build();
 
         // Act
-        var apiResponse = await client.PostAsync("/api/users/confirmEmail", new JsonContent(confirmEmailModel));
-
-        // Assert
-        apiResponse.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-        var response = await ResponseHelper.GetApiResultAsync<string>(apiResponse);
-        CheckResponse.Failure(response);
-    }
-
-    [Fact]
-    public async Task ChangePassword_Should_Return_NotFoundException_If_User_Does_Not_Exists_In_Database()
-    {
-        // Arrange
-        var client = await _factory.CreateDefaultClientAsync();
-        var changePasswordModel = Builder<ChangePasswordModel>.CreateNew()
-            .With(cu => cu.OldPassword = "Password.1!")
-            .With(cu => cu.NewPassword = "Password.12!")
-            .Build();
-
-        // Act
-        var apiResponse = await client.PutAsync($"/api/users/{Guid.NewGuid()}/changePassword",
-            new JsonContent(changePasswordModel));
+        var apiResponse = await client.GetAsync($"/api/users/{Guid.NewGuid()}");
 
         // Assert
         apiResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
         var response = await ResponseHelper.GetApiResultAsync<string>(apiResponse);
         CheckResponse.Failure(response);
-    }
-
-    [Fact]
-    public async Task ChangePassword_Should_Return_BadRequest_If_OldPassword_Does_Not_Match_User_Password()
-    {
-        // Arrange
-        var client = await _factory.CreateDefaultClientAsync();
-        var user = Builder<ApplicationUser>.CreateNew()
-            .With(u => u.UserName = "ChangePasswordBadRequest")
-            .With(u => u.Email = "ChangePasswordBadRequest@email.com")
-            .Build();
-
-        var userManager = _factory.GetRequiredService<UserManager<ApplicationUser>>();
-
-        await userManager.CreateAsync(user, "Password.1!");
-
-        var changePasswordModel = Builder<ChangePasswordModel>.CreateNew()
-            .With(cu => cu.OldPassword = "Password.12!")
-            .With(cu => cu.NewPassword = "Password.1!")
-            .Build();
-
-        // Act
-        var apiResponse =
-            await client.PutAsync($"/api/users/{user.Id}/changePassword", new JsonContent(changePasswordModel));
-
-        // Assert
-        apiResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var response = await ResponseHelper.GetApiResultAsync<string>(apiResponse);
-        CheckResponse.Failure(response);
-    }
-
-    [Fact]
-    public async Task ChangePassword_Should_Return_BadRequest_If_NewPassword_Does_Not_Follow_The_Rules()
-    {
-        // Arrange
-        var client = await _factory.CreateDefaultClientAsync();
-        var user = Builder<ApplicationUser>.CreateNew()
-            .With(u => u.UserName = "ChangePasswordBadRequest2")
-            .With(u => u.Email = "ChangePasswordBadRequest2@email.com")
-            .Build();
-
-        var userManager = _factory.GetRequiredService<UserManager<ApplicationUser>>();
-
-        await userManager.CreateAsync(user, "Password.1!");
-
-        var changePasswordModel = Builder<ChangePasswordModel>.CreateNew()
-            .With(cu => cu.OldPassword = "Password.1!")
-            .With(cu => cu.NewPassword = "string")
-            .Build();
-
-        // Act
-        var apiResponse =
-            await client.PutAsync($"/api/users/{user.Id}/changePassword", new JsonContent(changePasswordModel));
-
-        // Assert
-        apiResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var response = await ResponseHelper.GetApiResultAsync<string>(apiResponse);
-        CheckResponse.Failure(response);
-    }
-
-    [Fact]
-    public async Task ChangePassword_Should_Update_User_Password_If_OldPassword_And_NewPassword_Are_Ok()
-    {
-        // Arrange
-        var client = await _factory.CreateDefaultClientAsync();
-        var user = Builder<ApplicationUser>.CreateNew()
-            .With(u => u.UserName = "ChangePasswordBadRequest3")
-            .With(u => u.Email = "ChangePasswordBadRequest3@email.com")
-            .With(u => u.EmailConfirmed = true)
-            .Build();
-
-        var userManager = _factory.GetRequiredService<UserManager<ApplicationUser>>();
-
-        await userManager.CreateAsync(user, "Password.1!");
-
-        var changePasswordModel = Builder<ChangePasswordModel>.CreateNew()
-            .With(cu => cu.OldPassword = "Password.1!")
-            .With(cu => cu.NewPassword = "Password.12!")
-            .Build();
-
-        // Act
-        var apiResponse =
-            await client.PutAsync($"/api/users/{user.Id}/changePassword", new JsonContent(changePasswordModel));
-
-        // Assert
-        apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        var response = await ResponseHelper.GetApiResultAsync<BaseResponseModel>(apiResponse);
-        CheckResponse.Succeeded(response);
-        response.Result.Id.Should().Be(user.Id);
     }
 }

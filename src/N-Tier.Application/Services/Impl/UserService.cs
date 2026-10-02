@@ -16,14 +16,15 @@ public class UserService(
     IMapper mapper,
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
-    IConfiguration configuration,
-    ITemplateService templateService,
-    IEmailService emailService)
+    IConfiguration configuration)
     : IUserService
 {
     public async Task<CreateUserResponseModel> CreateAsync(CreateUserModel createUserModel)
     {
         var user = mapper.Map<ApplicationUser>(createUserModel);
+        user.PhoneNumber = createUserModel.PhoneNumber;
+        user.EmailConfirmed = true;
+
         if (string.IsNullOrWhiteSpace(user.Role))
         {
             user.Role = "User";
@@ -33,18 +34,9 @@ public class UserService(
 
         if (!result.Succeeded) throw new BadRequestException(result.Errors.FirstOrDefault()?.Description);
 
-        var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
-
-        var emailTemplate = await templateService.GetTemplateAsync(TemplateConstants.ConfirmationEmail);
-
-        var emailBody = templateService.ReplaceInTemplate(emailTemplate,
-            new Dictionary<string, string> { { "{UserId}", user.Id }, { "{Token}", token } });
-
-        await emailService.SendEmailAsync(EmailMessage.Create(user.Email, emailBody, "[N-Tier]Confirm your email"));
-
         return new CreateUserResponseModel
         {
-            Id = Guid.Parse((await userManager.FindByNameAsync(user.UserName)).Id)
+            Id = Guid.Parse(user.Id)
         };
     }
 
@@ -73,41 +65,34 @@ public class UserService(
         };
     }
 
-    public async Task<ConfirmEmailResponseModel> ConfirmEmailAsync(ConfirmEmailModel confirmEmailModel)
+    public async Task<IEnumerable<UserResponseModel>> GetAllAsync()
     {
-        var user = await userManager.FindByIdAsync(confirmEmailModel.UserId);
-
-        if (user == null)
-            throw new UnprocessableRequestException("Your verification link is incorrect");
-
-        var result = await userManager.ConfirmEmailAsync(user, confirmEmailModel.Token);
-
-        if (!result.Succeeded)
-            throw new UnprocessableRequestException("Your verification link has expired");
-
-        return new ConfirmEmailResponseModel
-        {
-            Confirmed = true
-        };
+        return await userManager.Users
+            .Select(u => new UserResponseModel
+            {
+                Id = u.Id,
+                UserName = u.UserName,
+                Email = u.Email,
+                PhoneNumber = u.PhoneNumber,
+                Role = u.Role
+            })
+            .ToListAsync();
     }
 
-    public async Task<BaseResponseModel> ChangePasswordAsync(Guid userId, ChangePasswordModel changePasswordModel)
+    public async Task<UserResponseModel> GetByIdAsync(string id)
     {
-        var user = await userManager.FindByIdAsync(userId.ToString());
+        var user = await userManager.FindByIdAsync(id);
 
         if (user == null)
-            throw new NotFoundException("User does not exist anymore");
+            throw new NotFoundException("User does not exist");
 
-        var result =
-            await userManager.ChangePasswordAsync(user, changePasswordModel.OldPassword,
-                changePasswordModel.NewPassword);
-
-        if (!result.Succeeded)
-            throw new BadRequestException(result.Errors.FirstOrDefault()?.Description);
-
-        return new BaseResponseModel
+        return new UserResponseModel
         {
-            Id = Guid.Parse(user.Id)
+            Id = user.Id,
+            UserName = user.UserName,
+            Email = user.Email,
+            PhoneNumber = user.PhoneNumber,
+            Role = user.Role
         };
     }
 }

@@ -7,10 +7,8 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using MockQueryable;
-using N_Tier.Application.Common.Email;
 using N_Tier.Application.Exceptions;
 using N_Tier.Application.Models.User;
-using N_Tier.Application.Services;
 using N_Tier.Application.Services.Impl;
 using N_Tier.DataAccess.Identity;
 using NSubstitute;
@@ -20,10 +18,8 @@ namespace N_Tier.Application.UnitTests.Services;
 
 public class UserServiceTests : BaseServiceTestConfiguration
 {
-    private readonly IEmailService _emailService;
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly UserService _sut;
-    private readonly ITemplateService _templateService;
     private readonly UserManager<ApplicationUser> _userManager;
 
     public UserServiceTests()
@@ -35,32 +31,30 @@ public class UserServiceTests : BaseServiceTestConfiguration
         var userPrincipalFactory = Substitute.For<IUserClaimsPrincipalFactory<ApplicationUser>>();
         _signInManager = Substitute.For<SignInManager<ApplicationUser>>(_userManager, contextAccessor,
             userPrincipalFactory, null, null, null, null);
-        _templateService = Substitute.For<ITemplateService>();
-        _emailService = Substitute.For<IEmailService>();
 
-        _sut = new UserService(Mapper, _userManager, _signInManager, Configuration, _templateService,
-            _emailService);
+        _sut = new UserService(Mapper, _userManager, _signInManager, Configuration);
     }
 
     [Fact]
-    public async Task CreateAsync_Should_Add_User_To_Database_And_Send_Confirmation_Email()
+    public async Task CreateAsync_Should_Add_User_To_Database()
     {
         // Arrange
+        var userId = Guid.NewGuid().ToString();
         var createUserModel = Builder<CreateUserModel>.CreateNew().Build();
-        var applicationUser = Builder<ApplicationUser>.CreateNew().Build();
-        _userManager.CreateAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>()).Returns(IdentityResult.Success);
-        _userManager.FindByNameAsync(Arg.Any<string>()).Returns(applicationUser);
+        _userManager.CreateAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>())
+            .Returns(args =>
+            {
+                var user = args.Arg<ApplicationUser>();
+                user.Id = userId;
+                return IdentityResult.Success;
+            });
 
         // Act
         var result = await _sut.CreateAsync(createUserModel);
 
         // Assert
-        result.Id.Should().Be(applicationUser.Id);
+        result.Id.Should().Be(Guid.Parse(userId));
         await _userManager.Received(1).CreateAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>());
-        await _userManager.Received(1).GenerateEmailConfirmationTokenAsync(Arg.Any<ApplicationUser>());
-        await _templateService.Received(1).GetTemplateAsync(Arg.Any<string>());
-        await _emailService.Received(1).SendEmailAsync(Arg.Any<EmailMessage>());
-        await _userManager.Received(1).FindByNameAsync(Arg.Any<string>());
     }
 
     [Fact]
@@ -144,43 +138,50 @@ public class UserServiceTests : BaseServiceTestConfiguration
     }
 
     [Fact]
-    public async Task ConfirmEmailAsync_Should_Throw_Exception_If_Token_Or_UserId_Are_Not_Ok()
+    public async Task GetAllAsync_Should_Return_All_Users()
     {
         // Arrange
-        var confirmEmailModel = Builder<ConfirmEmailModel>.CreateNew().Build();
-        var applicationUser = Builder<ApplicationUser>.CreateNew().Build();
-        var identityErrors = Builder<IdentityError>.CreateListOfSize(5).Build().ToArray();
-        _userManager.FindByIdAsync(Arg.Any<string>()).Returns(applicationUser);
-        _userManager.ConfirmEmailAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>())
-            .Returns(IdentityResult.Failed(identityErrors));
+        var usersList = Builder<ApplicationUser>.CreateListOfSize(3).Build();
+        _userManager.Users.Returns(usersList.AsQueryable().BuildMock());
 
         // Act
-        Func<Task> callConfirmEmailAsync = async () => await _sut.ConfirmEmailAsync(confirmEmailModel);
+        var result = (await _sut.GetAllAsync()).ToList();
 
         // Assert
-        await callConfirmEmailAsync.Should().ThrowAsync<UnprocessableRequestException>()
-            .WithMessage("Your verification link has expired");
-        await _userManager.Received(1).FindByIdAsync(Arg.Any<string>());
-        await _userManager.Received(1).ConfirmEmailAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>());
+        result.Should().HaveCount(3);
+        result[0].UserName.Should().Be(usersList[0].UserName);
+        result[1].Email.Should().Be(usersList[1].Email);
+        result[2].PhoneNumber.Should().Be(usersList[2].PhoneNumber);
     }
 
     [Fact]
-    public async Task ConfirmEmailAsync_Should_Return_Success_True_If_Token_And_UserId_Are_Ok()
+    public async Task GetByIdAsync_Should_Return_User_When_Exists()
     {
         // Arrange
-        var confirmEmailModel = Builder<ConfirmEmailModel>.CreateNew().Build();
-        var applicationUser = Builder<ApplicationUser>.CreateNew().Build();
-        _userManager.FindByIdAsync(Arg.Any<string>()).Returns(applicationUser);
-        _userManager.ConfirmEmailAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>())
-            .Returns(IdentityResult.Success);
+        var user = Builder<ApplicationUser>.CreateNew().Build();
+        _userManager.FindByIdAsync(user.Id).Returns(user);
 
         // Act
-        var result = await _sut.ConfirmEmailAsync(confirmEmailModel);
+        var result = await _sut.GetByIdAsync(user.Id);
 
         // Assert
         result.Should().NotBeNull();
-        result.Confirmed.Should().BeTrue();
-        await _userManager.Received(1).FindByIdAsync(Arg.Any<string>());
-        await _userManager.Received(1).ConfirmEmailAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>());
+        result.Id.Should().Be(user.Id);
+        result.UserName.Should().Be(user.UserName);
+        result.Email.Should().Be(user.Email);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_Should_Throw_NotFoundException_When_User_Not_Found()
+    {
+        // Arrange
+        _userManager.FindByIdAsync("nonexistent").Returns((ApplicationUser)null);
+
+        // Act
+        Func<Task> act = async () => await _sut.GetByIdAsync("nonexistent");
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("User does not exist");
     }
 }

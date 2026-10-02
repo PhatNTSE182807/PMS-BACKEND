@@ -8,7 +8,21 @@ namespace N_Tier.API.Controllers;
 
 public class UsersController(IUserService userService) : ApiController
 {
-    [HttpPost]
+    [HttpGet]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetAllAsync()
+    {
+        return Ok(ApiResult<IEnumerable<UserResponseModel>>.Success(await userService.GetAllAsync()));
+    }
+
+    [HttpGet("{id}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetByIdAsync(string id)
+    {
+        return Ok(ApiResult<UserResponseModel>.Success(await userService.GetByIdAsync(id)));
+    }
+
+    [HttpPost("register")]
     [AllowAnonymous]
     public async Task<IActionResult> RegisterAsync(CreateUserModel createUserModel)
     {
