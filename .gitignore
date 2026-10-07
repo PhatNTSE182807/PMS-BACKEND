@@ -355,3 +355,4 @@ MigrationBackup/
 # Local settings
 appsettings.Local.json
 appsettings.*.Local.json
+*.sql
