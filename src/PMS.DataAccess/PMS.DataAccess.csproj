@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>PMS.DataAccess</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\PMS.Core\PMS.Core.csproj" />
+        <ProjectReference Include="..\PMS.Shared\PMS.Shared.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Folder Include="Persistence\Migrations\" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="MailKit" Version="4.18.1" />
+        <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.4" />
+        <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="9.0.4" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.4" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.4">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.4" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.4" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.4">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="System.Linq.Expressions" Version="4.3.0" />
+    </ItemGroup>
+
+</Project>

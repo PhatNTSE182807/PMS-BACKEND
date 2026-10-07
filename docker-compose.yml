@@ -1,18 +1,18 @@
 version: "3.9"
 
 services:
-    n-tier-api:
-        container_name: n-tier-api
+    pms-api:
+        container_name: pms-api
         build:
             context: .
             dockerfile: Dockerfile
         ports:
             - "8080:80"
         depends_on:
-            - n-tier-sqlserver
+            - pms-sqlserver
 
-    n-tier-sqlserver:
-        container_name: n-tier-sqlserver
+    pms-sqlserver:
+        container_name: pms-sqlserver
         image: "mcr.microsoft.com/mssql/server:2022-latest"
         ports:
             - "1433:1433"
