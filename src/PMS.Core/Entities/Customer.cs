@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace PMS.DataAccess.Persistence.Entities;
@@ -17,19 +17,21 @@ public partial class Customer
 
     public string Email { get; set; }
 
+    public string AvatarUrl { get; set; }
+
     public DateOnly? DateOfBirth { get; set; }
 
     public string Gender { get; set; }
 
     public string Address { get; set; }
 
-    public string CustomerType { get; set; }
+    public string CustomerType { get; set; } = "Individual";
 
     public int? CorporateAccountId { get; set; }
 
     public int LoyaltyPoints { get; set; }
 
-    public string MembershipTier { get; set; }
+    public string MembershipTier { get; set; } = "Standard";
 
     public bool IsActive { get; set; }
 

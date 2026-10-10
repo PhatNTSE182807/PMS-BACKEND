@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using PMS.DataAccess.Persistence.Entities;
@@ -327,6 +327,7 @@ public partial class PmsDbContext : DbContext
                 .IsUnicode(false)
                 .HasDefaultValue("Individual");
             entity.Property(e => e.Email).HasMaxLength(256);
+            entity.Property(e => e.AvatarUrl).HasMaxLength(500);
             entity.Property(e => e.FullName)
                 .IsRequired()
                 .HasMaxLength(200);
@@ -1242,10 +1243,13 @@ public partial class PmsDbContext : DbContext
 
         modelBuilder.Entity<Vehicle>(entity =>
         {
+            entity.Property(e => e.Id).ValueGeneratedNever();
+
             entity.HasIndex(e => e.PlateNormalized, "IX_Vehicles_PlateNormalized");
 
             entity.Property(e => e.Brand).HasMaxLength(100);
             entity.Property(e => e.Color).HasMaxLength(50);
+            entity.Property(e => e.IsDefault).HasDefaultValue(false);
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())");

@@ -23,6 +23,10 @@ public class CreateUserModelValidator : AbstractValidator<CreateUserModel>
             .Must(UsernameIsUnique)
             .WithMessage("Username is not available");
 
+        RuleFor(u => u.FullName)
+            .MaximumLength(200)
+            .WithMessage("Full name should have maximum 200 characters");
+
         RuleFor(u => u.Password)
             .NotEmpty()
             .WithMessage("Password is required")

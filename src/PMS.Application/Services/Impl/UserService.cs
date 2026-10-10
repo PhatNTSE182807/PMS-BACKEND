@@ -10,13 +10,17 @@ using PMS.Application.Models.User;
 using PMS.Application.Templates;
 using PMS.DataAccess.Identity;
 
+using PMS.DataAccess.Persistence;
+using PMS.DataAccess.Persistence.Entities;
+
 namespace PMS.Application.Services.Impl;
 
 public class UserService(
     IMapper mapper,
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
-    IConfiguration configuration)
+    IConfiguration configuration,
+    PmsDbContext pmsContext = null)
     : IUserService
 {
     public async Task<CreateUserResponseModel> CreateAsync(CreateUserModel createUserModel)
@@ -24,15 +28,30 @@ public class UserService(
         var user = mapper.Map<ApplicationUser>(createUserModel);
         user.PhoneNumber = createUserModel.PhoneNumber;
         user.EmailConfirmed = true;
-
-        if (string.IsNullOrWhiteSpace(user.Role))
-        {
-            user.Role = "User";
-        }
+        user.Role = "User";
 
         var result = await userManager.CreateAsync(user, createUserModel.Password);
 
         if (!result.Succeeded) throw new BadRequestException(result.Errors.FirstOrDefault()?.Description);
+
+        if (pmsContext != null)
+        {
+            var customer = new Customer
+            {
+                UserId = user.Id,
+                CustomerCode = $"CUS-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                FullName = !string.IsNullOrWhiteSpace(createUserModel.FullName) ? createUserModel.FullName.Trim() : (user.UserName ?? "User"),
+                Phone = user.PhoneNumber,
+                Email = user.Email,
+                CustomerType = "Individual",
+                MembershipTier = "Standard",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            pmsContext.Customers.Add(customer);
+            await pmsContext.SaveChangesAsync();
+        }
 
         return new CreateUserResponseModel
         {

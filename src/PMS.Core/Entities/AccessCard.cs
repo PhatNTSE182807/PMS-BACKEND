@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace PMS.DataAccess.Persistence.Entities;
@@ -15,7 +15,7 @@ public partial class AccessCard
 
     public int? CustomerId { get; set; }
 
-    public int? VehicleId { get; set; }
+    public Guid? VehicleId { get; set; }
 
     public string Status { get; set; }
 

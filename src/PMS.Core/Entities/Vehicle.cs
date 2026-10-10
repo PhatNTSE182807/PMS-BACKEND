@@ -1,11 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace PMS.DataAccess.Persistence.Entities;
 
 public partial class Vehicle
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; } = Guid.NewGuid();
 
     public int? CustomerId { get; set; }
 
@@ -20,6 +20,8 @@ public partial class Vehicle
     public string Model { get; set; }
 
     public string Color { get; set; }
+
+    public bool IsDefault { get; set; }
 
     public bool IsActive { get; set; }
 

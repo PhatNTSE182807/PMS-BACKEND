@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace PMS.DataAccess.Persistence.Entities;
@@ -15,7 +15,7 @@ public partial class Slot
 
     public string Status { get; set; }
 
-    public int? DedicatedVehicleId { get; set; }
+    public Guid? DedicatedVehicleId { get; set; }
 
     public string DedicatedNote { get; set; }
 

@@ -7,7 +7,7 @@ using PMS.Shared.Services;
 
 namespace PMS.DataAccess.Persistence;
 
-public class DatabaseContext(DbContextOptions options, IClaimService claimService) : IdentityDbContext<ApplicationUser>(options)
+public class DatabaseContext(DbContextOptions<DatabaseContext> options, IClaimService claimService) : IdentityDbContext<ApplicationUser>(options)
 {
     protected override void OnModelCreating(ModelBuilder builder)
     {
