@@ -80,14 +80,13 @@ public class UserServiceTests : BaseServiceTestConfiguration
     {
         // Arrange
         var loginUserModel = Builder<LoginUserModel>.CreateNew().Build();
-        var emptyUserListQueryable = new List<ApplicationUser>().AsQueryable().BuildMock();
-        _userManager.Users.Returns(emptyUserListQueryable);
+        _userManager.FindByEmailAsync(Arg.Any<string>()).Returns((ApplicationUser)null);
 
         // Act
         Func<Task> callCreateAsync = async () => await _sut.LoginAsync(loginUserModel);
 
         // Assert
-        await callCreateAsync.Should().ThrowAsync<NotFoundException>().WithMessage("Username or password is incorrect");
+        await callCreateAsync.Should().ThrowAsync<NotFoundException>().WithMessage("Email or password is incorrect");
     }
 
     [Fact]
@@ -95,10 +94,10 @@ public class UserServiceTests : BaseServiceTestConfiguration
     {
         // Arrange
         var loginUserModel = Builder<LoginUserModel>.CreateNew().Build();
-        var usersListQueryable = Builder<ApplicationUser>.CreateListOfSize(1)
-            .All().With(u => u.UserName = loginUserModel.Username)
-            .Build().AsQueryable().BuildMock();
-        _userManager.Users.Returns(usersListQueryable);
+        var user = Builder<ApplicationUser>.CreateNew()
+            .With(u => u.Email = loginUserModel.Email)
+            .Build();
+        _userManager.FindByEmailAsync(loginUserModel.Email).Returns(user);
         _signInManager
             .PasswordSignInAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<bool>())
             .Returns(SignInResult.Failed);
@@ -108,7 +107,7 @@ public class UserServiceTests : BaseServiceTestConfiguration
 
         // Assert
         await callCreateAsync.Should().ThrowAsync<BadRequestException>()
-            .WithMessage("Username or password is incorrect");
+            .WithMessage("Email or password is incorrect");
         await _signInManager.Received(1).PasswordSignInAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>(),
             Arg.Any<bool>(), Arg.Any<bool>());
     }
@@ -118,10 +117,10 @@ public class UserServiceTests : BaseServiceTestConfiguration
     {
         // Arrange
         var loginUserModel = Builder<LoginUserModel>.CreateNew().Build();
-        var usersList = Builder<ApplicationUser>.CreateListOfSize(1).All()
-            .With(u => u.UserName = loginUserModel.Username).Build();
-        var usersListQueryable = usersList.AsQueryable().BuildMock();
-        _userManager.Users.Returns(usersListQueryable);
+        var user = Builder<ApplicationUser>.CreateNew()
+            .With(u => u.Email = loginUserModel.Email)
+            .Build();
+        _userManager.FindByEmailAsync(loginUserModel.Email).Returns(user);
         _signInManager
             .PasswordSignInAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<bool>())
             .Returns(SignInResult.Success);
@@ -130,8 +129,8 @@ public class UserServiceTests : BaseServiceTestConfiguration
         var result = await _sut.LoginAsync(loginUserModel);
 
         // Assert
-        result.Username.Should().Be(usersList[0].UserName);
-        result.Email.Should().Be(usersList[0].Email);
+        result.Username.Should().Be(user.UserName);
+        result.Email.Should().Be(user.Email);
         result.Token.Should().NotBeNullOrEmpty();
         await _signInManager.Received(1).PasswordSignInAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>(),
             Arg.Any<bool>(), Arg.Any<bool>());

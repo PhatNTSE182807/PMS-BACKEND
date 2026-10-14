@@ -142,7 +142,7 @@ public class UsersEndpointTests
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
         var loginUserModel = Builder<LoginUserModel>.CreateNew()
-            .With(cu => cu.Username = UserConstants.DefaultUserDb.Username)
+            .With(cu => cu.Email = UserConstants.DefaultUserDb.Email)
             .With(cu => cu.Password = UserConstants.DefaultUserDb.Password)
             .Build();
 
@@ -158,12 +158,12 @@ public class UsersEndpointTests
     }
 
     [Fact]
-    public async Task Login_Should_Return_NotFoundException_If_Username_Does_Not_Exists_In_Database()
+    public async Task Login_Should_Return_NotFoundException_If_Email_Does_Not_Exists_In_Database()
     {
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
         var loginUserModel = Builder<LoginUserModel>.CreateNew()
-            .With(cu => cu.Username = "NotExist")
+            .With(cu => cu.Email = "notexist@gmail.com")
             .With(cu => cu.Password = "Password.1!")
             .Build();
 
@@ -182,7 +182,7 @@ public class UsersEndpointTests
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
         var loginUserModel = Builder<LoginUserModel>.CreateNew()
-            .With(cu => cu.Username = UserConstants.DefaultUserDb.Username)
+            .With(cu => cu.Email = UserConstants.DefaultUserDb.Email)
             .With(cu => cu.Password = "Password.1")
             .Build();
 

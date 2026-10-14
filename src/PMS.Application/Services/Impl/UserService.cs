@@ -61,15 +61,15 @@ public class UserService(
 
     public async Task<LoginResponseModel> LoginAsync(LoginUserModel loginUserModel)
     {
-        var user = await userManager.Users.FirstOrDefaultAsync(u => u.UserName == loginUserModel.Username);
+        var user = await userManager.FindByEmailAsync(loginUserModel.Email.Trim());
 
         if (user == null)
-            throw new NotFoundException("Username or password is incorrect");
+            throw new NotFoundException("Email or password is incorrect");
 
         var signInResult = await signInManager.PasswordSignInAsync(user, loginUserModel.Password, false, false);
 
         if (!signInResult.Succeeded)
-            throw new BadRequestException("Username or password is incorrect");
+            throw new BadRequestException("Email or password is incorrect");
 
         var token = JwtHelper.GenerateToken(user, configuration);
 
