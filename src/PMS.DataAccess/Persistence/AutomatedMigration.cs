@@ -23,15 +23,15 @@ public static class AutomatedMigration
                 logger?.LogInformation("Database migration completed successfully.");
             }
 
-            var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
-
-            await DatabaseContextSeed.SeedDatabaseAsync(context, userManager);
-
             var pmsContext = services.GetRequiredService<PmsDbContext>();
             if (pmsContext.Database.IsSqlServer())
             {
                 await EnsurePmsTablesAsync(pmsContext);
             }
+
+            var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+
+            await DatabaseContextSeed.SeedDatabaseAsync(context, pmsContext, userManager);
         }
         catch (Exception ex)
         {
