@@ -93,7 +93,7 @@ public class UserService(
 
         var body = $"""
             <p>Hello {WebUtility.HtmlEncode(user.UserName)},</p>
-            <p>Your Parking Management System login code is:</p>
+            <p>Your XXIV Parking login code is:</p>
             <p style="font-size:28px;font-weight:bold;letter-spacing:6px">{code}</p>
             <p>The code is valid for a few minutes and can be used only once.
             If you did not request it, you can ignore this email.</p>
