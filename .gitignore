@@ -356,3 +356,7 @@ MigrationBackup/
 appsettings.Local.json
 appsettings.*.Local.json
 *.sql
+
+# CI outputs
+test-results/
+coverage/
