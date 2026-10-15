@@ -2,16 +2,15 @@
 #
 # build  -> restore + compile the solution
 # test   -> unit + integration tests (in-memory DB), JUnit + Cobertura reports
-# docker -> build the API image and push it to the GitLab Container Registry (develop/main/production)
-# deploy -> pull & restart the image on the server over SSH (automatic on push to `production`)
+# docker -> build the API image and push it to the GitLab Container Registry (develop/main/tags)
+# deploy -> publish and zip-deploy to Azure App Service (automatic on push to `production`)
 #
-# Required CI/CD variables for deploy (Settings > CI/CD > Variables):
-#   SSH_PRIVATE_KEY  (File, protected)  private key allowed to log in to the server
-#   DEPLOY_HOST                         server hostname or IP
-#   DEPLOY_USER                         SSH user (must be able to run docker)
-#   DEPLOY_PATH                         directory on the server, e.g. /opt/pms
-#   PROD_ENV_FILE    (File, protected)  .env for production, see docs/CI-CD.md
-#   SSH_KNOWN_HOSTS  (optional)         output of `ssh-keyscan <host>` to pin the host key
+# Required CI/CD variables for deploy (Settings > CI/CD > Variables, Protected + Masked),
+# printed by deploy/azure/setup-azure.sh:
+#   AZURE_WEBAPP_URL      https://<app>.azurewebsites.net
+#   AZURE_SCM_URL         https://<app>.scm.azurewebsites.net
+#   AZURE_DEPLOY_USER     publishing username of the web app
+#   AZURE_DEPLOY_PASSWORD publishing password of the web app
 
 stages:
   - build
@@ -101,7 +100,7 @@ docker-image:
     DOCKER_TLS_CERTDIR: "/certs"
   needs: [unit-tests, integration-tests]
   rules:
-    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "production"
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
     - if: $CI_COMMIT_TAG
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
@@ -119,47 +118,43 @@ docker-image:
     - docker push "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
     - docker push "$IMAGE_NAME:$CI_COMMIT_REF_SLUG"
     - |
-      if [ "$CI_COMMIT_BRANCH" = "production" ]; then
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
         docker tag "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA" "$IMAGE_NAME:latest"
         docker push "$IMAGE_NAME:latest"
       fi
 
-deploy-production:
+deploy-azure:
+  extends: .dotnet
   stage: deploy
-  image: alpine:3.20
-  needs: [docker-image]
+  needs: [unit-tests, integration-tests]
   environment:
     name: production
+    url: $AZURE_WEBAPP_URL
   resource_group: production
   rules:
     - if: $CI_COMMIT_BRANCH == "production"
   before_script:
     - |
-      for v in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH SSH_PRIVATE_KEY PROD_ENV_FILE; do
+      for v in AZURE_WEBAPP_URL AZURE_SCM_URL AZURE_DEPLOY_USER AZURE_DEPLOY_PASSWORD; do
         eval "val=\${$v}"
         if [ -z "$val" ]; then echo "Missing CI/CD variable: $v (see docs/CI-CD.md)"; exit 1; fi
       done
-    - apk add --no-cache openssh-client
-    - chmod 600 "$SSH_PRIVATE_KEY"
-    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    # Prefer a pinned SSH_KNOWN_HOSTS variable; fall back to trusting the key on first use
-    - |
-      if [ -n "$SSH_KNOWN_HOSTS" ]; then
-        echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-      else
-        ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
-      fi
+    - apt-get update -qq && apt-get install -y -qq zip > /dev/null
   script:
-    - export SSH="ssh -i $SSH_PRIVATE_KEY $DEPLOY_USER@$DEPLOY_HOST"
-    - $SSH "mkdir -p $DEPLOY_PATH"
-    - scp -i "$SSH_PRIVATE_KEY" deploy/docker-compose.prod.yml "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/docker-compose.yml"
-    - cp "$PROD_ENV_FILE" deploy.env
-    - printf '\nPMS_API_IMAGE=%s\n' "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA" >> deploy.env
-    - scp -i "$SSH_PRIVATE_KEY" deploy.env "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/.env"
+    - dotnet publish src/PMS.API/PMS.API.csproj -c $BUILD_CONFIGURATION -o publish /p:UseAppHost=false
+    - (cd publish && zip -qr ../app.zip .)
     - >
-      $SSH "cd $DEPLOY_PATH
-      && echo '$CI_REGISTRY_PASSWORD' | docker login -u '$CI_REGISTRY_USER' --password-stdin '$CI_REGISTRY'
-      && docker compose pull pms-api
-      && docker compose up -d --remove-orphans
-      && docker image prune -f
-      && docker compose ps"
+      curl --fail-with-body -sS -X POST
+      -u "$AZURE_DEPLOY_USER:$AZURE_DEPLOY_PASSWORD"
+      --data-binary @app.zip
+      "$AZURE_SCM_URL/api/zipdeploy?isAsync=false"
+    # Free tier + paused serverless DB can take a while to cold start
+    - |
+      for i in $(seq 1 20); do
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$AZURE_WEBAPP_URL/swagger/index.html" || true)
+        echo "Health check $i: HTTP $code"
+        [ "$code" = "200" ] && exit 0
+        sleep 15
+      done
+      echo "App did not become healthy - check Log stream in the Azure portal"
+      exit 1
