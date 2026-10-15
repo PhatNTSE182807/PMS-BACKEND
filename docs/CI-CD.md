@@ -1,52 +1,63 @@
-# CI/CD (GitLab)
+# CI/CD (GitLab → Azure)
 
 Pipeline được định nghĩa trong [`.gitlab-ci.yml`](../.gitlab-ci.yml).
 
 | Stage  | Job                                | Chạy khi                          | Mô tả |
 |--------|------------------------------------|-----------------------------------|-------|
 | build  | `build`                            | mọi push / merge request          | `dotnet restore` + `dotnet build` (Release) |
-| test   | `unit-tests`, `integration-tests`  | mọi push / merge request          | Chạy test, xuất báo cáo JUnit + Cobertura (hiện trong tab *Tests* và diff coverage của MR). Integration test dùng in-memory DB (`appsettings.Testing.json`) nên không cần SQL Server |
-| docker | `docker-image`                     | push lên `develop`, `main`, `production`, tag | Build `Dockerfile`, push lên GitLab Container Registry: `<registry>/pms-api:<short-sha>`, `:<branch>`, và `:latest` cho `production` |
-| deploy | `deploy-production`                | **tự động** khi push lên `production` (sau khi test pass) | SSH vào server, copy `deploy/docker-compose.prod.yml` + `.env`, `docker compose pull && up -d` |
+| test   | `unit-tests`, `integration-tests`  | mọi push / merge request          | Chạy test, xuất báo cáo JUnit + Cobertura (tab *Tests* và coverage trong MR). Integration test dùng in-memory DB nên không cần SQL Server |
+| docker | `docker-image`                     | push lên `develop`, `main`, tag   | Build `Dockerfile`, push lên GitLab Container Registry (cần runner `privileged`) |
+| deploy | `deploy-azure`                     | **tự động** khi push lên `production` (sau khi test pass) | `dotnet publish` → zip deploy lên Azure App Service → chờ `/swagger` trả 200 |
 
-Quy trình release: merge `develop` → `production` (hoặc `git push origin develop:production`), pipeline sẽ build, test, đóng image và tự cập nhật server. Nếu test fail thì không deploy.
+Quy trình release: merge `develop` → `production` (hoặc `git push origin develop:production`). Test fail thì không deploy.
 
-## Yêu cầu runner
+## Chi phí Azure
 
-- Runner Linux, executor **docker**.
-- Job `docker-image` dùng Docker-in-Docker → runner phải bật `privileged = true`.
-  Nếu runner của trường không cho phép, báo admin hoặc dùng runner riêng.
-- Container Registry phải được bật cho project (Settings → General → Visibility → Container registry).
+Toàn bộ dùng gói miễn phí:
 
-## Biến CI/CD cho deploy
+| Dịch vụ | Gói | Giới hạn |
+|---------|-----|----------|
+| App Service (Linux) | **F1 Free** | 60 phút CPU/ngày, 1 GB RAM, app ngủ khi không có request (lần gọi đầu chậm vài chục giây), không chạy được Docker container nên deploy dạng code |
+| Azure SQL Database | **Free offer** | 100.000 vCore-giây + 32 GB mỗi tháng; hết hạn mức thì DB tự tạm dừng tới đầu tháng sau, **không tính tiền** |
 
-Trước tiên đặt nhánh `production` là **protected branch** (Settings → Repository → Protected branches, chỉ Maintainer được push/merge) — biến **Protected** chỉ được truyền vào pipeline của nhánh protected.
+Tài khoản: dùng **Azure for Students** (https://azure.microsoft.com/free/students) bằng email `@fpt.edu.vn` — không cần thẻ tín dụng, có $100 credit/12 tháng (chỉ dành cho sinh viên đại học toàn thời gian).
+Nếu không đủ điều kiện, tài khoản Azure free thường yêu cầu thẻ — hai gói trên vẫn miễn phí nhưng cần cẩn thận không tạo nhầm gói trả phí.
 
-Settings → CI/CD → Variables (đánh dấu **Protected**, **Masked** khi có thể):
+## Thiết lập lần đầu
 
-| Biến              | Kiểu     | Ví dụ |
-|-------------------|----------|-------|
-| `DEPLOY_HOST`     | Variable | `203.0.113.10` |
-| `DEPLOY_USER`     | Variable | `deploy` (thuộc group `docker`) |
-| `DEPLOY_PATH`     | Variable | `/opt/pms` |
-| `SSH_PRIVATE_KEY` | **File** | private key, public key tương ứng nằm trong `~/.ssh/authorized_keys` của `DEPLOY_USER` |
-| `SSH_KNOWN_HOSTS` | Variable (tuỳ chọn) | kết quả `ssh-keyscan <host>`; nếu bỏ trống thì tin host key lần đầu |
-| `PROD_ENV_FILE`   | **File** | nội dung bên dưới |
+### 1. Tạo tài nguyên Azure
 
-Nội dung `PROD_ENV_FILE` (dùng cú pháp `__` của ASP.NET Core để ghi đè `appsettings.json`):
+Mở **Azure Cloud Shell** (https://shell.azure.com, chọn Bash), upload file [`deploy/azure/setup-azure.sh`](../deploy/azure/setup-azure.sh) rồi chạy:
 
-```env
-ASPNETCORE_ENVIRONMENT=Production
-MSSQL_SA_PASSWORD=<mật-khẩu-mạnh>
-Database__UseInMemoryDatabase=false
-Database__ConnectionString=Server=pms-sqlserver,1433;Database=parking_management_system;User Id=sa;Password=<mật-khẩu-mạnh>;TrustServerCertificate=True;MultipleActiveResultSets=true;
-JwtConfiguration__SecretKey=<chuỗi-ngẫu-nhiên-dài>
-SmtpSettings__SenderEmail=<account>@gmail.com
-SmtpSettings__Username=<account>@gmail.com
-SmtpSettings__Password=<app-password>
+```bash
+bash setup-azure.sh
 ```
 
-Server chỉ cần cài Docker Engine + Docker Compose plugin. Khi API khởi động, `AutomatedMigration` tự chạy migration và seed dữ liệu.
+Script tạo resource group `pms-rg` (Southeast Asia), SQL server + database free, App Service plan F1, web app .NET 9, cấu hình connection string / JWT secret, rồi in ra 4 biến cho GitLab và mật khẩu SQL admin (lưu lại chỗ an toàn, không commit).
+
+### 2. Cấu hình GitLab
+
+1. **Settings → Repository → Protected branches**: protect nhánh `production` (chỉ Maintainer push/merge). Biến *Protected* chỉ được truyền vào pipeline của nhánh protected.
+2. **Settings → CI/CD → Variables**: thêm 4 biến script in ra, tick **Protect variable**, và **bỏ tick "Expand variable reference"** (username bắt đầu bằng `$`):
+
+   | Biến | Mask |
+   |------|------|
+   | `AZURE_WEBAPP_URL` | |
+   | `AZURE_SCM_URL` | |
+   | `AZURE_DEPLOY_USER` | |
+   | `AZURE_DEPLOY_PASSWORD` | ✔ |
+
+3. Vào **Build → Pipelines**, chạy lại pipeline của nhánh `production`.
+
+Link backend: `<AZURE_WEBAPP_URL>/swagger` (hiện ở **Operate → Environments → production**).
+
+### Cấu hình thêm (SMTP, …)
+
+Thêm trong Azure Portal → Web app → **Settings → Environment variables**, dùng cú pháp `__` để ghi đè `appsettings.json`, ví dụ `SmtpSettings__Username`, `SmtpSettings__Password`.
+
+### Xem log khi lỗi
+
+Azure Portal → Web app → **Monitoring → Log stream**.
 
 ## Chạy local bằng Docker
 
