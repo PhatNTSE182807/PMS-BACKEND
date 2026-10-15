@@ -43,6 +43,21 @@ public class UsersController(
         return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginAsync(loginUserModel)));
     }
 
+    [HttpPost("login-otp/request")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RequestLoginOtpAsync(RequestLoginOtpModel model)
+    {
+        await userService.RequestLoginOtpAsync(model);
+        return Ok(ApiResult<string>.Success("If the email is registered, a login code has been sent to it."));
+    }
+
+    [HttpPost("login-otp/verify")]
+    [AllowAnonymous]
+    public async Task<IActionResult> LoginWithOtpAsync(VerifyLoginOtpModel model)
+    {
+        return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginWithOtpAsync(model)));
+    }
+
     [HttpGet("profile")]
     [Authorize]
     public async Task<IActionResult> GetProfileAsync()

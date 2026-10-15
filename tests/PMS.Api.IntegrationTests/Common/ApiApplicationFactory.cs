@@ -65,7 +65,7 @@ public class ApiApplicationFactory<TProgram> : WebApplicationFactory<TProgram> w
 
         builder.ConfigureTestServices(services =>
         {
-            services.AddScoped<IEmailService, EmailTestService>();
+            services.AddSingleton<IEmailService, EmailTestService>();
             services.AddScoped<ITemplateService, TemplateTestService>();
         });
     }
