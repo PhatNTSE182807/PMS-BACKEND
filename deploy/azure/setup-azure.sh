@@ -5,7 +5,7 @@
 #   App Service plan  F1 (Free, Linux)  - 60 CPU minutes/day, 1 GB RAM, sleeps when idle
 #   Azure SQL         free offer        - 100,000 vCore seconds + 32 GB per month, auto-pauses when used up
 #
-# Usage: bash setup-azure.sh [app-name]
+# Usage: [LOCATION=<region>] bash setup-azure.sh [app-name]
 set -euo pipefail
 
 SUFFIX=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 6 || true)
@@ -19,8 +19,18 @@ SQL_ADMIN="pmsadmin"
 SQL_PASSWORD="Pms!$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20 || true)"
 JWT_SECRET=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 64 || true)
 
+echo ">> Registering resource providers (first run on a new subscription takes a few minutes)"
+for ns in Microsoft.Sql Microsoft.Web; do
+    az provider register --namespace "$ns" --wait -o none
+done
+
 echo ">> Resource group $RESOURCE_GROUP ($LOCATION)"
-az group create -n "$RESOURCE_GROUP" -l "$LOCATION" -o none
+# Azure for Students only allows a few regions; list them with:
+#   az policy assignment list --disable-scope-strict-match --query "[].parameters.listOfAllowedLocations.value" -o tsv
+# A resource group's own location is only metadata, so an existing group is reused as-is.
+if [ "$(az group exists -n "$RESOURCE_GROUP")" != "true" ]; then
+    az group create -n "$RESOURCE_GROUP" -l "$LOCATION" -o none
+fi
 
 echo ">> Azure SQL server $SQL_SERVER + free database"
 az sql server create -g "$RESOURCE_GROUP" -n "$SQL_SERVER" -l "$LOCATION" \
