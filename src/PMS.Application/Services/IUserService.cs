@@ -9,6 +9,10 @@ public interface IUserService
 
     Task<LoginResponseModel> LoginAsync(LoginUserModel loginUserModel);
 
+    Task RequestLoginOtpAsync(RequestLoginOtpModel model);
+
+    Task<LoginResponseModel> LoginWithOtpAsync(VerifyLoginOtpModel model);
+
     Task<IEnumerable<UserResponseModel>> GetAllAsync();
 
     Task<UserResponseModel> GetByIdAsync(string id);
