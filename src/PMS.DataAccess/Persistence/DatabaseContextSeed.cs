@@ -23,7 +23,7 @@ public static class DatabaseContextSeed
         }
 
         await SeedUserAsync(pmsContext, userManager,
-            "systemadmin", "System administrator", "admin@gmail.com", "0977888888", "Admin 123@", "Admin");
+            "systemadmin", "System administrator", "admin@gmail.com", "0977888888", "Admin123@", "Admin");
 
         await SeedUserAsync(pmsContext, userManager,
             "nguyentanphat", "Nguyễn Tấn Phát", "phat@gmail.com", "0977654654", "Phat123@");
