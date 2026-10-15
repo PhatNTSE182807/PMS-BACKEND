@@ -50,6 +50,17 @@ public class ApiApplicationFactory<TProgram> : WebApplicationFactory<TProgram> w
                 options.UseInMemoryDatabase(_inMemoryDatabaseName);
                 options.ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning));
             });
+
+            // Isolate the PMS tables per factory too; a shared in-memory store makes the seed run once per test
+            var pmsContextDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<PmsDbContext>));
+
+            services.Remove(pmsContextDescriptor);
+
+            services.AddDbContext<PmsDbContext>(options =>
+            {
+                options.UseInMemoryDatabase($"{_inMemoryDatabaseName}-pms");
+                options.ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning));
+            });
         });
 
         builder.ConfigureTestServices(services =>
