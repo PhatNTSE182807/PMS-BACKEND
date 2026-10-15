@@ -86,7 +86,7 @@ public class UserServiceTests : BaseServiceTestConfiguration
         Func<Task> callCreateAsync = async () => await _sut.LoginAsync(loginUserModel);
 
         // Assert
-        await callCreateAsync.Should().ThrowAsync<NotFoundException>().WithMessage("Email or password is incorrect");
+        await callCreateAsync.Should().ThrowAsync<BadRequestException>().WithMessage("Email or password is incorrect");
     }
 
     [Fact]

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using FizzWare.NBuilder;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json.Linq;
 using PMS.API;
 using PMS.Api.IntegrationTests.Common;
 using PMS.Api.IntegrationTests.Common.Constants;
@@ -158,7 +159,7 @@ public class UsersEndpointTests
     }
 
     [Fact]
-    public async Task Login_Should_Return_NotFoundException_If_Email_Does_Not_Exists_In_Database()
+    public async Task Login_Should_Return_BadRequest_If_Email_Does_Not_Exists_In_Database()
     {
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
@@ -171,7 +172,7 @@ public class UsersEndpointTests
         var apiResponse = await client.PostAsync("/api/users/authenticate", new JsonContent(loginUserModel));
 
         // Assert
-        apiResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var response = await ResponseHelper.GetApiResultAsync<string>(apiResponse);
         CheckResponse.Failure(response);
     }
@@ -193,6 +194,25 @@ public class UsersEndpointTests
         apiResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var response = await ResponseHelper.GetApiResultAsync<string>(apiResponse);
         CheckResponse.Failure(response);
+    }
+
+    [Fact]
+    public async Task Login_With_Wrong_Credentials_Should_Return_CamelCase_Errors()
+    {
+        // Arrange
+        var client = await _factory.CreateDefaultClientAsync();
+        var loginUserModel = Builder<LoginUserModel>.CreateNew()
+            .With(cu => cu.Email = UserConstants.DefaultUserDb.Email)
+            .With(cu => cu.Password = "Password.1")
+            .Build();
+
+        // Act
+        var apiResponse = await client.PostAsync("/api/users/authenticate", new JsonContent(loginUserModel));
+
+        // Assert
+        var json = JObject.Parse(await apiResponse.Content.ReadAsStringAsync());
+        json["succeeded"]!.Value<bool>().Should().BeFalse();
+        json["errors"]!.Values<string>().Should().ContainSingle().Which.Should().Be("Email or password is incorrect");
     }
 
     [Fact]
