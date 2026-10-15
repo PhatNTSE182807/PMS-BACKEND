@@ -63,8 +63,9 @@ public class UserService(
     {
         var user = await userManager.FindByEmailAsync(loginUserModel.Email.Trim());
 
+        // Same status as a wrong password so the response doesn't reveal which emails are registered
         if (user == null)
-            throw new NotFoundException("Email or password is incorrect");
+            throw new BadRequestException("Email or password is incorrect");
 
         var signInResult = await signInManager.PasswordSignInAsync(user, loginUserModel.Password, false, false);
 
