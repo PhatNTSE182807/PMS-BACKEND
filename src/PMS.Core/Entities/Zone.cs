@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace PMS.DataAccess.Persistence.Entities;
@@ -13,15 +13,17 @@ public partial class Zone
 
     public string Name { get; set; }
 
-    public string ZoneType { get; set; }
+    public string ZoneType { get; set; } = "Area";
 
     public int? FloorNo { get; set; }
 
     public int Capacity { get; set; }
 
+    public int? MaxReservationSlots { get; set; }
+
     public string LayoutJson { get; set; }
 
-    public bool IsActive { get; set; }
+    public bool IsActive { get; set; } = true;
 
     public DateTime CreatedAt { get; set; }
 
@@ -30,4 +32,6 @@ public partial class Zone
     public virtual ParkingLot ParkingLot { get; set; }
 
     public virtual ICollection<Slot> Slots { get; set; } = new List<Slot>();
+
+    public virtual ZoneCounter ZoneCounter { get; set; }
 }

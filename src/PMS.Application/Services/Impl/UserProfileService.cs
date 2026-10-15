@@ -41,12 +41,13 @@ public class UserProfileService : IUserProfileService
             .Select(v => MapToVehicleResponse(v))
             .ToListAsync();
 
+        var isUserActive = user.IsActive && customer.IsActive;
         var status = "Active";
         if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow)
         {
             status = "Locked";
         }
-        else if (!customer.IsActive)
+        else if (!isUserActive)
         {
             status = "Inactive";
         }
@@ -58,7 +59,7 @@ public class UserProfileService : IUserProfileService
             PhoneNumber = !string.IsNullOrWhiteSpace(customer.Phone) ? customer.Phone : user.PhoneNumber,
             Email = !string.IsNullOrWhiteSpace(customer.Email) ? customer.Email : user.Email,
             AvatarUrl = customer.AvatarUrl,
-            IsActive = customer.IsActive,
+            IsActive = isUserActive,
             Status = status,
             HasPassword = !string.IsNullOrEmpty(user.PasswordHash),
             Role = user.Role,

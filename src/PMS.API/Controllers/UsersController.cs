@@ -16,17 +16,32 @@ public class UsersController(
     IClaimService claimService) : ApiController
 {
     [HttpGet]
-    [AllowAnonymous]
-    public async Task<IActionResult> GetAllAsync()
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> GetAllAsync([FromQuery] string role = null, [FromQuery] bool? isActive = null, [FromQuery] string searchTerm = null)
     {
-        return Ok(ApiResult<IEnumerable<UserResponseModel>>.Success(await userService.GetAllAsync()));
+        return Ok(ApiResult<IEnumerable<UserResponseModel>>.Success(await userService.GetAllAsync(role, isActive, searchTerm)));
     }
 
     [HttpGet("{id}")]
-    [AllowAnonymous]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> GetByIdAsync(string id)
     {
         return Ok(ApiResult<UserResponseModel>.Success(await userService.GetByIdAsync(id)));
+    }
+
+    [HttpPost("internal")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> CreateInternalUserAsync([FromBody] CreateInternalUserModel model)
+    {
+        return Ok(ApiResult<CreateUserResponseModel>.Success(await userService.CreateInternalUserAsync(model)));
+    }
+
+    [HttpPatch("{id}/status")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateStatusAsync(string id, [FromBody] UpdateUserStatusModel model)
+    {
+        var currentUserId = claimService.GetUserId();
+        return Ok(ApiResult<bool>.Success(await userService.UpdateUserStatusAsync(currentUserId, id, model.IsActive)));
     }
 
     [HttpPost("register")]
@@ -41,6 +56,41 @@ public class UsersController(
     public async Task<IActionResult> LoginAsync(LoginUserModel loginUserModel)
     {
         return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginAsync(loginUserModel)));
+    }
+
+    [HttpPost("two-factor")]
+    [AllowAnonymous]
+    public async Task<IActionResult> VerifyTwoFactorAsync([FromBody] TwoFactorLoginModel model)
+    {
+        return Ok(ApiResult<LoginResponseModel>.Success(await userService.VerifyTwoFactorAsync(model)));
+    }
+
+    [HttpPost("two-factor/resend")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResendTwoFactorOtpAsync([FromBody] ResendTwoFactorModel model)
+    {
+        return Ok(ApiResult<ResendTwoFactorResponseModel>.Success(await userService.ResendTwoFactorOtpAsync(model)));
+    }
+
+    [HttpPost("login-otp/verify")]
+    [AllowAnonymous]
+    public async Task<IActionResult> VerifyLoginOtpAsync([FromBody] TwoFactorLoginModel model)
+    {
+        return Ok(ApiResult<LoginResponseModel>.Success(await userService.VerifyTwoFactorAsync(model)));
+    }
+
+    [HttpPost("login-otp/request")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RequestLoginOtpAsync([FromBody] ResendTwoFactorModel model)
+    {
+        return Ok(ApiResult<ResendTwoFactorResponseModel>.Success(await userService.ResendTwoFactorOtpAsync(model)));
+    }
+
+    [HttpPost("activate")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ActivateAccountAsync([FromBody] ActivateAccountModel model)
+    {
+        return Ok(ApiResult<bool>.Success(await userService.ActivateAccountAsync(model)));
     }
 
     [HttpGet("profile")]

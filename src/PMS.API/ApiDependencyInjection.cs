@@ -29,6 +29,17 @@ public static class ApiDependencyInjection
                     ValidateIssuer = false,
                     ValidateAudience = false
                 };
+                x.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = context =>
+                    {
+                        if (context.Principal?.HasClaim(c => c.Type == "purpose" && c.Value == "2FA_Challenge") == true)
+                        {
+                            context.Fail("Two-factor challenge token cannot be used as an API access token.");
+                        }
+                        return Task.CompletedTask;
+                    }
+                };
             });
     }
 

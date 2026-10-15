@@ -134,6 +134,8 @@ public partial class PmsDbContext : DbContext
 
     public virtual DbSet<Zone> Zones { get; set; }
 
+    public virtual DbSet<ZoneCounter> ZoneCounters { get; set; }
+
     public virtual DbSet<ZoneOccupancy> ZoneOccupancies { get; set; }
 
     public virtual DbSet<ZoneVehicleCapacity> ZoneVehicleCapacities { get; set; }
@@ -495,6 +497,9 @@ public partial class PmsDbContext : DbContext
             entity.Property(e => e.UserId)
                 .IsRequired()
                 .HasMaxLength(450);
+
+            entity.HasIndex(e => e.EmployeeCode).IsUnique();
+            entity.HasIndex(e => e.UserId);
         });
 
         modelBuilder.Entity<EmployeePerformanceReview>(entity =>
@@ -699,6 +704,8 @@ public partial class PmsDbContext : DbContext
             entity.HasOne(d => d.Partner).WithMany(p => p.ParkingLots)
                 .HasForeignKey(d => d.PartnerId)
                 .HasConstraintName("FK_ParkingLots_Partners");
+
+            entity.HasIndex(e => e.Code).IsUnique();
         });
 
         modelBuilder.Entity<ParkingLotImage>(entity =>
@@ -1111,6 +1118,8 @@ public partial class PmsDbContext : DbContext
                 .HasForeignKey(d => d.ZoneId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Slots_Zones");
+
+            entity.HasIndex(e => new { e.ZoneId, e.Code }).IsUnique();
         });
 
         modelBuilder.Entity<Subscription>(entity =>
@@ -1384,6 +1393,24 @@ public partial class PmsDbContext : DbContext
                 .HasForeignKey(d => d.ParkingLotId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Zones_ParkingLots");
+
+            entity.HasIndex(e => new { e.ParkingLotId, e.Code }).IsUnique();
+
+            entity.HasOne(d => d.ZoneCounter).WithOne(p => p.Zone)
+                .HasForeignKey<ZoneCounter>(d => d.ZoneId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_ZoneCounters_Zones");
+        });
+
+        modelBuilder.Entity<ZoneCounter>(entity =>
+        {
+            entity.ToTable("ZoneCounters");
+
+            entity.Property(e => e.LastUpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())");
+
+            entity.HasIndex(e => e.ZoneId).IsUnique();
         });
 
         modelBuilder.Entity<ZoneOccupancy>(entity =>

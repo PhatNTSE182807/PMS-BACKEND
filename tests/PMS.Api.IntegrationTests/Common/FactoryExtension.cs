@@ -27,6 +27,8 @@ public static class FactoryExtension
             .With(u => u.EmailConfirmed = true)
             .With(u => u.Email = UserConstants.DefaultUserDb.Email)
             .With(u => u.UserName = UserConstants.DefaultUserDb.Username)
+            .With(u => u.Role = "Admin")
+            .With(u => u.IsActive = true)
             .Build();
         
         var userFromDb = await userManager.FindByEmailAsync(UserConstants.DefaultUserDb.Email);
@@ -44,6 +46,41 @@ public static class FactoryExtension
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         return client;
+    }
+
+    public static async Task<HttpClient> CreateClientWithRoleAsync(this ApiApplicationFactory<Program> factory, string role, string customEmail = null)
+    {
+        var client = factory.CreateClient();
+
+        var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        var email = customEmail ?? $"{role.ToLowerInvariant()}_{System.Guid.NewGuid():N}@test.com";
+        var username = $"{role.ToLowerInvariant()}_{System.Guid.NewGuid():N}"[..15];
+
+        var user = new ApplicationUser
+        {
+            EmailConfirmed = true,
+            Email = email,
+            UserName = username,
+            Role = role,
+            IsActive = true
+        };
+
+        await userManager.CreateAsync(user, "Password.1!");
+        await context.SaveChangesAsync();
+
+        var token = JwtHelper.GenerateToken(user, factory.Services.GetRequiredService<IConfiguration>());
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        return client;
+    }
+
+    public static HttpClient CreateUnauthorizedClient(this ApiApplicationFactory<Program> factory)
+    {
+        return factory.CreateClient();
     }
     
     public static T GetRequiredService<T>(this ApiApplicationFactory<Program> factory) where T : notnull

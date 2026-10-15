@@ -6,6 +6,7 @@ using PMS.Application.Common.Email;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers;
 using PMS.Application.Models;
+using PMS.Application.Models.Admin;
 using PMS.Application.Models.User;
 using PMS.Application.Templates;
 using PMS.DataAccess.Identity;
@@ -20,7 +21,9 @@ public class UserService(
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
     IConfiguration configuration,
-    PmsDbContext pmsContext = null)
+    PmsDbContext pmsContext = null,
+    IEmailService emailService = null,
+    ITemplateService templateService = null)
     : IUserService
 {
     public async Task<CreateUserResponseModel> CreateAsync(CreateUserModel createUserModel)
@@ -36,21 +39,29 @@ public class UserService(
 
         if (pmsContext != null)
         {
-            var customer = new Customer
+            try
             {
-                UserId = user.Id,
-                CustomerCode = $"CUS-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
-                FullName = !string.IsNullOrWhiteSpace(createUserModel.FullName) ? createUserModel.FullName.Trim() : (user.UserName ?? "User"),
-                Phone = user.PhoneNumber,
-                Email = user.Email,
-                CustomerType = "Individual",
-                MembershipTier = "Standard",
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            };
+                var customer = new Customer
+                {
+                    UserId = user.Id,
+                    CustomerCode = $"CUS-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                    FullName = !string.IsNullOrWhiteSpace(createUserModel.FullName) ? createUserModel.FullName.Trim() : (user.UserName ?? "User"),
+                    Phone = user.PhoneNumber,
+                    Email = user.Email,
+                    CustomerType = "Individual",
+                    MembershipTier = "Standard",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
 
-            pmsContext.Customers.Add(customer);
-            await pmsContext.SaveChangesAsync();
+                pmsContext.Customers.Add(customer);
+                await pmsContext.SaveChangesAsync();
+            }
+            catch
+            {
+                await userManager.DeleteAsync(user);
+                throw;
+            }
         }
 
         return new CreateUserResponseModel
@@ -59,17 +70,255 @@ public class UserService(
         };
     }
 
+    public async Task<CreateUserResponseModel> CreateInternalUserAsync(CreateInternalUserModel createInternalUserModel)
+    {
+        return await CreateInternalUserCoreAsync(
+            createInternalUserModel.UserName,
+            createInternalUserModel.FullName,
+            createInternalUserModel.Email,
+            createInternalUserModel.Password,
+            createInternalUserModel.PhoneNumber,
+            createInternalUserModel.Role);
+    }
+
+    public async Task<CreateUserResponseModel> CreateManagerAsync(CreateEmployeeAccountModel model)
+    {
+        return await CreateInternalUserCoreAsync(
+            model.UserName,
+            model.FullName,
+            model.Email,
+            model.Password,
+            model.PhoneNumber,
+            "Manager");
+    }
+
+    public async Task<CreateUserResponseModel> CreateStaffAsync(CreateEmployeeAccountModel model)
+    {
+        return await CreateInternalUserCoreAsync(
+            model.UserName,
+            model.FullName,
+            model.Email,
+            model.Password,
+            model.PhoneNumber,
+            "Staff");
+    }
+
+    private async Task<CreateUserResponseModel> CreateInternalUserCoreAsync(
+        string userName,
+        string fullName,
+        string email,
+        string password,
+        string phoneNumber,
+        string role)
+    {
+        var normalizedRole = string.Equals(role, "Manager", StringComparison.OrdinalIgnoreCase)
+            ? "Manager"
+            : string.Equals(role, "Staff", StringComparison.OrdinalIgnoreCase)
+                ? "Staff"
+                : throw new BadRequestException("Role must be either 'Manager' or 'Staff'");
+
+        var user = new ApplicationUser
+        {
+            UserName = userName,
+            Email = email,
+            PhoneNumber = phoneNumber,
+            Role = normalizedRole,
+            EmailConfirmed = false,
+            IsActive = false
+        };
+
+        var result = string.IsNullOrEmpty(password)
+            ? await userManager.CreateAsync(user)
+            : await userManager.CreateAsync(user, password);
+
+        if (!result.Succeeded) throw new BadRequestException(result.Errors.FirstOrDefault()?.Description);
+
+        string employeeCode = null;
+        if (pmsContext != null)
+        {
+            try
+            {
+                employeeCode = await GenerateEmployeeCodeWithRetryAsync(normalizedRole);
+
+                var employee = new Employee
+                {
+                    UserId = user.Id,
+                    EmployeeCode = employeeCode,
+                    FullName = !string.IsNullOrWhiteSpace(fullName) ? fullName.Trim() : (user.UserName ?? normalizedRole),
+                    Email = user.Email,
+                    Phone = user.PhoneNumber,
+                    Position = normalizedRole,
+                    Status = "PendingActivation",
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                pmsContext.Employees.Add(employee);
+                await pmsContext.SaveChangesAsync();
+            }
+            catch
+            {
+                await userManager.DeleteAsync(user);
+                throw;
+            }
+        }
+
+        var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
+
+        if (emailService != null)
+        {
+            try
+            {
+                string emailBody;
+                if (templateService != null)
+                {
+                    var template = await templateService.GetTemplateAsync(TemplateConstants.ConfirmationEmail);
+                    emailBody = templateService.ReplaceInTemplate(template, new Dictionary<string, string>
+                    {
+                        { "{UserId}", user.Id },
+                        { "{Token}", token }
+                    });
+                }
+                else
+                {
+                    emailBody = $"UserId: {user.Id}, Token: {token}";
+                }
+
+                var message = EmailMessage.Create(user.Email, emailBody, "Account Activation - Parking Management System");
+                await emailService.SendEmailAsync(message);
+            }
+            catch
+            {
+                // Non-blocking email dispatch failure
+            }
+        }
+
+        return new CreateUserResponseModel
+        {
+            Id = Guid.Parse(user.Id),
+            EmployeeCode = employeeCode,
+            ActivationToken = token
+        };
+    }
+
+    private async Task<string> GenerateEmployeeCodeWithRetryAsync(string role)
+    {
+        var prefix = string.Equals(role, "Manager", StringComparison.OrdinalIgnoreCase) ? "QL" : "NV";
+        const int maxAttempts = 10;
+
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var suffix = System.Security.Cryptography.RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+            var code = $"{prefix}{suffix}";
+
+            var exists = await pmsContext.Employees.AnyAsync(e => e.EmployeeCode == code);
+            if (!exists)
+            {
+                return code;
+            }
+        }
+
+        throw new BadRequestException($"Unable to generate a unique employee code with prefix '{prefix}' after {maxAttempts} attempts. Please try again.");
+    }
+
     public async Task<LoginResponseModel> LoginAsync(LoginUserModel loginUserModel)
     {
-        var user = await userManager.Users.FirstOrDefaultAsync(u => u.UserName == loginUserModel.Username);
+        var identifier = !string.IsNullOrWhiteSpace(loginUserModel.Username)
+            ? loginUserModel.Username.Trim()
+            : loginUserModel.Email?.Trim();
+
+        if (string.IsNullOrWhiteSpace(identifier))
+            throw new NotFoundException("Username or password is incorrect");
+
+        var user = await userManager.Users.FirstOrDefaultAsync(u => u.UserName == identifier || u.Email == identifier);
 
         if (user == null)
             throw new NotFoundException("Username or password is incorrect");
 
+        if (!user.IsActive)
+        {
+            if (!user.EmailConfirmed && (user.Role == "Manager" || user.Role == "Staff"))
+                throw new BadRequestException("Account is pending activation. Please activate your account via the link sent to your email.");
+
+            throw new BadRequestException("Account is deactivated. Please contact an administrator.");
+        }
+
+        if (!user.EmailConfirmed && (user.Role == "Manager" || user.Role == "Staff"))
+            throw new BadRequestException("Account is pending activation. Please activate your account via the link sent to your email.");
+
         var signInResult = await signInManager.PasswordSignInAsync(user, loginUserModel.Password, false, false);
 
-        if (!signInResult.Succeeded)
+        if (!signInResult.Succeeded && !signInResult.RequiresTwoFactor)
             throw new BadRequestException("Username or password is incorrect");
+
+        var requiresTwoFactor = user.TwoFactorEnabled || signInResult.RequiresTwoFactor;
+
+        if (requiresTwoFactor)
+        {
+            if (pmsContext == null || emailService == null)
+            {
+                throw new InvalidOperationException("Two-factor authentication infrastructure is not available.");
+            }
+
+            // Void any pending unconsumed 2FA OTPs for this user
+            var pendingOtps = await pmsContext.OtpCodes
+                .Where(o => o.UserId == user.Id && o.Purpose == "TwoFactorLogin" && o.ConsumedAt == null)
+                .ToListAsync();
+
+            foreach (var p in pendingOtps)
+            {
+                p.ConsumedAt = DateTime.UtcNow;
+            }
+
+            var secretKey = configuration.GetValue<string>("JwtConfiguration:SecretKey");
+            var code = TwoFactorTokenHelper.GenerateNumericOtp(6);
+            var codeHash = TwoFactorTokenHelper.HashOtpCode(code, user.Email, secretKey);
+
+            var otpRecord = new OtpCode
+            {
+                UserId = user.Id,
+                Destination = user.Email,
+                Channel = "Email",
+                Purpose = "TwoFactorLogin",
+                CodeHash = codeHash,
+                AttemptCount = 0,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(5),
+                ConsumedAt = null,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            pmsContext.OtpCodes.Add(otpRecord);
+            await pmsContext.SaveChangesAsync();
+
+            var emailSubject = "Parking Management System - Your Verification Code";
+            var emailBody = $"Your verification code is: <strong>{code}</strong>.<br/>This code will expire in 5 minutes.";
+            var emailMessage = EmailMessage.Create(user.Email, emailBody, emailSubject);
+
+            try
+            {
+                await emailService.SendEmailAsync(emailMessage);
+            }
+            catch
+            {
+                otpRecord.ConsumedAt = DateTime.UtcNow;
+                await pmsContext.SaveChangesAsync();
+                throw new BadRequestException("Failed to send verification code email. Please check your email configuration or try again.");
+            }
+
+            var challengeToken = TwoFactorTokenHelper.GenerateTwoFactorToken(user.Id, otpRecord.Id, user.Email, configuration);
+
+            return new LoginResponseModel
+            {
+                UserId = user.Id,
+                Username = user.UserName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                Role = user.Role,
+                Token = null,
+                RequiresTwoFactor = true,
+                TwoFactorToken = challengeToken,
+                Destination = TwoFactorTokenHelper.MaskEmail(user.Email)
+            };
+        }
 
         var token = JwtHelper.GenerateToken(user, configuration);
 
@@ -80,22 +329,362 @@ public class UserService(
             Email = user.Email,
             PhoneNumber = user.PhoneNumber,
             Role = user.Role,
-            Token = token
+            Token = token,
+            RequiresTwoFactor = false,
+            TwoFactorToken = null,
+            Destination = null
         };
     }
 
-    public async Task<IEnumerable<UserResponseModel>> GetAllAsync()
+    public async Task<LoginResponseModel> VerifyTwoFactorAsync(TwoFactorLoginModel model)
     {
-        return await userManager.Users
-            .Select(u => new UserResponseModel
+        if (pmsContext == null)
+            throw new InvalidOperationException("Database context is not available.");
+
+        if (string.IsNullOrWhiteSpace(model.Code))
+            throw new BadRequestException("Verification code is required.");
+
+        var secretKey = configuration.GetValue<string>("JwtConfiguration:SecretKey");
+        OtpCode otpRecord = null;
+        string targetUserId = null;
+
+        if (!string.IsNullOrWhiteSpace(model.TwoFactorToken))
+        {
+            var (isValid, userId, otpId, _, error) = TwoFactorTokenHelper.ValidateTwoFactorToken(model.TwoFactorToken, configuration);
+            if (!isValid)
+                throw new BadRequestException(error ?? "Invalid verification challenge token.");
+
+            targetUserId = userId;
+            otpRecord = await pmsContext.OtpCodes.FirstOrDefaultAsync(o => o.Id == otpId && o.UserId == userId);
+            if (otpRecord == null)
+                throw new BadRequestException("Verification challenge not found.");
+        }
+        else if (!string.IsNullOrWhiteSpace(model.Email))
+        {
+            var user = await userManager.Users.FirstOrDefaultAsync(u => u.Email == model.Email || u.UserName == model.Email);
+            if (user == null)
+                throw new BadRequestException("Invalid verification request.");
+
+            // Internal accounts must authenticate with username and password first. Passwordless OTP is restricted to customer accounts.
+            if (user.Role == "Admin" || user.Role == "Manager" || user.Role == "Staff")
+                throw new BadRequestException("Internal staff and administrator accounts must authenticate with username and password first.");
+
+            targetUserId = user.Id;
+            otpRecord = await pmsContext.OtpCodes
+                .Where(o => (o.UserId == user.Id || o.Destination == user.Email) && (o.Purpose == "TwoFactorLogin" || o.Purpose == "LoginOtp"))
+                .OrderByDescending(o => o.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (otpRecord == null)
+                throw new BadRequestException("No active verification code found for this account. Please request a new code.");
+        }
+        else
+        {
+            throw new BadRequestException("Either verification challenge token or email must be provided.");
+        }
+
+        if (otpRecord.ConsumedAt.HasValue)
+            throw new BadRequestException("This verification code has already been used. Please request a new code.");
+
+        if (otpRecord.ExpiresAt < DateTime.UtcNow)
+        {
+            otpRecord.ConsumedAt = DateTime.UtcNow;
+            await pmsContext.SaveChangesAsync();
+            throw new BadRequestException("Verification code has expired. Please request a new code.");
+        }
+
+        const int maxAttempts = 5;
+        if (otpRecord.AttemptCount >= maxAttempts)
+        {
+            otpRecord.ConsumedAt = DateTime.UtcNow;
+            await pmsContext.SaveChangesAsync();
+            throw new BadRequestException("Maximum verification attempts exceeded. Please request a new code.");
+        }
+
+        var expectedHash = TwoFactorTokenHelper.HashOtpCode(model.Code.Trim(), otpRecord.Destination, secretKey);
+        if (otpRecord.CodeHash != expectedHash)
+        {
+            otpRecord.AttemptCount++;
+            if (otpRecord.AttemptCount >= maxAttempts)
+            {
+                otpRecord.ConsumedAt = DateTime.UtcNow;
+                await pmsContext.SaveChangesAsync();
+                throw new BadRequestException("Maximum verification attempts exceeded. Please request a new code.");
+            }
+
+            await pmsContext.SaveChangesAsync();
+            throw new BadRequestException($"Invalid verification code. {maxAttempts - otpRecord.AttemptCount} attempts remaining.");
+        }
+
+        otpRecord.ConsumedAt = DateTime.UtcNow;
+        await pmsContext.SaveChangesAsync();
+
+        var verifiedUser = await userManager.FindByIdAsync(targetUserId);
+        if (verifiedUser == null || !verifiedUser.IsActive)
+            throw new BadRequestException("Account is inactive or deactivated. Please contact an administrator.");
+
+        if (!verifiedUser.EmailConfirmed && (verifiedUser.Role == "Manager" || verifiedUser.Role == "Staff"))
+            throw new BadRequestException("Account is pending activation.");
+
+        var token = JwtHelper.GenerateToken(verifiedUser, configuration);
+
+        return new LoginResponseModel
+        {
+            UserId = verifiedUser.Id,
+            Username = verifiedUser.UserName,
+            Email = verifiedUser.Email,
+            PhoneNumber = verifiedUser.PhoneNumber,
+            Role = verifiedUser.Role,
+            Token = token,
+            RequiresTwoFactor = false,
+            TwoFactorToken = null,
+            Destination = null
+        };
+    }
+
+    public async Task<ResendTwoFactorResponseModel> ResendTwoFactorOtpAsync(ResendTwoFactorModel model)
+    {
+        if (pmsContext == null || emailService == null)
+            throw new InvalidOperationException("Two-factor authentication infrastructure is not available.");
+
+        string targetUserId = null;
+        string destinationEmail = null;
+
+        if (!string.IsNullOrWhiteSpace(model.TwoFactorToken))
+        {
+            var (isValid, userId, _, destination, error) = TwoFactorTokenHelper.ValidateTwoFactorToken(model.TwoFactorToken, configuration);
+            if (!isValid)
+                throw new BadRequestException(error ?? "Invalid verification challenge token.");
+
+            targetUserId = userId;
+            destinationEmail = destination;
+        }
+        else if (!string.IsNullOrWhiteSpace(model.Email))
+        {
+            var user = await userManager.Users.FirstOrDefaultAsync(u => u.Email == model.Email || u.UserName == model.Email);
+            if (user == null || !user.IsActive)
+            {
+                return new ResendTwoFactorResponseModel
+                {
+                    Succeeded = true,
+                    Message = "If the email is registered, a new verification code has been sent."
+                };
+            }
+
+            // Internal staff/manager/admin accounts MUST authenticate with password first via /api/users/authenticate.
+            // Passwordless OTP request is restricted to customer accounts.
+            if (user.Role == "Admin" || user.Role == "Manager" || user.Role == "Staff")
+            {
+                return new ResendTwoFactorResponseModel
+                {
+                    Succeeded = true,
+                    Message = "If the email is registered, a new verification code has been sent."
+                };
+            }
+
+            targetUserId = user.Id;
+            destinationEmail = user.Email;
+        }
+        else
+        {
+            throw new BadRequestException("Either verification challenge token or email must be provided.");
+        }
+
+        var targetUser = await userManager.FindByIdAsync(targetUserId);
+        if (targetUser == null || !targetUser.IsActive)
+            throw new BadRequestException("Account is inactive or not found.");
+
+        destinationEmail ??= targetUser.Email;
+
+        var recentOtp = await pmsContext.OtpCodes
+            .Where(o => o.Destination == destinationEmail && o.CreatedAt > DateTime.UtcNow.AddSeconds(-60))
+            .OrderByDescending(o => o.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (recentOtp != null)
+        {
+            var remainingSeconds = (int)Math.Ceiling((recentOtp.CreatedAt.AddSeconds(60) - DateTime.UtcNow).TotalSeconds);
+            if (remainingSeconds > 0)
+                throw new BadRequestException($"Please wait {remainingSeconds} seconds before requesting a new verification code.");
+        }
+
+        var previousOtps = await pmsContext.OtpCodes
+            .Where(o => o.Destination == destinationEmail && o.ConsumedAt == null)
+            .ToListAsync();
+
+        foreach (var p in previousOtps)
+        {
+            p.ConsumedAt = DateTime.UtcNow;
+        }
+
+        var secretKey = configuration.GetValue<string>("JwtConfiguration:SecretKey");
+        var code = TwoFactorTokenHelper.GenerateNumericOtp(6);
+        var codeHash = TwoFactorTokenHelper.HashOtpCode(code, destinationEmail, secretKey);
+
+        var newOtp = new OtpCode
+        {
+            UserId = targetUser.Id,
+            Destination = destinationEmail,
+            Channel = "Email",
+            Purpose = "TwoFactorLogin",
+            CodeHash = codeHash,
+            AttemptCount = 0,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5),
+            ConsumedAt = null,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        pmsContext.OtpCodes.Add(newOtp);
+        await pmsContext.SaveChangesAsync();
+
+        var emailSubject = "Parking Management System - Your New Verification Code";
+        var emailBody = $"Your new verification code is: <strong>{code}</strong>.<br/>This code will expire in 5 minutes.";
+        var emailMessage = EmailMessage.Create(destinationEmail, emailBody, emailSubject);
+
+        try
+        {
+            await emailService.SendEmailAsync(emailMessage);
+        }
+        catch
+        {
+            newOtp.ConsumedAt = DateTime.UtcNow;
+            await pmsContext.SaveChangesAsync();
+            throw new BadRequestException("Failed to send verification code email. Please try again later.");
+        }
+
+        var newChallengeToken = TwoFactorTokenHelper.GenerateTwoFactorToken(targetUser.Id, newOtp.Id, destinationEmail, configuration);
+
+        return new ResendTwoFactorResponseModel
+        {
+            Succeeded = true,
+            TwoFactorToken = newChallengeToken,
+            Destination = TwoFactorTokenHelper.MaskEmail(destinationEmail),
+            Message = "A new verification code has been sent to your email."
+        };
+    }
+
+    public async Task<IEnumerable<UserResponseModel>> GetAllAsync(string role = null, bool? isActive = null, string searchTerm = null)
+    {
+        var query = userManager.Users.AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            query = query.Where(u => u.Role == role);
+        }
+
+        if (isActive.HasValue)
+        {
+            query = query.Where(u => u.IsActive == isActive.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var term = searchTerm.Trim();
+            var matchingEmployeeUserIds = new List<string>();
+            if (pmsContext != null)
+            {
+                matchingEmployeeUserIds = await pmsContext.Employees
+                    .Where(e => (e.FullName != null && e.FullName.Contains(term)) ||
+                                (e.EmployeeCode != null && e.EmployeeCode.Contains(term)))
+                    .Select(e => e.UserId)
+                    .ToListAsync();
+            }
+
+            query = query.Where(u =>
+                (u.UserName != null && u.UserName.Contains(term)) ||
+                (u.Email != null && u.Email.Contains(term)) ||
+                (u.PhoneNumber != null && u.PhoneNumber.Contains(term)) ||
+                matchingEmployeeUserIds.Contains(u.Id));
+        }
+
+        var users = await query.ToListAsync();
+        Dictionary<string, Employee> employeeMap = null;
+
+        if (pmsContext != null)
+        {
+            var userIds = users.Select(u => u.Id).ToList();
+            var employees = await pmsContext.Employees.Where(e => userIds.Contains(e.UserId)).ToListAsync();
+            employeeMap = employees.ToDictionary(e => e.UserId);
+        }
+
+        return users.Select(u =>
+        {
+            Employee emp = null;
+            employeeMap?.TryGetValue(u.Id, out emp);
+            return new UserResponseModel
             {
                 Id = u.Id,
                 UserName = u.UserName,
+                FullName = emp?.FullName,
                 Email = u.Email,
                 PhoneNumber = u.PhoneNumber,
-                Role = u.Role
-            })
-            .ToListAsync();
+                Role = u.Role,
+                EmployeeCode = emp?.EmployeeCode,
+                IsActive = u.IsActive
+            };
+        });
+    }
+
+    public async Task<IEnumerable<UserResponseModel>> GetInternalUsersAsync(string role = null, bool? isActive = null, string searchTerm = null)
+    {
+        var query = userManager.Users.Where(u => u.Role == "Manager" || u.Role == "Staff");
+
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            query = query.Where(u => u.Role == role);
+        }
+
+        if (isActive.HasValue)
+        {
+            query = query.Where(u => u.IsActive == isActive.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var term = searchTerm.Trim();
+            var matchingEmployeeUserIds = new List<string>();
+            if (pmsContext != null)
+            {
+                matchingEmployeeUserIds = await pmsContext.Employees
+                    .Where(e => (e.FullName != null && e.FullName.Contains(term)) ||
+                                (e.EmployeeCode != null && e.EmployeeCode.Contains(term)))
+                    .Select(e => e.UserId)
+                    .ToListAsync();
+            }
+
+            query = query.Where(u =>
+                (u.UserName != null && u.UserName.Contains(term)) ||
+                (u.Email != null && u.Email.Contains(term)) ||
+                (u.PhoneNumber != null && u.PhoneNumber.Contains(term)) ||
+                matchingEmployeeUserIds.Contains(u.Id));
+        }
+
+        var users = await query.ToListAsync();
+        Dictionary<string, Employee> employeeMap = null;
+
+        if (pmsContext != null)
+        {
+            var userIds = users.Select(u => u.Id).ToList();
+            var employees = await pmsContext.Employees.Where(e => userIds.Contains(e.UserId)).ToListAsync();
+            employeeMap = employees.ToDictionary(e => e.UserId);
+        }
+
+        return users.Select(u =>
+        {
+            Employee emp = null;
+            employeeMap?.TryGetValue(u.Id, out emp);
+            return new UserResponseModel
+            {
+                Id = u.Id,
+                UserName = u.UserName,
+                FullName = emp?.FullName,
+                Email = u.Email,
+                PhoneNumber = u.PhoneNumber,
+                Role = u.Role,
+                EmployeeCode = emp?.EmployeeCode,
+                IsActive = u.IsActive
+            };
+        });
     }
 
     public async Task<UserResponseModel> GetByIdAsync(string id)
@@ -105,13 +694,131 @@ public class UserService(
         if (user == null)
             throw new NotFoundException("User does not exist");
 
+        string employeeCode = null;
+        string fullName = null;
+        if (pmsContext != null)
+        {
+            var emp = await pmsContext.Employees.FirstOrDefaultAsync(e => e.UserId == user.Id);
+            if (emp != null)
+            {
+                employeeCode = emp.EmployeeCode;
+                fullName = emp.FullName;
+            }
+        }
+
         return new UserResponseModel
         {
             Id = user.Id,
             UserName = user.UserName,
+            FullName = fullName,
             Email = user.Email,
             PhoneNumber = user.PhoneNumber,
-            Role = user.Role
+            Role = user.Role,
+            EmployeeCode = employeeCode,
+            IsActive = user.IsActive
         };
+    }
+
+    public async Task<bool> UpdateUserStatusAsync(string currentUserId, string targetUserId, bool isActive)
+    {
+        if (string.Equals(currentUserId, targetUserId, StringComparison.OrdinalIgnoreCase) && !isActive)
+        {
+            throw new BadRequestException("Administrators cannot deactivate their own account.");
+        }
+
+        var targetUser = await userManager.FindByIdAsync(targetUserId);
+        if (targetUser == null)
+        {
+            throw new NotFoundException("User not found.");
+        }
+
+        if (string.Equals(targetUser.Role, "Admin", StringComparison.OrdinalIgnoreCase) && !isActive)
+        {
+            throw new BadRequestException("Cannot deactivate an Administrator account.");
+        }
+
+        targetUser.IsActive = isActive;
+        var updateResult = await userManager.UpdateAsync(targetUser);
+        if (!updateResult.Succeeded)
+        {
+            throw new BadRequestException(updateResult.Errors.FirstOrDefault()?.Description ?? "Failed to update user status.");
+        }
+
+        if (pmsContext != null)
+        {
+            var customer = await pmsContext.Customers.FirstOrDefaultAsync(c => c.UserId == targetUserId);
+            if (customer != null)
+            {
+                customer.IsActive = isActive;
+                customer.UpdatedAt = DateTime.UtcNow;
+            }
+
+            var employee = await pmsContext.Employees.FirstOrDefaultAsync(e => e.UserId == targetUserId);
+            if (employee != null)
+            {
+                employee.Status = isActive ? "Active" : "Inactive";
+                employee.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await pmsContext.SaveChangesAsync();
+        }
+
+        return true;
+    }
+
+    public async Task<bool> ActivateAccountAsync(ActivateAccountModel model)
+    {
+        var user = await userManager.FindByIdAsync(model.UserId);
+        if (user == null)
+            throw new NotFoundException("User not found.");
+
+        if (user.EmailConfirmed && user.IsActive)
+            throw new BadRequestException("Account has already been activated.");
+
+        var confirmResult = await userManager.ConfirmEmailAsync(user, model.Token);
+        if (!confirmResult.Succeeded)
+            throw new BadRequestException(confirmResult.Errors.FirstOrDefault()?.Description ?? "Invalid or expired activation token.");
+
+        if (await userManager.HasPasswordAsync(user))
+        {
+            await userManager.RemovePasswordAsync(user);
+        }
+
+        var addPassResult = await userManager.AddPasswordAsync(user, model.NewPassword);
+        if (!addPassResult.Succeeded)
+            throw new BadRequestException(addPassResult.Errors.FirstOrDefault()?.Description ?? "Failed to set password.");
+
+        user.TwoFactorEnabled = true;
+        user.IsActive = true;
+        var updateResult = await userManager.UpdateAsync(user);
+        if (!updateResult.Succeeded)
+            throw new BadRequestException(updateResult.Errors.FirstOrDefault()?.Description ?? "Failed to activate user account.");
+
+        if (pmsContext != null)
+        {
+            var employee = await pmsContext.Employees.FirstOrDefaultAsync(e => e.UserId == user.Id);
+            if (employee != null)
+            {
+                employee.Status = "Active";
+                employee.UpdatedAt = DateTime.UtcNow;
+            }
+
+            var auditLog = new AuditLog
+            {
+                UserId = user.Id,
+                UserName = user.UserName,
+                Action = "ACCOUNT_ACTIVATION",
+                EntityName = "User",
+                EntityId = user.Id,
+                NewValues = "{\"status\":\"Active\",\"twoFactorEnabled\":true,\"emailConfirmed\":true}",
+                IpAddress = "127.0.0.1",
+                CreatedAt = DateTime.UtcNow
+            };
+            pmsContext.AuditLogs.Add(auditLog);
+
+            await pmsContext.SaveChangesAsync();
+        }
+
+        return true;
     }
 }

@@ -23,15 +23,15 @@ public static class AutomatedMigration
                 logger?.LogInformation("Database migration completed successfully.");
             }
 
-            var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
-
-            await DatabaseContextSeed.SeedDatabaseAsync(context, userManager);
-
             var pmsContext = services.GetRequiredService<PmsDbContext>();
             if (pmsContext.Database.IsSqlServer())
             {
                 await EnsurePmsTablesAsync(pmsContext);
             }
+
+            var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+
+            await DatabaseContextSeed.SeedDatabaseAsync(context, userManager);
         }
         catch (Exception ex)
         {
@@ -43,6 +43,11 @@ public static class AutomatedMigration
     private static async Task EnsurePmsTablesAsync(PmsDbContext pmsContext)
     {
         const string sql = @"
+            IF OBJECT_ID('dbo.Users', 'U') IS NOT NULL AND COL_LENGTH('dbo.Users', 'IsActive') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[Users] ADD [IsActive] [bit] NOT NULL DEFAULT 1;
+            END
+
             IF OBJECT_ID('dbo.VehicleTypes', 'U') IS NULL
             BEGIN
                 CREATE TABLE [dbo].[VehicleTypes](
@@ -156,6 +161,161 @@ public static class AutomatedMigration
                 BEGIN
                     ALTER TABLE [dbo].[Vehicles] ADD [IsDefault] [bit] NOT NULL DEFAULT 0;
                 END
+            END
+
+            IF OBJECT_ID('dbo.Employees', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[Employees](
+                    [Id] [int] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [UserId] [nvarchar](450) NOT NULL,
+                    [EmployeeCode] [nvarchar](30) NOT NULL,
+                    [FullName] [nvarchar](200) NOT NULL,
+                    [Phone] [nvarchar](30) NULL,
+                    [Email] [nvarchar](256) NULL,
+                    [Position] [varchar](30) NOT NULL DEFAULT 'Attendant',
+                    [ParkingLotId] [int] NULL,
+                    [HireDate] [date] NULL,
+                    [TerminationDate] [date] NULL,
+                    [Status] [varchar](20) NOT NULL DEFAULT 'Active',
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [UpdatedAt] [datetime2](3) NULL
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_Employees_EmployeeCode] ON [dbo].[Employees]([EmployeeCode] ASC);
+                CREATE NONCLUSTERED INDEX [IX_Employees_UserId] ON [dbo].[Employees]([UserId] ASC);
+            END
+
+            IF OBJECT_ID('dbo.ParkingLots', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[ParkingLots](
+                    [Id] [int] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [Code] [nvarchar](30) NOT NULL,
+                    [Name] [nvarchar](200) NOT NULL,
+                    [Address] [nvarchar](500) NOT NULL,
+                    [City] [nvarchar](100) NULL,
+                    [District] [nvarchar](100) NULL,
+                    [Latitude] [decimal](9,6) NULL,
+                    [Longitude] [decimal](9,6) NULL,
+                    [OpenTime] [time](0) NULL,
+                    [CloseTime] [time](0) NULL,
+                    [Is24Hours] [bit] NOT NULL DEFAULT 1,
+                    [Capacity] [int] NOT NULL DEFAULT 0,
+                    [ImageUrl] [nvarchar](500) NULL,
+                    [Description] [nvarchar](1000) NULL,
+                    [Phone] [nvarchar](30) NULL,
+                    [Status] [varchar](20) NOT NULL DEFAULT 'Active',
+                    [ClosedFrom] [datetime2](0) NULL,
+                    [ClosedUntil] [datetime2](0) NULL,
+                    [ClosureReason] [nvarchar](500) NULL,
+                    [MaintenanceNotice] [nvarchar](1000) NULL,
+                    [PartnerId] [int] NULL,
+                    [ManagerUserId] [nvarchar](450) NULL,
+                    [TimeZoneId] [varchar](60) NOT NULL DEFAULT 'SE Asia Standard Time',
+                    [IsDeleted] [bit] NOT NULL DEFAULT 0,
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [UpdatedAt] [datetime2](3) NULL,
+                    [CreatedBy] [nvarchar](450) NULL
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_ParkingLots_Code] ON [dbo].[ParkingLots]([Code] ASC);
+            END
+
+            IF OBJECT_ID('dbo.Zones', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[Zones](
+                    [Id] [int] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ParkingLotId] [int] NOT NULL,
+                    [Code] [nvarchar](30) NOT NULL,
+                    [Name] [nvarchar](200) NOT NULL,
+                    [ZoneType] [varchar](20) NOT NULL DEFAULT 'Area',
+                    [FloorNo] [int] NULL,
+                    [Capacity] [int] NOT NULL DEFAULT 0,
+                    [MaxReservationSlots] [int] NULL,
+                    [LayoutJson] [nvarchar](max) NULL,
+                    [IsActive] [bit] NOT NULL DEFAULT 1,
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [UpdatedAt] [datetime2](3) NULL,
+                    CONSTRAINT [FK_Zones_ParkingLots] FOREIGN KEY([ParkingLotId]) REFERENCES [dbo].[ParkingLots] ([Id])
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_Zones_ParkingLotId_Code] ON [dbo].[Zones]([ParkingLotId] ASC, [Code] ASC);
+            END
+            ELSE
+            BEGIN
+                IF COL_LENGTH('dbo.Zones', 'MaxReservationSlots') IS NULL
+                BEGIN
+                    ALTER TABLE [dbo].[Zones] ADD [MaxReservationSlots] [int] NULL;
+                END
+            END
+
+            IF OBJECT_ID('dbo.ZoneCounters', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[ZoneCounters](
+                    [Id] [int] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ZoneId] [int] NOT NULL,
+                    [AvailableSpaces] [int] NOT NULL DEFAULT 0,
+                    [OccupiedSpaces] [int] NOT NULL DEFAULT 0,
+                    [TotalCapacity] [int] NOT NULL DEFAULT 0,
+                    [LastUpdatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    CONSTRAINT [FK_ZoneCounters_Zones] FOREIGN KEY([ZoneId]) REFERENCES [dbo].[Zones] ([Id]) ON DELETE CASCADE
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_ZoneCounters_ZoneId] ON [dbo].[ZoneCounters]([ZoneId] ASC);
+            END
+
+            IF OBJECT_ID('dbo.Slots', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[Slots](
+                    [Id] [int] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ZoneId] [int] NOT NULL,
+                    [VehicleTypeId] [int] NOT NULL,
+                    [Code] [nvarchar](30) NOT NULL,
+                    [Status] [varchar](20) NOT NULL DEFAULT 'Available',
+                    [DedicatedVehicleId] [uniqueidentifier] NULL,
+                    [DedicatedNote] [nvarchar](200) NULL,
+                    [PosX] [decimal](8,2) NULL,
+                    [PosY] [decimal](8,2) NULL,
+                    [Width] [decimal](8,2) NULL,
+                    [Height] [decimal](8,2) NULL,
+                    [IsActive] [bit] NOT NULL DEFAULT 1,
+                    [RowVersion] [rowversion] NOT NULL,
+                    CONSTRAINT [FK_Slots_Zones] FOREIGN KEY([ZoneId]) REFERENCES [dbo].[Zones] ([Id]),
+                    CONSTRAINT [FK_Slots_VehicleTypes] FOREIGN KEY([VehicleTypeId]) REFERENCES [dbo].[VehicleTypes] ([Id])
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_Slots_ZoneId_Code] ON [dbo].[Slots]([ZoneId] ASC, [Code] ASC);
+            END
+
+            IF OBJECT_ID('dbo.OtpCodes', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[OtpCodes](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [UserId] [nvarchar](450) NULL,
+                    [Destination] [nvarchar](256) NOT NULL,
+                    [Channel] [varchar](10) NOT NULL,
+                    [Purpose] [varchar](30) NOT NULL,
+                    [CodeHash] [nvarchar](200) NOT NULL,
+                    [AttemptCount] [int] NOT NULL DEFAULT 0,
+                    [ExpiresAt] [datetime2](3) NOT NULL,
+                    [ConsumedAt] [datetime2](3) NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime())
+                );
+                CREATE NONCLUSTERED INDEX [IX_OtpCodes_Destination_Purpose] ON [dbo].[OtpCodes]([Destination] ASC, [Purpose] ASC);
+                CREATE NONCLUSTERED INDEX [IX_OtpCodes_UserId_Purpose] ON [dbo].[OtpCodes]([UserId] ASC, [Purpose] ASC);
+            END
+
+            IF OBJECT_ID('dbo.AuditLogs', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[AuditLogs](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [UserId] [nvarchar](450) NULL,
+                    [UserName] [nvarchar](256) NULL,
+                    [Action] [nvarchar](100) NOT NULL,
+                    [EntityName] [nvarchar](100) NULL,
+                    [EntityId] [nvarchar](100) NULL,
+                    [ParkingLotId] [int] NULL,
+                    [OldValues] [nvarchar](max) NULL,
+                    [NewValues] [nvarchar](max) NULL,
+                    [IpAddress] [varchar](45) NULL,
+                    [UserAgent] [nvarchar](500) NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime())
+                );
+                CREATE NONCLUSTERED INDEX [IX_AuditLogs_CreatedAt] ON [dbo].[AuditLogs]([CreatedAt] DESC);
             END
         ";
 

@@ -49,8 +49,11 @@ public static class DataAccessDependencyInjection
         else
         {
             services.AddDbContext<DatabaseContext>(options =>
+            {
                 options.UseSqlServer(databaseConfig.ConnectionString,
-                    opt => opt.MigrationsAssembly(typeof(DatabaseContext).Assembly.FullName)));
+                    opt => opt.MigrationsAssembly(typeof(DatabaseContext).Assembly.FullName));
+                options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+            });
 
             services.AddDbContext<PmsDbContext>(options =>
                 options.UseSqlServer(databaseConfig.ConnectionString));

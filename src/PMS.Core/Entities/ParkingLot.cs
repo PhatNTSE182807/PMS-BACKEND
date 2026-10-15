@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace PMS.DataAccess.Persistence.Entities;
@@ -49,7 +49,7 @@ public partial class ParkingLot
 
     public string ManagerUserId { get; set; }
 
-    public string TimeZoneId { get; set; }
+    public string TimeZoneId { get; set; } = "SE Asia Standard Time";
 
     public bool IsDeleted { get; set; }
 

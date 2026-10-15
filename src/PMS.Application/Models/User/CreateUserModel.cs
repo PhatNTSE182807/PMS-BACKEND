@@ -13,4 +13,9 @@ public class CreateUserModel
     public string PhoneNumber { get; set; }
 }
 
-public class CreateUserResponseModel : BaseResponseModel { }
+public class CreateUserResponseModel : BaseResponseModel
+{
+    public string EmployeeCode { get; set; }
+
+    public string ActivationToken { get; set; }
+}

@@ -28,6 +28,9 @@ public static class ApplicationDependencyInjection
     {
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IUserProfileService, UserProfileService>();
+        services.AddScoped<IParkingLotService, ParkingLotService>();
+        services.AddScoped<IZoneService, ZoneService>();
+        services.AddScoped<ISlotService, SlotService>();
         services.AddScoped<IClaimService, ClaimService>();
         services.AddScoped<ITemplateService, TemplateService>();
 

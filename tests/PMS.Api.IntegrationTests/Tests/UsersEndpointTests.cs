@@ -247,4 +247,222 @@ public class UsersEndpointTests
         var response = await ResponseHelper.GetApiResultAsync<string>(apiResponse);
         CheckResponse.Failure(response);
     }
+
+    [Fact]
+    public async Task CreateInternalUser_Should_Create_Manager_When_Called_By_Admin()
+    {
+        // Arrange
+        var client = await _factory.CreateDefaultClientAsync();
+        var model = new CreateInternalUserModel
+        {
+            UserName = "admin_mgr",
+            FullName = "Admin Created Manager",
+            Email = "admin_mgr@parking.com",
+            Password = "Password.1!",
+            PhoneNumber = "0987654321",
+            Role = "Manager"
+        };
+
+        // Act
+        var apiResponse = await client.PostAsync("/api/users/internal", new JsonContent(model));
+
+        // Assert
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var response = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(apiResponse);
+        CheckResponse.Succeeded(response);
+        response.Result.Id.Should().NotBeEmpty();
+
+        var context = _factory.GetRequiredService<DatabaseContext>();
+        var userInDb = await context.Users.FirstOrDefaultAsync(u => u.Id == response.Result.Id.ToString());
+        userInDb.Should().NotBeNull();
+        userInDb.Role.Should().Be("Manager");
+        userInDb.IsActive.Should().BeFalse();
+        userInDb.EmailConfirmed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CreateInternalUser_Should_Create_Staff_When_Called_By_Admin()
+    {
+        // Arrange
+        var client = await _factory.CreateDefaultClientAsync();
+        var model = new CreateInternalUserModel
+        {
+            UserName = "admin_stf",
+            FullName = "Admin Created Staff",
+            Email = "admin_stf@parking.com",
+            Password = "Password.1!",
+            PhoneNumber = "0987654321",
+            Role = "Staff"
+        };
+
+        // Act
+        var apiResponse = await client.PostAsync("/api/users/internal", new JsonContent(model));
+
+        // Assert
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var response = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(apiResponse);
+        CheckResponse.Succeeded(response);
+
+        var context = _factory.GetRequiredService<DatabaseContext>();
+        var userInDb = await context.Users.FirstOrDefaultAsync(u => u.Id == response.Result.Id.ToString());
+        userInDb.Should().NotBeNull();
+        userInDb.Role.Should().Be("Staff");
+        userInDb.IsActive.Should().BeFalse();
+        userInDb.EmailConfirmed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CreateInternalUser_Should_Return_Forbidden_When_Called_By_Non_Admin()
+    {
+        // Arrange
+        var client = await _factory.CreateClientWithRoleAsync("User");
+        var model = new CreateInternalUserModel
+        {
+            UserName = "forbidden_user",
+            Email = "forbidden@parking.com",
+            Password = "Password.1!",
+            PhoneNumber = "0987654321",
+            Role = "Staff"
+        };
+
+        // Act
+        var apiResponse = await client.PostAsync("/api/users/internal", new JsonContent(model));
+
+        // Assert
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task CreateInternalUser_Should_Return_Unauthorized_When_Called_Without_Token()
+    {
+        // Arrange
+        var client = _factory.CreateUnauthorizedClient();
+        var model = new CreateInternalUserModel
+        {
+            UserName = "no_auth_user",
+            Email = "noauth@parking.com",
+            Password = "Password.1!",
+            PhoneNumber = "0987654321",
+            Role = "Staff"
+        };
+
+        // Act
+        var apiResponse = await client.PostAsync("/api/users/internal", new JsonContent(model));
+
+        // Assert
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task CreateInternalUser_Should_Return_BadRequest_When_Role_Is_Invalid()
+    {
+        // Arrange
+        var client = await _factory.CreateDefaultClientAsync();
+        var model = new CreateInternalUserModel
+        {
+            UserName = "bad_role_user",
+            Email = "badrole@parking.com",
+            Password = "Password.1!",
+            PhoneNumber = "0987654321",
+            Role = "Customer"
+        };
+
+        // Act
+        var apiResponse = await client.PostAsync("/api/users/internal", new JsonContent(model));
+
+        // Assert
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_Should_Deactivate_And_Activate_User_When_Called_By_Admin()
+    {
+        // Arrange
+        var client = await _factory.CreateDefaultClientAsync();
+        var context = _factory.GetRequiredService<DatabaseContext>();
+
+        // Create a staff user to deactivate
+        var staffModel = new CreateInternalUserModel
+        {
+            UserName = "status_test_user",
+            FullName = "Status Test User",
+            Email = "statustest@parking.com",
+            Password = "Password.1!",
+            PhoneNumber = "0987654321",
+            Role = "Staff"
+        };
+        var createResponse = await client.PostAsync("/api/users/internal", new JsonContent(staffModel));
+        var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
+        var targetUserId = createResult.Result.Id.ToString();
+
+        // Activate the created internal user
+        var activateAccountResponse = await client.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
+        {
+            UserId = targetUserId,
+            Token = createResult.Result.ActivationToken,
+            NewPassword = "Password.1!",
+            ConfirmPassword = "Password.1!"
+        }));
+        activateAccountResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Act 1: Deactivate
+        var deactivateResponse = await client.PatchAsync($"/api/users/{targetUserId}/status", new JsonContent(new UpdateUserStatusModel { IsActive = false }));
+        deactivateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var userAfterDeactivate = await context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == targetUserId);
+        userAfterDeactivate.IsActive.Should().BeFalse();
+
+        // Verify deactivated user cannot log in
+        var loginResponse = await client.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
+        {
+            Username = "status_test_user",
+            Password = "Password.1!"
+        }));
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // Act 2: Re-activate
+        var activateResponse = await client.PatchAsync($"/api/users/{targetUserId}/status", new JsonContent(new UpdateUserStatusModel { IsActive = true }));
+        activateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var userAfterActivate = await context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == targetUserId);
+        userAfterActivate.IsActive.Should().BeTrue();
+
+        // Verify reactivated user can now log in
+        var loginResponse2 = await client.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
+        {
+            Username = "status_test_user",
+            Password = "Password.1!"
+        }));
+        loginResponse2.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_Should_Return_BadRequest_When_Admin_Deactivates_Self()
+    {
+        // Arrange
+        var client = await _factory.CreateDefaultClientAsync();
+        var context = _factory.GetRequiredService<DatabaseContext>();
+        var currentAdmin = await context.Users.FirstAsync(u => u.UserName == UserConstants.DefaultUserDb.Username);
+
+        // Act
+        var response = await client.PatchAsync($"/api/users/{currentAdmin.Id}/status", new JsonContent(new UpdateUserStatusModel { IsActive = false }));
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var result = await ResponseHelper.GetApiResultAsync<string>(response);
+        result.Errors.Should().Contain(e => e.Contains("cannot deactivate their own account"));
+    }
+
+    [Fact]
+    public async Task GetAll_Users_Should_Return_Forbidden_When_Called_By_Non_Admin()
+    {
+        // Arrange
+        var client = await _factory.CreateClientWithRoleAsync("User");
+
+        // Act
+        var response = await client.GetAsync("/api/users");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
 }

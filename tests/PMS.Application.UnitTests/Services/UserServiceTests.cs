@@ -97,6 +97,7 @@ public class UserServiceTests : BaseServiceTestConfiguration
         var loginUserModel = Builder<LoginUserModel>.CreateNew().Build();
         var usersListQueryable = Builder<ApplicationUser>.CreateListOfSize(1)
             .All().With(u => u.UserName = loginUserModel.Username)
+            .With(u => u.IsActive = true)
             .Build().AsQueryable().BuildMock();
         _userManager.Users.Returns(usersListQueryable);
         _signInManager
@@ -114,12 +115,32 @@ public class UserServiceTests : BaseServiceTestConfiguration
     }
 
     [Fact]
+    public async Task LoginAsync_Should_Throw_Exception_If_User_Is_Deactivated()
+    {
+        // Arrange
+        var loginUserModel = Builder<LoginUserModel>.CreateNew().Build();
+        var usersListQueryable = Builder<ApplicationUser>.CreateListOfSize(1)
+            .All().With(u => u.UserName = loginUserModel.Username)
+            .With(u => u.IsActive = false)
+            .Build().AsQueryable().BuildMock();
+        _userManager.Users.Returns(usersListQueryable);
+
+        // Act
+        Func<Task> act = async () => await _sut.LoginAsync(loginUserModel);
+
+        // Assert
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("Account is deactivated. Please contact an administrator.");
+    }
+
+    [Fact]
     public async Task LoginAsync_Should_Return_Login_Response_If_Credentials_Are_Good()
     {
         // Arrange
         var loginUserModel = Builder<LoginUserModel>.CreateNew().Build();
         var usersList = Builder<ApplicationUser>.CreateListOfSize(1).All()
-            .With(u => u.UserName = loginUserModel.Username).Build();
+            .With(u => u.UserName = loginUserModel.Username)
+            .With(u => u.IsActive = true).Build();
         var usersListQueryable = usersList.AsQueryable().BuildMock();
         _userManager.Users.Returns(usersListQueryable);
         _signInManager
@@ -138,10 +159,205 @@ public class UserServiceTests : BaseServiceTestConfiguration
     }
 
     [Fact]
+    public async Task CreateInternalUserAsync_Should_Create_Manager_Account()
+    {
+        // Arrange
+        var userId = Guid.NewGuid().ToString();
+        var model = new CreateInternalUserModel
+        {
+            UserName = "manager_user",
+            FullName = "Manager Test",
+            Email = "manager@parking.com",
+            Password = "Password.1!",
+            PhoneNumber = "0987654321",
+            Role = "Manager"
+        };
+
+        _userManager.CreateAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>())
+            .Returns(args =>
+            {
+                var user = args.Arg<ApplicationUser>();
+                user.Id = userId;
+                user.Role.Should().Be("Manager");
+                user.IsActive.Should().BeFalse();
+                user.EmailConfirmed.Should().BeFalse();
+                return IdentityResult.Success;
+            });
+
+        // Act
+        var result = await _sut.CreateInternalUserAsync(model);
+
+        // Assert
+        result.Id.Should().Be(Guid.Parse(userId));
+        await _userManager.Received(1).CreateAsync(Arg.Any<ApplicationUser>(), "Password.1!");
+    }
+
+    [Fact]
+    public async Task CreateInternalUserAsync_Should_Create_Staff_Account()
+    {
+        // Arrange
+        var userId = Guid.NewGuid().ToString();
+        var model = new CreateInternalUserModel
+        {
+            UserName = "staff_user",
+            FullName = "Staff Test",
+            Email = "staff@parking.com",
+            Password = "Password.1!",
+            PhoneNumber = "0987654321",
+            Role = "Staff"
+        };
+
+        _userManager.CreateAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>())
+            .Returns(args =>
+            {
+                var user = args.Arg<ApplicationUser>();
+                user.Id = userId;
+                user.Role.Should().Be("Staff");
+                user.IsActive.Should().BeFalse();
+                user.EmailConfirmed.Should().BeFalse();
+                return IdentityResult.Success;
+            });
+
+        // Act
+        var result = await _sut.CreateInternalUserAsync(model);
+
+        // Assert
+        result.Id.Should().Be(Guid.Parse(userId));
+        await _userManager.Received(1).CreateAsync(Arg.Any<ApplicationUser>(), "Password.1!");
+    }
+
+    [Fact]
+    public async Task CreateInternalUserAsync_Should_Throw_When_Role_Is_Invalid()
+    {
+        // Arrange
+        var model = new CreateInternalUserModel
+        {
+            UserName = "invalid_user",
+            Email = "invalid@parking.com",
+            Password = "Password.1!",
+            PhoneNumber = "0987654321",
+            Role = "Customer"
+        };
+
+        // Act
+        Func<Task> act = async () => await _sut.CreateInternalUserAsync(model);
+
+        // Assert
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("Role must be either 'Manager' or 'Staff'");
+    }
+
+    [Fact]
+    public async Task UpdateUserStatusAsync_Should_Deactivate_User_Successfully()
+    {
+        // Arrange
+        var adminId = Guid.NewGuid().ToString();
+        var targetId = Guid.NewGuid().ToString();
+        var targetUser = new ApplicationUser
+        {
+            Id = targetId,
+            UserName = "staff1",
+            Role = "Staff",
+            IsActive = true
+        };
+
+        _userManager.FindByIdAsync(targetId).Returns(targetUser);
+        _userManager.UpdateAsync(targetUser).Returns(IdentityResult.Success);
+
+        // Act
+        var result = await _sut.UpdateUserStatusAsync(adminId, targetId, false);
+
+        // Assert
+        result.Should().BeTrue();
+        targetUser.IsActive.Should().BeFalse();
+        await _userManager.Received(1).UpdateAsync(targetUser);
+    }
+
+    [Fact]
+    public async Task UpdateUserStatusAsync_Should_Activate_User_Successfully()
+    {
+        // Arrange
+        var adminId = Guid.NewGuid().ToString();
+        var targetId = Guid.NewGuid().ToString();
+        var targetUser = new ApplicationUser
+        {
+            Id = targetId,
+            UserName = "staff1",
+            Role = "Staff",
+            IsActive = false
+        };
+
+        _userManager.FindByIdAsync(targetId).Returns(targetUser);
+        _userManager.UpdateAsync(targetUser).Returns(IdentityResult.Success);
+
+        // Act
+        var result = await _sut.UpdateUserStatusAsync(adminId, targetId, true);
+
+        // Assert
+        result.Should().BeTrue();
+        targetUser.IsActive.Should().BeTrue();
+        await _userManager.Received(1).UpdateAsync(targetUser);
+    }
+
+    [Fact]
+    public async Task UpdateUserStatusAsync_Should_Throw_When_Admin_Deactivates_Self()
+    {
+        // Arrange
+        var adminId = Guid.NewGuid().ToString();
+
+        // Act
+        Func<Task> act = async () => await _sut.UpdateUserStatusAsync(adminId, adminId, false);
+
+        // Assert
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("Administrators cannot deactivate their own account.");
+    }
+
+    [Fact]
+    public async Task UpdateUserStatusAsync_Should_Throw_When_Deactivating_Admin_Account()
+    {
+        // Arrange
+        var currentAdminId = Guid.NewGuid().ToString();
+        var targetAdminId = Guid.NewGuid().ToString();
+        var targetAdmin = new ApplicationUser
+        {
+            Id = targetAdminId,
+            UserName = "other_admin",
+            Role = "Admin",
+            IsActive = true
+        };
+
+        _userManager.FindByIdAsync(targetAdminId).Returns(targetAdmin);
+
+        // Act
+        Func<Task> act = async () => await _sut.UpdateUserStatusAsync(currentAdminId, targetAdminId, false);
+
+        // Assert
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("Cannot deactivate an Administrator account.");
+    }
+
+    [Fact]
+    public async Task UpdateUserStatusAsync_Should_Throw_When_User_Not_Found()
+    {
+        // Arrange
+        var adminId = Guid.NewGuid().ToString();
+        _userManager.FindByIdAsync("unknown").Returns((ApplicationUser)null);
+
+        // Act
+        Func<Task> act = async () => await _sut.UpdateUserStatusAsync(adminId, "unknown", false);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("User not found.");
+    }
+
+    [Fact]
     public async Task GetAllAsync_Should_Return_All_Users()
     {
         // Arrange
-        var usersList = Builder<ApplicationUser>.CreateListOfSize(3).Build();
+        var usersList = Builder<ApplicationUser>.CreateListOfSize(3).All()
+            .With(u => u.IsActive = true).Build();
         _userManager.Users.Returns(usersList.AsQueryable().BuildMock());
 
         // Act
@@ -152,13 +368,15 @@ public class UserServiceTests : BaseServiceTestConfiguration
         result[0].UserName.Should().Be(usersList[0].UserName);
         result[1].Email.Should().Be(usersList[1].Email);
         result[2].PhoneNumber.Should().Be(usersList[2].PhoneNumber);
+        result[0].IsActive.Should().BeTrue();
     }
 
     [Fact]
     public async Task GetByIdAsync_Should_Return_User_When_Exists()
     {
         // Arrange
-        var user = Builder<ApplicationUser>.CreateNew().Build();
+        var user = Builder<ApplicationUser>.CreateNew()
+            .With(u => u.IsActive = true).Build();
         _userManager.FindByIdAsync(user.Id).Returns(user);
 
         // Act
@@ -169,6 +387,7 @@ public class UserServiceTests : BaseServiceTestConfiguration
         result.Id.Should().Be(user.Id);
         result.UserName.Should().Be(user.UserName);
         result.Email.Should().Be(user.Email);
+        result.IsActive.Should().BeTrue();
     }
 
     [Fact]
