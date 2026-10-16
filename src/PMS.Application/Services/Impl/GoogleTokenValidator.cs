@@ -18,7 +18,8 @@ public class GoogleTokenValidator(IConfiguration configuration) : IGoogleTokenVa
             payload = await GoogleJsonWebSignature.ValidateAsync(idToken,
                 new GoogleJsonWebSignature.ValidationSettings { Audience = [clientId] });
         }
-        catch (InvalidJwtException)
+        // A garbled token can also fail inside the library's base64/JSON decoding, not only as InvalidJwtException
+        catch (Exception ex) when (ex is InvalidJwtException or FormatException or Newtonsoft.Json.JsonException or ArgumentException)
         {
             throw new BadRequestException("Google sign-in failed. Please try again.");
         }

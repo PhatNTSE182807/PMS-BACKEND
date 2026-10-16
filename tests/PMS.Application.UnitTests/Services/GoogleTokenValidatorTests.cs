@@ -29,14 +29,16 @@ public class GoogleTokenValidatorTests
         await act.Should().ThrowAsync<BadRequestException>().WithMessage("Google sign-in is not configured on the server.");
     }
 
-    [Fact]
-    public async Task ValidateAsync_Should_Reject_A_Malformed_Token()
+    [Theory]
+    [InlineData("not-a-jwt")]
+    [InlineData("fake.token.value")]
+    public async Task ValidateAsync_Should_Reject_A_Malformed_Token(string idToken)
     {
         // Arrange
         var sut = CreateSut("1234-test.apps.googleusercontent.com");
 
         // Act
-        Func<Task> act = () => sut.ValidateAsync("not-a-jwt");
+        Func<Task> act = () => sut.ValidateAsync(idToken);
 
         // Assert
         await act.Should().ThrowAsync<BadRequestException>().WithMessage("Google sign-in failed. Please try again.");
