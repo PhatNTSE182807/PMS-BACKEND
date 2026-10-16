@@ -102,7 +102,7 @@ public class UsersController(
     public async Task<IActionResult> RequestLoginOtpAsync(RequestLoginOtpModel model)
     {
         await userService.RequestLoginOtpAsync(model);
-        return Ok(ApiResult<string>.Success("If the email is registered, a login code has been sent to it."));
+        return Ok(ApiResult<string>.Success("A login code has been sent to your email."));
     }
 
     [HttpPost("login-otp/verify")]

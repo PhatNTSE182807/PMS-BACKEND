@@ -333,10 +333,13 @@ public class UserService(
 
     public async Task RequestLoginOtpAsync(RequestLoginOtpModel model)
     {
-        var user = await userManager.FindByEmailAsync(model.Email.Trim());
+        var email = model.Email.Trim();
+        // No sign-up step: a new email gets a customer account, confirmed once the code is used
+        var user = await userManager.FindByEmailAsync(email) ?? await CreatePasswordlessCustomerAsync(email);
 
-        // Unknown or locked-out accounts get the same response, so the endpoint doesn't reveal registered emails
-        if (user == null || await userManager.IsLockedOutAsync(user))
+        // Locked-out, deactivated and internal accounts get the same response but no code.
+        // Manager/Staff/Admin accounts must sign in with their password (and second factor).
+        if (await userManager.IsLockedOutAsync(user) || !user.IsActive || IsInternalRole(user.Role))
             return;
 
         var code = await userManager.GenerateUserTokenAsync(user, TokenOptions.DefaultEmailProvider, LoginOtpPurpose);
@@ -356,11 +359,14 @@ public class UserService(
     {
         var user = await userManager.FindByEmailAsync(model.Email.Trim());
 
-        if (user == null)
+        if (user == null || IsInternalRole(user.Role))
             throw new BadRequestException(InvalidLoginOtpMessage);
 
         if (await userManager.IsLockedOutAsync(user))
             throw new BadRequestException("Too many failed attempts. Please try again in a few minutes.");
+
+        if (!user.IsActive)
+            throw new BadRequestException("Account is deactivated. Please contact an administrator.");
 
         var isValid = await userManager.VerifyUserTokenAsync(user, TokenOptions.DefaultEmailProvider, LoginOtpPurpose, model.Code.Trim());
 
@@ -371,10 +377,74 @@ public class UserService(
         }
 
         await userManager.ResetAccessFailedCountAsync(user);
+
+        // Using the code proves the mailbox belongs to the user
+        if (!user.EmailConfirmed)
+        {
+            user.EmailConfirmed = true;
+            await userManager.UpdateAsync(user);
+        }
+
         // Codes are derived from the security stamp, so rotating it makes this code single-use
         await userManager.UpdateSecurityStampAsync(user);
 
         return BuildLoginResponse(user);
+    }
+
+    private static bool IsInternalRole(string role) => role is "Admin" or "Manager" or "Staff";
+
+    /// <summary>Creates a password-less customer account for an email that has never signed in.</summary>
+    private async Task<ApplicationUser> CreatePasswordlessCustomerAsync(string email)
+    {
+        var user = new ApplicationUser
+        {
+            UserName = await UniqueUserNameAsync(email),
+            Email = email,
+            EmailConfirmed = false,
+            Role = "User"
+        };
+
+        var result = await userManager.CreateAsync(user);
+        if (!result.Succeeded) throw new BadRequestException(result.Errors.FirstOrDefault()?.Description);
+
+        if (pmsContext != null)
+        {
+            try
+            {
+                pmsContext.Customers.Add(new Customer
+                {
+                    UserId = user.Id,
+                    CustomerCode = $"CUS-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                    FullName = user.UserName,
+                    Email = user.Email,
+                    CustomerType = "Individual",
+                    MembershipTier = "Standard",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                });
+                await pmsContext.SaveChangesAsync();
+            }
+            catch
+            {
+                await userManager.DeleteAsync(user);
+                throw;
+            }
+        }
+
+        return user;
+    }
+
+    /// <summary>"an.nguyen@gmail.com" -> "an.nguyen", then "an.nguyen2"… if the name is taken.</summary>
+    private async Task<string> UniqueUserNameAsync(string email)
+    {
+        var baseName = new string(email.Split('@')[0].Where(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-').ToArray());
+        if (string.IsNullOrEmpty(baseName)) baseName = "user";
+
+        var userName = baseName;
+        for (var n = 2; await userManager.FindByNameAsync(userName) != null; n++)
+            userName = $"{baseName}{n}";
+
+        return userName;
     }
 
     private LoginResponseModel BuildLoginResponse(ApplicationUser user)

@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using PMS.API;
 using PMS.Api.IntegrationTests.Common;
@@ -12,6 +13,7 @@ using PMS.Api.IntegrationTests.Helpers;
 using PMS.Api.IntegrationTests.Helpers.Services;
 using PMS.Application.Models.User;
 using PMS.Application.Services;
+using PMS.DataAccess.Identity;
 using Xunit;
 
 namespace PMS.Api.IntegrationTests.Tests;
@@ -19,6 +21,9 @@ namespace PMS.Api.IntegrationTests.Tests;
 public class LoginOtpEndpointTests
 {
     private readonly ApiApplicationFactory<Program> _factory = new();
+
+    // Passwordless login is for customers; an email that never signed in gets an account on request
+    private const string CustomerEmail = "otp.customer@gmail.com";
 
     private EmailTestService EmailService => (EmailTestService)_factory.Services.GetRequiredService<IEmailService>();
 
@@ -32,22 +37,22 @@ public class LoginOtpEndpointTests
 
     private async Task<string> RequestCodeAsync(HttpClient client)
     {
-        var request = new RequestLoginOtpModel { Email = UserConstants.DefaultUserDb.Email };
+        var request = new RequestLoginOtpModel { Email = CustomerEmail };
         var apiResponse = await client.PostAsync("/api/users/login-otp/request", new JsonContent(request));
         apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var email = EmailService.SentEmails.Last(e => e.ToAddress == UserConstants.DefaultUserDb.Email);
+        var email = EmailService.SentEmails.Last(e => e.ToAddress == CustomerEmail);
         return Regex.Match(email.Body, @"\b\d{6}\b").Value;
     }
 
     private static Task<HttpResponseMessage> VerifyAsync(HttpClient client, string code)
     {
-        var model = new VerifyLoginOtpModel { Email = UserConstants.DefaultUserDb.Email, Code = code };
+        var model = new VerifyLoginOtpModel { Email = CustomerEmail, Code = code };
         return client.PostAsync("/api/users/login-otp/verify", new JsonContent(model));
     }
 
     [Fact]
-    public async Task Request_Should_Send_Six_Digit_Code_To_Registered_Email()
+    public async Task Request_Should_Send_Six_Digit_Code_To_The_Email()
     {
         // Arrange
         var client = await CreateAnonymousClientAsync();
@@ -60,18 +65,37 @@ public class LoginOtpEndpointTests
     }
 
     [Fact]
-    public async Task Request_For_Unknown_Email_Should_Return_Ok_Without_Sending_Email()
+    public async Task Request_For_New_Email_Should_Create_Customer_Account()
     {
         // Arrange
         var client = await CreateAnonymousClientAsync();
-        var request = new RequestLoginOtpModel { Email = "nobody@gmail.com" };
+
+        // Act
+        await RequestCodeAsync(client);
+
+        // Assert
+        using var scope = _factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.FindByEmailAsync(CustomerEmail);
+        user.Should().NotBeNull();
+        user!.Role.Should().Be("User");
+        user.UserName.Should().Be("otp.customer");
+        user.EmailConfirmed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Request_For_Internal_Account_Should_Return_Ok_Without_Sending_Email()
+    {
+        // Arrange: the default test user is an Admin, who must sign in with a password
+        var client = await CreateAnonymousClientAsync();
+        var request = new RequestLoginOtpModel { Email = UserConstants.DefaultUserDb.Email };
 
         // Act
         var apiResponse = await client.PostAsync("/api/users/login-otp/request", new JsonContent(request));
 
         // Assert
         apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        EmailService.SentEmails.Should().NotContain(e => e.ToAddress == "nobody@gmail.com");
+        EmailService.SentEmails.Should().NotContain(e => e.ToAddress == UserConstants.DefaultUserDb.Email);
     }
 
     [Fact]
@@ -88,8 +112,13 @@ public class LoginOtpEndpointTests
         apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var response = await ResponseHelper.GetApiResultAsync<LoginResponseModel>(apiResponse);
         CheckResponse.Succeeded(response);
-        response.Result.Email.Should().Be(UserConstants.DefaultUserDb.Email);
+        response.Result.Email.Should().Be(CustomerEmail);
+        response.Result.Role.Should().Be("User");
         response.Result.Token.Should().NotBeNullOrWhiteSpace();
+
+        using var scope = _factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        (await userManager.FindByEmailAsync(CustomerEmail))!.EmailConfirmed.Should().BeTrue();
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
+        <UserSecretsId>xxiv-parking-api</UserSecretsId>
         <TargetFramework>net9.0</TargetFramework>
         <RootNamespace>PMS.API</RootNamespace>
         <ImplicitUsings>enable</ImplicitUsings>
