@@ -1,21 +1,24 @@
 using FluentValidation;
+using PMS.Application.Helpers;
 using PMS.Application.Models.Profile;
-using PMS.Application.Models.Validators.User;
 
 namespace PMS.Application.Models.Validators.Profile;
 
 public class CreateVehicleModelValidator : AbstractValidator<CreateVehicleModel>
 {
+    internal const string InvalidPlateMessage =
+        "License plate is not a valid Vietnamese plate (e.g. 51A-123.45, 30E-1234, 29-B1 123.45).";
+
     public CreateVehicleModelValidator()
     {
         RuleFor(x => x.LicensePlate)
+            .Cascade(CascadeMode.Stop)
             .NotEmpty()
             .WithMessage("License plate is required.")
             .MaximumLength(20)
             .WithMessage("License plate must not exceed 20 characters.")
-            .Matches(UserValidatorConfiguration.VietnamLicensePlateRegex)
-            .WithMessage("License plate must follow a valid Vietnamese format (e.g. 29A-12345, 51A1-1234, 29-AB 12345).")
-            .When(x => !string.IsNullOrWhiteSpace(x.LicensePlate));
+            .Must(LicensePlateHelper.IsValidVietnamesePlate)
+            .WithMessage(InvalidPlateMessage);
 
         RuleFor(x => x.VehicleTypeId)
             .GreaterThan(0)
@@ -40,13 +43,13 @@ public class UpdateVehicleModelValidator : AbstractValidator<UpdateVehicleModel>
     public UpdateVehicleModelValidator()
     {
         RuleFor(x => x.LicensePlate)
+            .Cascade(CascadeMode.Stop)
             .NotEmpty()
             .WithMessage("License plate is required.")
             .MaximumLength(20)
             .WithMessage("License plate must not exceed 20 characters.")
-            .Matches(UserValidatorConfiguration.VietnamLicensePlateRegex)
-            .WithMessage("License plate must follow a valid Vietnamese format (e.g. 29A-12345, 51A1-1234, 29-AB 12345).")
-            .When(x => !string.IsNullOrWhiteSpace(x.LicensePlate));
+            .Must(LicensePlateHelper.IsValidVietnamesePlate)
+            .WithMessage(CreateVehicleModelValidator.InvalidPlateMessage);
 
         RuleFor(x => x.VehicleTypeId)
             .GreaterThan(0)

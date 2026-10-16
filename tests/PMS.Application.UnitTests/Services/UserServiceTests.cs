@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Identity;
 using MockQueryable;
 using PMS.Application.Exceptions;
 using PMS.Application.Models.User;
+using PMS.Application.Services;
 using PMS.Application.Services.Impl;
 using PMS.DataAccess.Identity;
 using NSubstitute;
@@ -21,6 +22,7 @@ public class UserServiceTests : BaseServiceTestConfiguration
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly UserService _sut;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IEmailService _emailService;
 
     public UserServiceTests()
     {
@@ -32,7 +34,9 @@ public class UserServiceTests : BaseServiceTestConfiguration
         _signInManager = Substitute.For<SignInManager<ApplicationUser>>(_userManager, contextAccessor,
             userPrincipalFactory, null, null, null, null);
 
-        _sut = new UserService(Mapper, _userManager, _signInManager, Configuration);
+        _emailService = Substitute.For<IEmailService>();
+
+        _sut = new UserService(Mapper, _userManager, _signInManager, Configuration, emailService: _emailService);
     }
 
     [Fact]
@@ -87,7 +91,7 @@ public class UserServiceTests : BaseServiceTestConfiguration
         Func<Task> callCreateAsync = async () => await _sut.LoginAsync(loginUserModel);
 
         // Assert
-        await callCreateAsync.Should().ThrowAsync<NotFoundException>().WithMessage("Username or password is incorrect");
+        await callCreateAsync.Should().ThrowAsync<BadRequestException>().WithMessage("Email or password is incorrect");
     }
 
     [Fact]
@@ -109,7 +113,7 @@ public class UserServiceTests : BaseServiceTestConfiguration
 
         // Assert
         await callCreateAsync.Should().ThrowAsync<BadRequestException>()
-            .WithMessage("Username or password is incorrect");
+            .WithMessage("Email or password is incorrect");
         await _signInManager.Received(1).PasswordSignInAsync(Arg.Any<ApplicationUser>(), Arg.Any<string>(),
             Arg.Any<bool>(), Arg.Any<bool>());
     }

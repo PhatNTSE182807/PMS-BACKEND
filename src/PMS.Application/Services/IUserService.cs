@@ -17,6 +17,10 @@ public interface IUserService
 
     Task<LoginResponseModel> LoginAsync(LoginUserModel loginUserModel);
 
+    Task RequestLoginOtpAsync(RequestLoginOtpModel model);
+
+    Task<LoginResponseModel> LoginWithOtpAsync(VerifyLoginOtpModel model);
+
     Task<IEnumerable<UserResponseModel>> GetAllAsync(string role = null, bool? isActive = null, string searchTerm = null);
 
     Task<IEnumerable<UserResponseModel>> GetInternalUsersAsync(string role = null, bool? isActive = null, string searchTerm = null);

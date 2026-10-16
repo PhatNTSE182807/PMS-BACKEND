@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using PMS.API.Filters;
 
 namespace PMS.API;
 
@@ -49,10 +50,12 @@ public static class ApiDependencyInjection
         {
             s.SwaggerDoc("v1", new OpenApiInfo
             {
-                Title = "Parking Management System",
+                Title = "XXIV Parking",
                 Version = "v1",
-                Description = "API for Parking Management System"
+                Description = "API for XXIV Parking"
             });
+
+            s.DocumentFilter<SwaggerTagsDocumentFilter>();
 
             s.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {

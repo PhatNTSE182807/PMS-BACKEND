@@ -35,7 +35,7 @@ using var scope = app.Services.CreateScope();
 await AutomatedMigration.MigrateAsync(scope.ServiceProvider);
 
 app.UseSwagger();
-app.UseSwaggerUI(c => { c.SwaggerEndpoint("/swagger/v1/swagger.json", "Parking Management System V1"); });
+app.UseSwaggerUI(c => { c.SwaggerEndpoint("/swagger/v1/swagger.json", "XXIV Parking V1"); });
 
 app.UseHttpsRedirection();
 

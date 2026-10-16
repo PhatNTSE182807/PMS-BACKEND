@@ -10,12 +10,23 @@ using PMS.Shared.Services;
 
 namespace PMS.API.Controllers;
 
+/// <summary>Swagger groups for the user endpoints (all served under /api/Users).</summary>
+internal static class SwaggerTags
+{
+    public const string Authentication = "User Authentication";
+
+    public const string Profile = "User Profile Management";
+
+    public const string Management = "User Management";
+}
+
 public class UsersController(
     IUserService userService,
     IUserProfileService userProfileService,
     IClaimService claimService) : ApiController
 {
     [HttpGet]
+    [Tags(SwaggerTags.Management)]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> GetAllAsync([FromQuery] string role = null, [FromQuery] bool? isActive = null, [FromQuery] string searchTerm = null)
     {
@@ -23,6 +34,7 @@ public class UsersController(
     }
 
     [HttpGet("{id}")]
+    [Tags(SwaggerTags.Management)]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> GetByIdAsync(string id)
     {
@@ -45,6 +57,7 @@ public class UsersController(
     }
 
     [HttpPost("register")]
+    [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
     public async Task<IActionResult> RegisterAsync(CreateUserModel createUserModel)
     {
@@ -52,6 +65,7 @@ public class UsersController(
     }
 
     [HttpPost("authenticate")]
+    [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
     public async Task<IActionResult> LoginAsync(LoginUserModel loginUserModel)
     {
@@ -59,6 +73,7 @@ public class UsersController(
     }
 
     [HttpPost("two-factor")]
+    [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
     public async Task<IActionResult> VerifyTwoFactorAsync([FromBody] TwoFactorLoginModel model)
     {
@@ -66,34 +81,40 @@ public class UsersController(
     }
 
     [HttpPost("two-factor/resend")]
+    [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
     public async Task<IActionResult> ResendTwoFactorOtpAsync([FromBody] ResendTwoFactorModel model)
     {
         return Ok(ApiResult<ResendTwoFactorResponseModel>.Success(await userService.ResendTwoFactorOtpAsync(model)));
     }
 
-    [HttpPost("login-otp/verify")]
-    [AllowAnonymous]
-    public async Task<IActionResult> VerifyLoginOtpAsync([FromBody] TwoFactorLoginModel model)
-    {
-        return Ok(ApiResult<LoginResponseModel>.Success(await userService.VerifyTwoFactorAsync(model)));
-    }
-
-    [HttpPost("login-otp/request")]
-    [AllowAnonymous]
-    public async Task<IActionResult> RequestLoginOtpAsync([FromBody] ResendTwoFactorModel model)
-    {
-        return Ok(ApiResult<ResendTwoFactorResponseModel>.Success(await userService.ResendTwoFactorOtpAsync(model)));
-    }
-
     [HttpPost("activate")]
+    [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
     public async Task<IActionResult> ActivateAccountAsync([FromBody] ActivateAccountModel model)
     {
         return Ok(ApiResult<bool>.Success(await userService.ActivateAccountAsync(model)));
     }
 
+    [HttpPost("login-otp/request")]
+    [Tags(SwaggerTags.Authentication)]
+    [AllowAnonymous]
+    public async Task<IActionResult> RequestLoginOtpAsync(RequestLoginOtpModel model)
+    {
+        await userService.RequestLoginOtpAsync(model);
+        return Ok(ApiResult<string>.Success("If the email is registered, a login code has been sent to it."));
+    }
+
+    [HttpPost("login-otp/verify")]
+    [Tags(SwaggerTags.Authentication)]
+    [AllowAnonymous]
+    public async Task<IActionResult> LoginWithOtpAsync(VerifyLoginOtpModel model)
+    {
+        return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginWithOtpAsync(model)));
+    }
+
     [HttpGet("profile")]
+    [Tags(SwaggerTags.Profile)]
     [Authorize]
     public async Task<IActionResult> GetProfileAsync()
     {
@@ -102,6 +123,7 @@ public class UsersController(
     }
 
     [HttpPut("profile")]
+    [Tags(SwaggerTags.Profile)]
     [Authorize]
     public async Task<IActionResult> UpdateProfileAsync([FromBody] UpdateUserProfileModel model)
     {
@@ -110,6 +132,7 @@ public class UsersController(
     }
 
     [HttpGet("profile/vehicles")]
+    [Tags(SwaggerTags.Profile)]
     [Authorize]
     public async Task<IActionResult> GetVehiclesAsync()
     {
@@ -118,6 +141,7 @@ public class UsersController(
     }
 
     [HttpPost("profile/vehicles")]
+    [Tags(SwaggerTags.Profile)]
     [Authorize]
     public async Task<IActionResult> AddVehicleAsync([FromBody] CreateVehicleModel model)
     {
@@ -126,6 +150,7 @@ public class UsersController(
     }
 
     [HttpPut("profile/vehicles/{vehicleId:guid}")]
+    [Tags(SwaggerTags.Profile)]
     [Authorize]
     public async Task<IActionResult> UpdateVehicleAsync(Guid vehicleId, [FromBody] UpdateVehicleModel model)
     {
@@ -134,6 +159,7 @@ public class UsersController(
     }
 
     [HttpDelete("profile/vehicles/{vehicleId:guid}")]
+    [Tags(SwaggerTags.Profile)]
     [Authorize]
     public async Task<IActionResult> DeleteVehicleAsync(Guid vehicleId)
     {
@@ -142,6 +168,7 @@ public class UsersController(
     }
 
     [HttpPatch("profile/vehicles/{vehicleId:guid}/default")]
+    [Tags(SwaggerTags.Profile)]
     [Authorize]
     public async Task<IActionResult> SetDefaultVehicleAsync(Guid vehicleId)
     {
@@ -150,6 +177,7 @@ public class UsersController(
     }
 
     [HttpGet("profile/vehicle-types")]
+    [Tags(SwaggerTags.Profile)]
     [Authorize]
     public async Task<IActionResult> GetVehicleTypesAsync()
     {
@@ -157,6 +185,7 @@ public class UsersController(
     }
 
     [HttpPut("profile/change-password")]
+    [Tags(SwaggerTags.Profile)]
     [Authorize]
     public async Task<IActionResult> ChangePasswordAsync([FromBody] ChangePasswordModel model)
     {
@@ -165,6 +194,7 @@ public class UsersController(
     }
 
     [HttpGet("{id}/profile")]
+    [Tags(SwaggerTags.Management)]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> GetProfileByUserIdAsync(string id)
     {

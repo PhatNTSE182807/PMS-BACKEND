@@ -10,9 +10,13 @@ public class EmailTestService : IEmailService
 {
     public static ConcurrentBag<EmailMessage> SentMessages { get; } = new();
 
+    public ConcurrentQueue<EmailMessage> SentEmails { get; } = new();
+
     public async Task SendEmailAsync(EmailMessage emailMessage)
     {
+        await Task.Delay(100);
+
         SentMessages.Add(emailMessage);
-        await Task.CompletedTask;
+        SentEmails.Enqueue(emailMessage);
     }
 }

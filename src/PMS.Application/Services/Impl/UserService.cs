@@ -1,3 +1,4 @@
+using System.Net;
 using MapsterMapper;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +27,10 @@ public class UserService(
     ITemplateService templateService = null)
     : IUserService
 {
+    private const string LoginOtpPurpose = "LoginOtp";
+
+    private const string InvalidLoginOtpMessage = "Login code is invalid or has expired";
+
     public async Task<CreateUserResponseModel> CreateAsync(CreateUserModel createUserModel)
     {
         var user = mapper.Map<ApplicationUser>(createUserModel);
@@ -222,17 +227,20 @@ public class UserService(
 
     public async Task<LoginResponseModel> LoginAsync(LoginUserModel loginUserModel)
     {
-        var identifier = !string.IsNullOrWhiteSpace(loginUserModel.Username)
-            ? loginUserModel.Username.Trim()
-            : loginUserModel.Email?.Trim();
+        // Internal accounts sign in with a username, customers with an email; accept either
+        var username = loginUserModel.Username?.Trim();
+        var email = loginUserModel.Email?.Trim();
 
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new NotFoundException("Username or password is incorrect");
+        if (string.IsNullOrWhiteSpace(username) && string.IsNullOrWhiteSpace(email))
+            throw new BadRequestException("Email or password is incorrect");
 
-        var user = await userManager.Users.FirstOrDefaultAsync(u => u.UserName == identifier || u.Email == identifier);
+        var user = await userManager.Users.FirstOrDefaultAsync(u =>
+            (username != null && (u.UserName == username || u.Email == username)) ||
+            (email != null && u.Email == email));
 
+        // Same status as a wrong password so the response doesn't reveal which emails are registered
         if (user == null)
-            throw new NotFoundException("Username or password is incorrect");
+            throw new BadRequestException("Email or password is incorrect");
 
         if (!user.IsActive)
         {
@@ -248,7 +256,7 @@ public class UserService(
         var signInResult = await signInManager.PasswordSignInAsync(user, loginUserModel.Password, false, false);
 
         if (!signInResult.Succeeded && !signInResult.RequiresTwoFactor)
-            throw new BadRequestException("Username or password is incorrect");
+            throw new BadRequestException("Email or password is incorrect");
 
         var requiresTwoFactor = user.TwoFactorEnabled || signInResult.RequiresTwoFactor;
 
@@ -320,8 +328,57 @@ public class UserService(
             };
         }
 
-        var token = JwtHelper.GenerateToken(user, configuration);
+        return BuildLoginResponse(user);
+    }
 
+    public async Task RequestLoginOtpAsync(RequestLoginOtpModel model)
+    {
+        var user = await userManager.FindByEmailAsync(model.Email.Trim());
+
+        // Unknown or locked-out accounts get the same response, so the endpoint doesn't reveal registered emails
+        if (user == null || await userManager.IsLockedOutAsync(user))
+            return;
+
+        var code = await userManager.GenerateUserTokenAsync(user, TokenOptions.DefaultEmailProvider, LoginOtpPurpose);
+
+        var body = $"""
+            <p>Hello {WebUtility.HtmlEncode(user.UserName)},</p>
+            <p>Your XXIV Parking login code is:</p>
+            <p style="font-size:28px;font-weight:bold;letter-spacing:6px">{code}</p>
+            <p>The code is valid for a few minutes and can be used only once.
+            If you did not request it, you can ignore this email.</p>
+            """;
+
+        await emailService.SendEmailAsync(EmailMessage.Create(user.Email, body, "Your login code"));
+    }
+
+    public async Task<LoginResponseModel> LoginWithOtpAsync(VerifyLoginOtpModel model)
+    {
+        var user = await userManager.FindByEmailAsync(model.Email.Trim());
+
+        if (user == null)
+            throw new BadRequestException(InvalidLoginOtpMessage);
+
+        if (await userManager.IsLockedOutAsync(user))
+            throw new BadRequestException("Too many failed attempts. Please try again in a few minutes.");
+
+        var isValid = await userManager.VerifyUserTokenAsync(user, TokenOptions.DefaultEmailProvider, LoginOtpPurpose, model.Code.Trim());
+
+        if (!isValid)
+        {
+            await userManager.AccessFailedAsync(user);
+            throw new BadRequestException(InvalidLoginOtpMessage);
+        }
+
+        await userManager.ResetAccessFailedCountAsync(user);
+        // Codes are derived from the security stamp, so rotating it makes this code single-use
+        await userManager.UpdateSecurityStampAsync(user);
+
+        return BuildLoginResponse(user);
+    }
+
+    private LoginResponseModel BuildLoginResponse(ApplicationUser user)
+    {
         return new LoginResponseModel
         {
             UserId = user.Id,
@@ -329,7 +386,7 @@ public class UserService(
             Email = user.Email,
             PhoneNumber = user.PhoneNumber,
             Role = user.Role,
-            Token = token,
+            Token = JwtHelper.GenerateToken(user, configuration),
             RequiresTwoFactor = false,
             TwoFactorToken = null,
             Destination = null
