@@ -34,10 +34,14 @@ public static class ApplicationDependencyInjection
         services.AddScoped<IClaimService, ClaimService>();
         services.AddScoped<ITemplateService, TemplateService>();
 
-        if (env.IsDevelopment())
-            services.AddScoped<IEmailService, DevEmailService>();
-        else
-            services.AddScoped<IEmailService, EmailService>();
+        // Development only logs emails until real SMTP credentials are set (e.g. in user-secrets)
+        services.AddScoped<IEmailService>(sp =>
+        {
+            var smtpSettings = sp.GetRequiredService<SmtpSettings>();
+            return env.IsDevelopment() && !smtpSettings.IsConfigured
+                ? ActivatorUtilities.CreateInstance<DevEmailService>(sp)
+                : new EmailService(smtpSettings);
+        });
     }
 
     private static void RegisterMapper(this IServiceCollection services)
