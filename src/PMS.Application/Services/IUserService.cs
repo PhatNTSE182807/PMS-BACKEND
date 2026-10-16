@@ -21,6 +21,8 @@ public interface IUserService
 
     Task<LoginResponseModel> LoginWithOtpAsync(VerifyLoginOtpModel model);
 
+    Task<LoginResponseModel> LoginWithGoogleAsync(GoogleLoginModel model);
+
     Task<IEnumerable<UserResponseModel>> GetAllAsync(string role = null, bool? isActive = null, string searchTerm = null);
 
     Task<IEnumerable<UserResponseModel>> GetInternalUsersAsync(string role = null, bool? isActive = null, string searchTerm = null);

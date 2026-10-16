@@ -33,6 +33,7 @@ public static class ApplicationDependencyInjection
         services.AddScoped<ISlotService, SlotService>();
         services.AddScoped<IClaimService, ClaimService>();
         services.AddScoped<ITemplateService, TemplateService>();
+        services.AddScoped<IGoogleTokenValidator, GoogleTokenValidator>();
 
         // Development only logs emails until real SMTP credentials are set (e.g. in user-secrets)
         services.AddScoped<IEmailService>(sp =>

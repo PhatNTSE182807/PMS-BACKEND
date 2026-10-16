@@ -67,6 +67,7 @@ public class ApiApplicationFactory<TProgram> : WebApplicationFactory<TProgram> w
         {
             services.AddSingleton<IEmailService, EmailTestService>();
             services.AddScoped<ITemplateService, TemplateTestService>();
+            services.AddScoped<IGoogleTokenValidator, GoogleTokenTestValidator>();
         });
     }
     

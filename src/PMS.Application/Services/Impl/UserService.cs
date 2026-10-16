@@ -24,7 +24,8 @@ public class UserService(
     IConfiguration configuration,
     PmsDbContext pmsContext = null,
     IEmailService emailService = null,
-    ITemplateService templateService = null)
+    ITemplateService templateService = null,
+    IGoogleTokenValidator googleTokenValidator = null)
     : IUserService
 {
     private const string LoginOtpPurpose = "LoginOtp";
@@ -391,16 +392,50 @@ public class UserService(
         return BuildLoginResponse(user);
     }
 
+    public async Task<LoginResponseModel> LoginWithGoogleAsync(GoogleLoginModel model)
+    {
+        if (googleTokenValidator == null)
+            throw new InvalidOperationException("Google sign-in is not available.");
+
+        var google = await googleTokenValidator.ValidateAsync(model.IdToken);
+
+        if (string.IsNullOrWhiteSpace(google.Email) || !google.EmailVerified)
+            throw new BadRequestException("Your Google account has no verified email address.");
+
+        // No sign-up step: the first Google sign-in creates the customer account
+        var user = await userManager.FindByEmailAsync(google.Email)
+                   ?? await CreatePasswordlessCustomerAsync(google.Email, google.Name, emailConfirmed: true);
+
+        // Internal accounts keep their password + second-factor login
+        if (IsInternalRole(user.Role))
+            throw new BadRequestException("Staff and administrator accounts must sign in with their username and password.");
+
+        if (!user.IsActive)
+            throw new BadRequestException("Account is deactivated. Please contact an administrator.");
+
+        if (await userManager.IsLockedOutAsync(user))
+            throw new BadRequestException("Too many failed attempts. Please try again in a few minutes.");
+
+        // Google has verified the address
+        if (!user.EmailConfirmed)
+        {
+            user.EmailConfirmed = true;
+            await userManager.UpdateAsync(user);
+        }
+
+        return BuildLoginResponse(user);
+    }
+
     private static bool IsInternalRole(string role) => role is "Admin" or "Manager" or "Staff";
 
     /// <summary>Creates a password-less customer account for an email that has never signed in.</summary>
-    private async Task<ApplicationUser> CreatePasswordlessCustomerAsync(string email)
+    private async Task<ApplicationUser> CreatePasswordlessCustomerAsync(string email, string fullName = null, bool emailConfirmed = false)
     {
         var user = new ApplicationUser
         {
             UserName = await UniqueUserNameAsync(email),
             Email = email,
-            EmailConfirmed = false,
+            EmailConfirmed = emailConfirmed,
             Role = "User"
         };
 
@@ -415,7 +450,7 @@ public class UserService(
                 {
                     UserId = user.Id,
                     CustomerCode = $"CUS-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
-                    FullName = user.UserName,
+                    FullName = !string.IsNullOrWhiteSpace(fullName) ? fullName.Trim() : user.UserName,
                     Email = user.Email,
                     CustomerType = "Individual",
                     MembershipTier = "Standard",

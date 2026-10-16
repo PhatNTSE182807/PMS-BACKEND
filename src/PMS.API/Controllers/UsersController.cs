@@ -113,6 +113,14 @@ public class UsersController(
         return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginWithOtpAsync(model)));
     }
 
+    [HttpPost("login-google")]
+    [Tags(SwaggerTags.Authentication)]
+    [AllowAnonymous]
+    public async Task<IActionResult> LoginWithGoogleAsync(GoogleLoginModel model)
+    {
+        return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginWithGoogleAsync(model)));
+    }
+
     [HttpGet("profile")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
