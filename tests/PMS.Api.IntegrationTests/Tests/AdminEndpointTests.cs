@@ -52,6 +52,32 @@ public class AdminEndpointTests
     }
 
     [Fact]
+    public async Task GetUsers_After_Creating_Manager_Should_Return_CreatedAt_And_Pending_Activation()
+    {
+        var adminClient = await _factory.CreateDefaultClientAsync();
+        var email = $"mgr_{Guid.NewGuid():N}@test.com";
+        var createResponse = await adminClient.PostAsync("/api/admin/managers", new JsonContent(new CreateEmployeeAccountModel
+        {
+            UserName = $"mgr_{Guid.NewGuid():N}"[..15],
+            FullName = "Listed Manager",
+            Email = email,
+            PhoneNumber = "0901234567"
+        }));
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var listResponse = await adminClient.GetAsync("/api/admin/users?role=Manager");
+
+        listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var list = await ResponseHelper.GetApiResultAsync<List<UserResponseModel>>(listResponse);
+        var manager = list.Result.Single(u => u.Email == email);
+        manager.FullName.Should().Be("Listed Manager");
+        manager.EmployeeCode.Should().MatchRegex(@"^QL\d{6}$");
+        manager.CreatedAt.Should().NotBeNull();
+        manager.IsActive.Should().BeFalse();
+        manager.IsPendingActivation.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task CreateStaff_WhenAdmin_Should_Return_Success_With_NV_Code()
     {
         var adminClient = await _factory.CreateDefaultClientAsync();

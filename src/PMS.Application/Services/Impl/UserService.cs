@@ -428,6 +428,10 @@ public class UserService(
 
     private static bool IsInternalRole(string role) => role is "Admin" or "Manager" or "Staff";
 
+    /// <summary>Created by an Admin but the activation link has not been used yet.</summary>
+    private static bool IsPendingActivation(ApplicationUser user) =>
+        user.Role is "Manager" or "Staff" && !user.EmailConfirmed;
+
     /// <summary>Creates a password-less customer account for an email that has never signed in.</summary>
     private async Task<ApplicationUser> CreatePasswordlessCustomerAsync(string email, string fullName = null, bool emailConfirmed = false)
     {
@@ -782,7 +786,9 @@ public class UserService(
                 PhoneNumber = u.PhoneNumber,
                 Role = u.Role,
                 EmployeeCode = emp?.EmployeeCode,
-                IsActive = u.IsActive
+                IsActive = u.IsActive,
+                CreatedAt = emp?.CreatedAt,
+                IsPendingActivation = IsPendingActivation(u)
             };
         });
     }
@@ -844,7 +850,9 @@ public class UserService(
                 PhoneNumber = u.PhoneNumber,
                 Role = u.Role,
                 EmployeeCode = emp?.EmployeeCode,
-                IsActive = u.IsActive
+                IsActive = u.IsActive,
+                CreatedAt = emp?.CreatedAt,
+                IsPendingActivation = IsPendingActivation(u)
             };
         });
     }
@@ -858,6 +866,7 @@ public class UserService(
 
         string employeeCode = null;
         string fullName = null;
+        DateTime? createdAt = null;
         if (pmsContext != null)
         {
             var emp = await pmsContext.Employees.FirstOrDefaultAsync(e => e.UserId == user.Id);
@@ -865,6 +874,7 @@ public class UserService(
             {
                 employeeCode = emp.EmployeeCode;
                 fullName = emp.FullName;
+                createdAt = emp.CreatedAt;
             }
         }
 
@@ -877,7 +887,9 @@ public class UserService(
             PhoneNumber = user.PhoneNumber,
             Role = user.Role,
             EmployeeCode = employeeCode,
-            IsActive = user.IsActive
+            IsActive = user.IsActive,
+            CreatedAt = createdAt,
+            IsPendingActivation = IsPendingActivation(user)
         };
     }
 
