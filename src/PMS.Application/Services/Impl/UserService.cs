@@ -9,7 +9,6 @@ using PMS.Application.Helpers;
 using PMS.Application.Models;
 using PMS.Application.Models.Admin;
 using PMS.Application.Models.User;
-using PMS.Application.Templates;
 using PMS.DataAccess.Identity;
 
 using PMS.DataAccess.Persistence;
@@ -24,7 +23,6 @@ public class UserService(
     IConfiguration configuration,
     PmsDbContext pmsContext = null,
     IEmailService emailService = null,
-    ITemplateService templateService = null,
     IGoogleTokenValidator googleTokenValidator = null)
     : IUserService
 {
@@ -123,19 +121,21 @@ public class UserService(
                 ? "Staff"
                 : throw new BadRequestException("Role must be either 'Manager' or 'Staff'");
 
+        // The Admin sets the password, so the account can sign in straight away (no activation email)
+        if (string.IsNullOrEmpty(password))
+            throw new BadRequestException("Password is required");
+
         var user = new ApplicationUser
         {
             UserName = userName,
             Email = email,
             PhoneNumber = phoneNumber,
             Role = normalizedRole,
-            EmailConfirmed = false,
-            IsActive = false
+            EmailConfirmed = true,
+            IsActive = true
         };
 
-        var result = string.IsNullOrEmpty(password)
-            ? await userManager.CreateAsync(user)
-            : await userManager.CreateAsync(user, password);
+        var result = await userManager.CreateAsync(user, password);
 
         if (!result.Succeeded) throw new BadRequestException(result.Errors.FirstOrDefault()?.Description);
 
@@ -154,7 +154,7 @@ public class UserService(
                     Email = user.Email,
                     Phone = user.PhoneNumber,
                     Position = normalizedRole,
-                    Status = "PendingActivation",
+                    Status = "Active",
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -168,41 +168,10 @@ public class UserService(
             }
         }
 
-        var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
-
-        if (emailService != null)
-        {
-            try
-            {
-                string emailBody;
-                if (templateService != null)
-                {
-                    var template = await templateService.GetTemplateAsync(TemplateConstants.ConfirmationEmail);
-                    emailBody = templateService.ReplaceInTemplate(template, new Dictionary<string, string>
-                    {
-                        { "{UserId}", user.Id },
-                        { "{Token}", token }
-                    });
-                }
-                else
-                {
-                    emailBody = $"UserId: {user.Id}, Token: {token}";
-                }
-
-                var message = EmailMessage.Create(user.Email, emailBody, "Account Activation - Parking Management System");
-                await emailService.SendEmailAsync(message);
-            }
-            catch
-            {
-                // Non-blocking email dispatch failure
-            }
-        }
-
         return new CreateUserResponseModel
         {
             Id = Guid.Parse(user.Id),
-            EmployeeCode = employeeCode,
-            ActivationToken = token
+            EmployeeCode = employeeCode
         };
     }
 
@@ -244,15 +213,7 @@ public class UserService(
             throw new BadRequestException("Email or password is incorrect");
 
         if (!user.IsActive)
-        {
-            if (!user.EmailConfirmed && (user.Role == "Manager" || user.Role == "Staff"))
-                throw new BadRequestException("Account is pending activation. Please activate your account via the link sent to your email.");
-
             throw new BadRequestException("Account is deactivated. Please contact an administrator.");
-        }
-
-        if (!user.EmailConfirmed && (user.Role == "Manager" || user.Role == "Staff"))
-            throw new BadRequestException("Account is pending activation. Please activate your account via the link sent to your email.");
 
         var signInResult = await signInManager.PasswordSignInAsync(user, loginUserModel.Password, false, false);
 
@@ -428,9 +389,6 @@ public class UserService(
 
     private static bool IsInternalRole(string role) => role is "Admin" or "Manager" or "Staff";
 
-    /// <summary>Created by an Admin but the activation link has not been used yet.</summary>
-    private static bool IsPendingActivation(ApplicationUser user) =>
-        user.Role is "Manager" or "Staff" && !user.EmailConfirmed;
 
     /// <summary>Creates a password-less customer account for an email that has never signed in.</summary>
     private async Task<ApplicationUser> CreatePasswordlessCustomerAsync(string email, string fullName = null, bool emailConfirmed = false)
@@ -588,9 +546,6 @@ public class UserService(
         var verifiedUser = await userManager.FindByIdAsync(targetUserId);
         if (verifiedUser == null || !verifiedUser.IsActive)
             throw new BadRequestException("Account is inactive or deactivated. Please contact an administrator.");
-
-        if (!verifiedUser.EmailConfirmed && (verifiedUser.Role == "Manager" || verifiedUser.Role == "Staff"))
-            throw new BadRequestException("Account is pending activation.");
 
         var token = JwtHelper.GenerateToken(verifiedUser, configuration);
 
@@ -787,8 +742,7 @@ public class UserService(
                 Role = u.Role,
                 EmployeeCode = emp?.EmployeeCode,
                 IsActive = u.IsActive,
-                CreatedAt = emp?.CreatedAt,
-                IsPendingActivation = IsPendingActivation(u)
+                CreatedAt = emp?.CreatedAt
             };
         });
     }
@@ -851,8 +805,7 @@ public class UserService(
                 Role = u.Role,
                 EmployeeCode = emp?.EmployeeCode,
                 IsActive = u.IsActive,
-                CreatedAt = emp?.CreatedAt,
-                IsPendingActivation = IsPendingActivation(u)
+                CreatedAt = emp?.CreatedAt
             };
         });
     }
@@ -888,8 +841,7 @@ public class UserService(
             Role = user.Role,
             EmployeeCode = employeeCode,
             IsActive = user.IsActive,
-            CreatedAt = createdAt,
-            IsPendingActivation = IsPendingActivation(user)
+            CreatedAt = createdAt
         };
     }
 
@@ -912,6 +864,8 @@ public class UserService(
         }
 
         targetUser.IsActive = isActive;
+        // Accounts created before activation was dropped can be unblocked from the admin list
+        if (isActive) targetUser.EmailConfirmed = true;
         var updateResult = await userManager.UpdateAsync(targetUser);
         if (!updateResult.Succeeded)
         {
@@ -933,62 +887,6 @@ public class UserService(
                 employee.Status = isActive ? "Active" : "Inactive";
                 employee.UpdatedAt = DateTime.UtcNow;
             }
-
-            await pmsContext.SaveChangesAsync();
-        }
-
-        return true;
-    }
-
-    public async Task<bool> ActivateAccountAsync(ActivateAccountModel model)
-    {
-        var user = await userManager.FindByIdAsync(model.UserId);
-        if (user == null)
-            throw new NotFoundException("User not found.");
-
-        if (user.EmailConfirmed && user.IsActive)
-            throw new BadRequestException("Account has already been activated.");
-
-        var confirmResult = await userManager.ConfirmEmailAsync(user, model.Token);
-        if (!confirmResult.Succeeded)
-            throw new BadRequestException(confirmResult.Errors.FirstOrDefault()?.Description ?? "Invalid or expired activation token.");
-
-        if (await userManager.HasPasswordAsync(user))
-        {
-            await userManager.RemovePasswordAsync(user);
-        }
-
-        var addPassResult = await userManager.AddPasswordAsync(user, model.NewPassword);
-        if (!addPassResult.Succeeded)
-            throw new BadRequestException(addPassResult.Errors.FirstOrDefault()?.Description ?? "Failed to set password.");
-
-        user.TwoFactorEnabled = true;
-        user.IsActive = true;
-        var updateResult = await userManager.UpdateAsync(user);
-        if (!updateResult.Succeeded)
-            throw new BadRequestException(updateResult.Errors.FirstOrDefault()?.Description ?? "Failed to activate user account.");
-
-        if (pmsContext != null)
-        {
-            var employee = await pmsContext.Employees.FirstOrDefaultAsync(e => e.UserId == user.Id);
-            if (employee != null)
-            {
-                employee.Status = "Active";
-                employee.UpdatedAt = DateTime.UtcNow;
-            }
-
-            var auditLog = new AuditLog
-            {
-                UserId = user.Id,
-                UserName = user.UserName,
-                Action = "ACCOUNT_ACTIVATION",
-                EntityName = "User",
-                EntityId = user.Id,
-                NewValues = "{\"status\":\"Active\",\"twoFactorEnabled\":true,\"emailConfirmed\":true}",
-                IpAddress = "127.0.0.1",
-                CreatedAt = DateTime.UtcNow
-            };
-            pmsContext.AuditLogs.Add(auditLog);
 
             await pmsContext.SaveChangesAsync();
         }

@@ -28,12 +28,14 @@ public class CreateInternalUserModelValidator : AbstractValidator<CreateInternal
             .MaximumLength(200)
             .WithMessage("Full name should have maximum 200 characters");
 
+        // The Admin sets the password: there is no activation step for internal accounts
         RuleFor(u => u.Password)
+            .NotEmpty()
+            .WithMessage("Password is required")
             .MinimumLength(UserValidatorConfiguration.MinimumPasswordLength)
             .WithMessage($"Password should have minimum {UserValidatorConfiguration.MinimumPasswordLength} characters")
             .MaximumLength(UserValidatorConfiguration.MaximumPasswordLength)
-            .WithMessage($"Password should have maximum {UserValidatorConfiguration.MaximumPasswordLength} characters")
-            .When(u => u.Password != null);
+            .WithMessage($"Password should have maximum {UserValidatorConfiguration.MaximumPasswordLength} characters");
 
         RuleFor(u => u.Email)
             .NotEmpty()

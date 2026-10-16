@@ -296,8 +296,9 @@ public class UsersEndpointTests
         var userInDb = await context.Users.FirstOrDefaultAsync(u => u.Id == response.Result.Id.ToString());
         userInDb.Should().NotBeNull();
         userInDb.Role.Should().Be("Manager");
-        userInDb.IsActive.Should().BeFalse();
-        userInDb.EmailConfirmed.Should().BeFalse();
+        // Created with a password by the Admin: active straight away
+        userInDb.IsActive.Should().BeTrue();
+        userInDb.EmailConfirmed.Should().BeTrue();
     }
 
     [Fact]
@@ -327,8 +328,9 @@ public class UsersEndpointTests
         var userInDb = await context.Users.FirstOrDefaultAsync(u => u.Id == response.Result.Id.ToString());
         userInDb.Should().NotBeNull();
         userInDb.Role.Should().Be("Staff");
-        userInDb.IsActive.Should().BeFalse();
-        userInDb.EmailConfirmed.Should().BeFalse();
+        // Created with a password by the Admin: active straight away
+        userInDb.IsActive.Should().BeTrue();
+        userInDb.EmailConfirmed.Should().BeTrue();
     }
 
     [Fact]
@@ -414,16 +416,6 @@ public class UsersEndpointTests
         var createResponse = await client.PostAsync("/api/users/internal", new JsonContent(staffModel));
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
         var targetUserId = createResult.Result.Id.ToString();
-
-        // Activate the created internal user
-        var activateAccountResponse = await client.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = targetUserId,
-            Token = createResult.Result.ActivationToken,
-            NewPassword = "Password.1!",
-            ConfirmPassword = "Password.1!"
-        }));
-        activateAccountResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Act 1: Deactivate
         var deactivateResponse = await client.PatchAsync($"/api/users/{targetUserId}/status", new JsonContent(new UpdateUserStatusModel { IsActive = false }));

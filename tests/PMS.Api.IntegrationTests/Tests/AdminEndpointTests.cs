@@ -5,13 +5,16 @@ using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using PMS.API;
 using PMS.Api.IntegrationTests.Common;
 using PMS.Api.IntegrationTests.Helpers;
 using PMS.Application.Models;
 using PMS.Application.Models.Admin;
 using PMS.Application.Models.User;
+using PMS.DataAccess.Identity;
 using PMS.DataAccess.Persistence;
 using Xunit;
 
@@ -47,12 +50,11 @@ public class AdminEndpointTests
         employee.Should().NotBeNull();
         employee.EmployeeCode.Should().Be(apiResult.Result.EmployeeCode);
         employee.Position.Should().Be("Manager");
-        employee.Status.Should().Be("PendingActivation");
-        apiResult.Result.ActivationToken.Should().NotBeNullOrEmpty();
+        employee.Status.Should().Be("Active");
     }
 
     [Fact]
-    public async Task GetUsers_After_Creating_Manager_Should_Return_CreatedAt_And_Pending_Activation()
+    public async Task GetUsers_After_Creating_Manager_Should_Return_Active_Account_With_CreatedAt()
     {
         var adminClient = await _factory.CreateDefaultClientAsync();
         var email = $"mgr_{Guid.NewGuid():N}@test.com";
@@ -61,6 +63,7 @@ public class AdminEndpointTests
             UserName = $"mgr_{Guid.NewGuid():N}"[..15],
             FullName = "Listed Manager",
             Email = email,
+            Password = "Password.1!",
             PhoneNumber = "0901234567"
         }));
         createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -73,8 +76,7 @@ public class AdminEndpointTests
         manager.FullName.Should().Be("Listed Manager");
         manager.EmployeeCode.Should().MatchRegex(@"^QL\d{6}$");
         manager.CreatedAt.Should().NotBeNull();
-        manager.IsActive.Should().BeFalse();
-        manager.IsPendingActivation.Should().BeTrue();
+        manager.IsActive.Should().BeTrue();
     }
 
     [Fact]
@@ -97,14 +99,13 @@ public class AdminEndpointTests
         CheckResponse.Succeeded(apiResult);
         apiResult.Result.EmployeeCode.Should().NotBeNullOrEmpty();
         Regex.IsMatch(apiResult.Result.EmployeeCode, @"^NV\d{6}$").Should().BeTrue();
-        apiResult.Result.ActivationToken.Should().NotBeNullOrEmpty();
 
         var pmsContext = _factory.GetRequiredService<PmsDbContext>();
         var employee = await pmsContext.Employees.FirstOrDefaultAsync(e => e.UserId == apiResult.Result.Id.ToString());
         employee.Should().NotBeNull();
         employee.EmployeeCode.Should().Be(apiResult.Result.EmployeeCode);
         employee.Position.Should().Be("Staff");
-        employee.Status.Should().Be("PendingActivation");
+        employee.Status.Should().Be("Active");
     }
 
     [Fact]
@@ -199,25 +200,7 @@ public class AdminEndpointTests
 
         var unauthClient = _factory.CreateUnauthorizedClient();
 
-        // 1. Verify unactivated staff CANNOT log in initially
-        var initialLoginResponse = await unauthClient.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
-        {
-            Username = username,
-            Password = password
-        }));
-        initialLoginResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-
-        // 2. Activate staff via POST /api/users/activate
-        var activateAccountResponse = await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = staffId,
-            Token = createResult.Result.ActivationToken,
-            NewPassword = password,
-            ConfirmPassword = password
-        }));
-        activateAccountResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        // 3. Verify staff can log in after activation
+        // 1-3. The new staff account signs in straight away with the password the Admin set
         var loginResponse = await unauthClient.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
         {
             Username = username,
@@ -254,5 +237,40 @@ public class AdminEndpointTests
             Password = password
         }));
         reactLoginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Activating_An_Account_Left_Pending_By_The_Old_Activation_Flow_Should_Allow_Login()
+    {
+        var adminClient = await _factory.CreateDefaultClientAsync();
+        var username = $"legacy_{Guid.NewGuid():N}"[..15];
+        var password = "Password.1!";
+        var createResponse = await adminClient.PostAsync("/api/admin/managers", new JsonContent(new CreateEmployeeAccountModel
+        {
+            UserName = username,
+            FullName = "Legacy Pending Manager",
+            Email = $"{username}@test.com",
+            Password = password,
+            PhoneNumber = "0901234567"
+        }));
+        var managerId = (await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse)).Result.Id.ToString();
+
+        // Put it back into the old "pending activation" state
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.FindByIdAsync(managerId);
+            user!.IsActive = false;
+            user.EmailConfirmed = false;
+            await userManager.UpdateAsync(user);
+        }
+
+        var activateResponse = await adminClient.PatchAsync($"/api/admin/users/{managerId}/status",
+            new JsonContent(new UpdateUserStatusModel { IsActive = true }));
+        activateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var loginResponse = await _factory.CreateUnauthorizedClient().PostAsync("/api/users/authenticate",
+            new JsonContent(new LoginUserModel { Username = username, Password = password }));
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }

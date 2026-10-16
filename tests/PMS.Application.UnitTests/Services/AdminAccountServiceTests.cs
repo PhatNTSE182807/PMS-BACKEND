@@ -67,11 +67,11 @@ public class AdminAccountServiceTests : BaseServiceTestConfiguration
         employee.Should().NotBeNull();
         employee.EmployeeCode.Should().Be(result.EmployeeCode);
         employee.Position.Should().Be("Manager");
-        employee.Status.Should().Be("PendingActivation");
+        employee.Status.Should().Be("Active");
         employee.FullName.Should().Be("Tran Manager");
 
         await _userManager.Received(1).CreateAsync(
-            Arg.Is<ApplicationUser>(u => u.Role == "Manager" && !u.IsActive && !u.EmailConfirmed),
+            Arg.Is<ApplicationUser>(u => u.Role == "Manager" && u.IsActive && u.EmailConfirmed),
             model.Password);
     }
 
@@ -107,11 +107,11 @@ public class AdminAccountServiceTests : BaseServiceTestConfiguration
         employee.Should().NotBeNull();
         employee.EmployeeCode.Should().Be(result.EmployeeCode);
         employee.Position.Should().Be("Staff");
-        employee.Status.Should().Be("PendingActivation");
+        employee.Status.Should().Be("Active");
         employee.FullName.Should().Be("Le Staff");
 
         await _userManager.Received(1).CreateAsync(
-            Arg.Is<ApplicationUser>(u => u.Role == "Staff" && !u.IsActive && !u.EmailConfirmed),
+            Arg.Is<ApplicationUser>(u => u.Role == "Staff" && u.IsActive && u.EmailConfirmed),
             model.Password);
     }
 
@@ -185,63 +185,6 @@ public class AdminAccountServiceTests : BaseServiceTestConfiguration
 
         await act.Should().ThrowAsync<BadRequestException>()
             .WithMessage("Cannot deactivate an Administrator account.");
-    }
-
-    [Fact]
-    public async Task ActivateAccountAsync_Should_ConfirmEmail_SetPassword_Enable2FA_And_Activate_Account()
-    {
-        var userId = Guid.NewGuid().ToString();
-        var token = "valid-token";
-        var newPassword = "NewSecurePassword123!";
-
-        var user = new ApplicationUser
-        {
-            Id = userId,
-            UserName = "staff_activate",
-            Email = "staff_act@test.com",
-            Role = "Staff",
-            IsActive = false,
-            EmailConfirmed = false
-        };
-
-        _userManager.FindByIdAsync(userId).Returns(user);
-        _userManager.ConfirmEmailAsync(user, token).Returns(IdentityResult.Success);
-        _userManager.HasPasswordAsync(user).Returns(false);
-        _userManager.AddPasswordAsync(user, newPassword).Returns(IdentityResult.Success);
-        _userManager.UpdateAsync(user).Returns(IdentityResult.Success);
-
-        var employee = new Employee
-        {
-            UserId = userId,
-            EmployeeCode = "NV112233",
-            FullName = "Staff To Activate",
-            Position = "Staff",
-            Status = "PendingActivation",
-            CreatedAt = DateTime.UtcNow
-        };
-        _pmsContext.Employees.Add(employee);
-        await _pmsContext.SaveChangesAsync();
-
-        var model = new PMS.Application.Models.User.ActivateAccountModel
-        {
-            UserId = userId,
-            Token = token,
-            NewPassword = newPassword,
-            ConfirmPassword = newPassword
-        };
-
-        var result = await _sut.ActivateAccountAsync(model);
-
-        result.Should().BeTrue();
-        user.IsActive.Should().BeTrue();
-        user.TwoFactorEnabled.Should().BeTrue();
-
-        var updatedEmployee = await _pmsContext.Employees.FirstOrDefaultAsync(e => e.UserId == userId);
-        updatedEmployee.Status.Should().Be("Active");
-
-        var audit = await _pmsContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == userId && a.Action == "ACCOUNT_ACTIVATION");
-        audit.Should().NotBeNull();
-        audit.EntityName.Should().Be("User");
     }
 
     [Fact]

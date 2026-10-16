@@ -136,7 +136,7 @@ public class AdminApiConformanceTests
     }
 
     [Fact]
-    public async Task ActivateAccount_With_Valid_Token_Should_Succeed_And_Enable_2FA()
+    public async Task CreatedStaff_Should_Be_Active_And_Sign_In_Immediately()
     {
         var adminClient = await _factory.CreateDefaultClientAsync();
         var unauthClient = _factory.CreateUnauthorizedClient();
@@ -145,40 +145,32 @@ public class AdminApiConformanceTests
         var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
         {
             UserName = username,
-            FullName = "Activation Conformance Staff",
+            FullName = "Immediate Login Staff",
             Email = $"{username}@test.com",
+            Password = "ComplexPassword.1!",
             PhoneNumber = "0901234567"
         }));
         createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
         var userId = createResult.Result.Id.ToString();
-        var token = createResult.Result.ActivationToken;
 
-        var activateResponse = await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = userId,
-            Token = token,
-            NewPassword = "ComplexPassword.1!",
-            ConfirmPassword = "ComplexPassword.1!"
-        }));
-        activateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        // Verify login succeeds with newly activated password
+        // No activation email: the password the Admin set works straight away
         var loginResponse = await unauthClient.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
         {
             Username = username,
             Password = "ComplexPassword.1!"
         }));
         loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var loginResult = await ResponseHelper.GetApiResultAsync<LoginResponseModel>(loginResponse);
+        loginResult.Result.Token.Should().NotBeNullOrEmpty();
+        loginResult.Result.RequiresTwoFactor.Should().BeFalse();
 
-        // Verify in DB that TwoFactorEnabled is true and Employee status is Active
         var dbContext = _factory.GetRequiredService<PMS.DataAccess.Persistence.DatabaseContext>();
         var userInDb = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
             dbContext.Users, u => u.Id == userId);
         userInDb.Should().NotBeNull();
         userInDb.EmailConfirmed.Should().BeTrue();
         userInDb.IsActive.Should().BeTrue();
-        userInDb.TwoFactorEnabled.Should().BeTrue();
 
         var pmsContext = _factory.GetRequiredService<PMS.DataAccess.Persistence.PmsDbContext>();
         var employee = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
@@ -188,41 +180,21 @@ public class AdminApiConformanceTests
     }
 
     [Fact]
-    public async Task ActivateAccount_With_Invalid_Token_Or_Mismatched_Password_Should_Return_BadRequest()
+    public async Task CreateStaff_Without_Password_Should_Return_BadRequest()
     {
         var adminClient = await _factory.CreateDefaultClientAsync();
-        var unauthClient = _factory.CreateUnauthorizedClient();
+        var username = $"nopwd_{Guid.NewGuid():N}"[..12];
 
-        var username = $"act_fail_{Guid.NewGuid():N}"[..12];
         var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
         {
             UserName = username,
-            FullName = "Activation Fail Staff",
+            FullName = "No Password Staff",
             Email = $"{username}@test.com",
             PhoneNumber = "0901234567"
         }));
-        var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
-        var userId = createResult.Result.Id.ToString();
 
-        // 1. Invalid Token
-        var invalidTokenResponse = await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = userId,
-            Token = "completely_invalid_token",
-            NewPassword = "ComplexPassword.1!",
-            ConfirmPassword = "ComplexPassword.1!"
-        }));
-        invalidTokenResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-
-        // 2. Mismatched passwords
-        var mismatchResponse = await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = userId,
-            Token = createResult.Result.ActivationToken,
-            NewPassword = "ComplexPassword.1!",
-            ConfirmPassword = "DifferentPassword.2!"
-        }));
-        mismatchResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await createResponse.Content.ReadAsStringAsync()).Should().Contain("Password is required");
     }
 
     [Fact]
@@ -238,6 +210,7 @@ public class AdminApiConformanceTests
             UserName = username,
             FullName = fullName,
             Email = $"{username}@test.com",
+            Password = "ComplexPassword.1!",
             PhoneNumber = "0901234567"
         }));
         createResponse.StatusCode.Should().Be(HttpStatusCode.OK);

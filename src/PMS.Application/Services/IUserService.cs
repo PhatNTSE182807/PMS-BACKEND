@@ -31,8 +31,6 @@ public interface IUserService
 
     Task<bool> UpdateUserStatusAsync(string currentUserId, string targetUserId, bool isActive);
 
-    Task<bool> ActivateAccountAsync(ActivateAccountModel model);
-
     Task<LoginResponseModel> VerifyTwoFactorAsync(TwoFactorLoginModel model);
 
     Task<ResendTwoFactorResponseModel> ResendTwoFactorOtpAsync(ResendTwoFactorModel model);

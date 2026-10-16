@@ -500,17 +500,17 @@ public class TwoFactorAuthServiceTests : BaseServiceTestConfiguration
     }
 
     [Fact]
-    public async Task LoginAsync_WhenAccountPendingActivation_Should_Reject_Before_Sending_Otp()
+    public async Task LoginAsync_WhenAccountDeactivated_Should_Reject_Before_Sending_Otp()
     {
         // Arrange
         var user = new ApplicationUser
         {
             Id = Guid.NewGuid().ToString(),
-            UserName = "staff_pending",
-            Email = "pending@relaypark.vn",
+            UserName = "staff_inactive",
+            Email = "inactive@relaypark.vn",
             Role = "Staff",
             IsActive = false,
-            EmailConfirmed = false,
+            EmailConfirmed = true,
             TwoFactorEnabled = true
         };
 
@@ -520,13 +520,13 @@ public class TwoFactorAuthServiceTests : BaseServiceTestConfiguration
         // Act
         Func<Task> act = async () => await _sut.LoginAsync(new LoginUserModel
         {
-            Username = "staff_pending",
+            Username = "staff_inactive",
             Password = "Password.1!"
         });
 
         // Assert
         await act.Should().ThrowAsync<BadRequestException>()
-            .WithMessage("Account is pending activation. Please activate your account via the link sent to your email.");
+            .WithMessage("Account is deactivated. Please contact an administrator.");
 
         await _emailService.DidNotReceive().SendEmailAsync(Arg.Any<EmailMessage>());
     }

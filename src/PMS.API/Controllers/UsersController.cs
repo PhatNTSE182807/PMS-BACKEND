@@ -88,14 +88,6 @@ public class UsersController(
         return Ok(ApiResult<ResendTwoFactorResponseModel>.Success(await userService.ResendTwoFactorOtpAsync(model)));
     }
 
-    [HttpPost("activate")]
-    [Tags(SwaggerTags.Authentication)]
-    [AllowAnonymous]
-    public async Task<IActionResult> ActivateAccountAsync([FromBody] ActivateAccountModel model)
-    {
-        return Ok(ApiResult<bool>.Success(await userService.ActivateAccountAsync(model)));
-    }
-
     [HttpPost("login-otp/request")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]

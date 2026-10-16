@@ -16,6 +16,4 @@ public class CreateUserModel
 public class CreateUserResponseModel : BaseResponseModel
 {
     public string EmployeeCode { get; set; }
-
-    public string ActivationToken { get; set; }
 }

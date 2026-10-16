@@ -3,6 +3,7 @@ using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,6 +13,7 @@ using PMS.Api.IntegrationTests.Helpers;
 using PMS.Application.Models.Admin;
 using PMS.Application.Models.Profile;
 using PMS.Application.Models.User;
+using PMS.DataAccess.Identity;
 using PMS.DataAccess.Persistence;
 using Xunit;
 
@@ -21,8 +23,17 @@ public class TwoFactorAuthIntegrationTests
 {
     private readonly ApiApplicationFactory<Program> _factory = new();
 
+    /// <summary>Admin-created accounts start without 2FA; these tests cover accounts that have it on.</summary>
+    private async Task EnableTwoFactorAsync(string userId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.FindByIdAsync(userId);
+        await userManager.SetTwoFactorEnabledAsync(user!, true);
+    }
+
     [Fact]
-    public async Task Password_Login_For_Activated_Staff_Should_Return_2FA_Required_And_No_JWT()
+    public async Task Password_Login_For_Staff_With_2FA_Should_Return_2FA_Required_And_No_JWT()
     {
         var adminClient = await _factory.CreateDefaultClientAsync();
         var unauthClient = _factory.CreateUnauthorizedClient();
@@ -35,21 +46,15 @@ public class TwoFactorAuthIntegrationTests
         {
             UserName = username,
             FullName = "Staff 2FA Test",
+            Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
         }));
         createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
-        // 2. Staff activates account
-        var activateResponse = await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = createResult.Result.Id.ToString(),
-            Token = createResult.Result.ActivationToken,
-            NewPassword = "ComplexPassword.1!",
-            ConfirmPassword = "ComplexPassword.1!"
-        }));
-        activateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        // 2. Staff has two-factor sign-in turned on
+        await EnableTwoFactorAsync(createResult.Result.Id.ToString());
 
         // 3. Staff logs in with password
         var loginResponse = await unauthClient.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
@@ -84,23 +89,18 @@ public class TwoFactorAuthIntegrationTests
         var username = $"staff_ver_{Guid.NewGuid():N}"[..12];
         var email = $"{username}@test.com";
 
-        // 1. Create and activate staff
+        // 1. Create staff with two-factor sign-in
         var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "Staff Verify Test",
+            Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
         }));
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
-        await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = createResult.Result.Id.ToString(),
-            Token = createResult.Result.ActivationToken,
-            NewPassword = "ComplexPassword.1!",
-            ConfirmPassword = "ComplexPassword.1!"
-        }));
+        await EnableTwoFactorAsync(createResult.Result.Id.ToString());
 
         // 2. Initiate password login
         var loginResponse = await unauthClient.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
@@ -169,18 +169,13 @@ public class TwoFactorAuthIntegrationTests
         {
             UserName = username,
             FullName = "Staff Fail Test",
+            Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
         }));
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
-        await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = createResult.Result.Id.ToString(),
-            Token = createResult.Result.ActivationToken,
-            NewPassword = "ComplexPassword.1!",
-            ConfirmPassword = "ComplexPassword.1!"
-        }));
+        await EnableTwoFactorAsync(createResult.Result.Id.ToString());
 
         var loginResponse = await unauthClient.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
         {
@@ -212,18 +207,13 @@ public class TwoFactorAuthIntegrationTests
         {
             UserName = username,
             FullName = "Staff Rate Test",
+            Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
         }));
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
-        await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = createResult.Result.Id.ToString(),
-            Token = createResult.Result.ActivationToken,
-            NewPassword = "ComplexPassword.1!",
-            ConfirmPassword = "ComplexPassword.1!"
-        }));
+        await EnableTwoFactorAsync(createResult.Result.Id.ToString());
 
         var loginResponse = await unauthClient.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
         {
@@ -256,18 +246,13 @@ public class TwoFactorAuthIntegrationTests
         {
             UserName = username,
             FullName = "Staff Bypass Test",
+            Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
         }));
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
-        await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = createResult.Result.Id.ToString(),
-            Token = createResult.Result.ActivationToken,
-            NewPassword = "ComplexPassword.1!",
-            ConfirmPassword = "ComplexPassword.1!"
-        }));
+        await EnableTwoFactorAsync(createResult.Result.Id.ToString());
 
         var loginResponse = await unauthClient.PostAsync("/api/users/authenticate", new JsonContent(new LoginUserModel
         {
@@ -299,18 +284,13 @@ public class TwoFactorAuthIntegrationTests
         {
             UserName = username,
             FullName = "Staff No Pwd Test",
+            Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
         }));
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
-        await unauthClient.PostAsync("/api/users/activate", new JsonContent(new ActivateAccountModel
-        {
-            UserId = createResult.Result.Id.ToString(),
-            Token = createResult.Result.ActivationToken,
-            NewPassword = "ComplexPassword.1!",
-            ConfirmPassword = "ComplexPassword.1!"
-        }));
+        await EnableTwoFactorAsync(createResult.Result.Id.ToString());
 
         // Attempt passwordless OTP verification for internal account
         var verifyResponse = await unauthClient.PostAsync("/api/users/two-factor", new JsonContent(new TwoFactorLoginModel

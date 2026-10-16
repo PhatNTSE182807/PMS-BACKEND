@@ -183,8 +183,9 @@ public class UserServiceTests : BaseServiceTestConfiguration
                 var user = args.Arg<ApplicationUser>();
                 user.Id = userId;
                 user.Role.Should().Be("Manager");
-                user.IsActive.Should().BeFalse();
-                user.EmailConfirmed.Should().BeFalse();
+                // Created by an Admin with a password: active straight away, no activation step
+                user.IsActive.Should().BeTrue();
+                user.EmailConfirmed.Should().BeTrue();
                 return IdentityResult.Success;
             });
 
@@ -217,8 +218,9 @@ public class UserServiceTests : BaseServiceTestConfiguration
                 var user = args.Arg<ApplicationUser>();
                 user.Id = userId;
                 user.Role.Should().Be("Staff");
-                user.IsActive.Should().BeFalse();
-                user.EmailConfirmed.Should().BeFalse();
+                // Created by an Admin with a password: active straight away, no activation step
+                user.IsActive.Should().BeTrue();
+                user.EmailConfirmed.Should().BeTrue();
                 return IdentityResult.Success;
             });
 
