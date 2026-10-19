@@ -6,7 +6,7 @@ using PMS.DataAccess.Identity;
 
 namespace PMS.DataAccess.Persistence;
 
-public static class AutomatedMigration
+public static partial class AutomatedMigration
 {
     public static async Task MigrateAsync(IServiceProvider services)
     {
@@ -27,6 +27,8 @@ public static class AutomatedMigration
             if (pmsContext.Database.IsSqlServer())
             {
                 await EnsurePmsTablesAsync(pmsContext);
+                // Reservations, gate sessions and payments (AutomatedMigration.Operations.cs)
+                await EnsureOperationsTablesAsync(pmsContext);
             }
 
             var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
@@ -376,6 +378,48 @@ public static class AutomatedMigration
                     CONSTRAINT [FK_LotLayoutSlots_Slots] FOREIGN KEY([SlotId]) REFERENCES [dbo].[Slots] ([Id])
                 );
                 CREATE UNIQUE NONCLUSTERED INDEX [IX_LotLayoutSlots_LayoutId_SlotId] ON [dbo].[LotLayoutSlots]([LayoutId] ASC, [SlotId] ASC);
+            END
+
+            -- Vehicle paper checks (FR-VER-01..04): cà vẹt + CCCD photos, their OCR result and the Staff decision
+            IF OBJECT_ID('dbo.VehicleVerifications', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[VehicleVerifications](
+                    [Id] [uniqueidentifier] NOT NULL PRIMARY KEY DEFAULT (NEWID()),
+                    [VehicleId] [uniqueidentifier] NOT NULL,
+                    [CustomerId] [int] NOT NULL,
+                    [UserId] [nvarchar](450) NOT NULL,
+                    [Status] [varchar](20) NOT NULL,
+                    [ResultJson] [nvarchar](max) NULL,
+                    [Confidence] [decimal](5,4) NULL,
+                    [StatusReason] [nvarchar](500) NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [SubmittedAt] [datetime2](3) NULL,
+                    [ProcessedAt] [datetime2](3) NULL,
+                    [ReviewedBy] [nvarchar](450) NULL,
+                    [ReviewNote] [nvarchar](500) NULL,
+                    [DecidedAt] [datetime2](3) NULL,
+                    [FilesDeletedAt] [datetime2](3) NULL,
+                    CONSTRAINT [FK_VehicleVerifications_Vehicles] FOREIGN KEY([VehicleId]) REFERENCES [dbo].[Vehicles] ([Id])
+                );
+                CREATE NONCLUSTERED INDEX [IX_VehicleVerifications_VehicleId_CreatedAt] ON [dbo].[VehicleVerifications]([VehicleId] ASC, [CreatedAt] ASC);
+                CREATE NONCLUSTERED INDEX [IX_VehicleVerifications_Status] ON [dbo].[VehicleVerifications]([Status] ASC);
+            END
+
+            IF OBJECT_ID('dbo.VehicleDocuments', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[VehicleDocuments](
+                    [Id] [uniqueidentifier] NOT NULL PRIMARY KEY DEFAULT (NEWID()),
+                    [VerificationId] [uniqueidentifier] NOT NULL,
+                    [DocumentType] [varchar](30) NOT NULL,
+                    [Side] [varchar](10) NOT NULL,
+                    [StoragePath] [nvarchar](500) NULL,
+                    [OriginalFileName] [nvarchar](260) NULL,
+                    [ContentType] [varchar](50) NOT NULL,
+                    [SizeBytes] [bigint] NOT NULL,
+                    [UploadedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    CONSTRAINT [FK_VehicleDocuments_VehicleVerifications] FOREIGN KEY([VerificationId]) REFERENCES [dbo].[VehicleVerifications] ([Id]) ON DELETE CASCADE
+                );
+                CREATE NONCLUSTERED INDEX [IX_VehicleDocuments_VerificationId] ON [dbo].[VehicleDocuments]([VerificationId] ASC);
             END
         ";
 

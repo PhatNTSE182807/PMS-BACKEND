@@ -25,6 +25,9 @@ public interface IEmployeeAccountService
 
     Task<IEnumerable<AssignedParkingLotModel>> GetManagedLotsAsync(string managerId);
 
+    /// <summary>The lot the signed-in Staff works at (Employees.ParkingLotId, set by their Manager); empty when unassigned.</summary>
+    Task<IEnumerable<AssignedParkingLotModel>> GetStaffLotsAsync(string staffId);
+
     Task<IEnumerable<EmployeeAccountResponseModel>> GetStaffAsync(string managerId, int? parkingLotId = null, bool? isActive = null, string searchTerm = null);
 
     Task<EmployeeAccountResponseModel> GetStaffByIdAsync(string managerId, string staffId);

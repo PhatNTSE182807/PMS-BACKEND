@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using PMS.Application.Common.Email;
+using PMS.Application.Jobs;
 using PMS.Application.MappingProfiles;
 using PMS.Application.Services;
 using PMS.Application.Services.DevImpl;
@@ -36,6 +37,7 @@ public static class ApplicationDependencyInjection
         services.AddScoped<IClaimService, ClaimService>();
         services.AddScoped<ITemplateService, TemplateService>();
         services.AddScoped<IGoogleTokenValidator, GoogleTokenValidator>();
+        services.AddScoped<LotJobs>();
 
         // Development only logs emails until real SMTP credentials are set (e.g. in user-secrets)
         services.AddScoped<IEmailService>(sp =>

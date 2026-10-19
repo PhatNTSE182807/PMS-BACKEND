@@ -349,7 +349,18 @@ public class UserProfileService : IUserProfileService
         if (user == null)
             throw new NotFoundException("User not found.");
 
-        var result = await _userManager.ChangePasswordAsync(user, model.CurrentPassword, model.NewPassword);
+        IdentityResult result;
+        if (await _userManager.HasPasswordAsync(user))
+        {
+            if (string.IsNullOrWhiteSpace(model.CurrentPassword))
+                throw new BadRequestException("Current password is required.");
+            result = await _userManager.ChangePasswordAsync(user, model.CurrentPassword, model.NewPassword);
+        }
+        else
+        {
+            // Google-only account (FR-AUTH-08): the first password needs no current one
+            result = await _userManager.AddPasswordAsync(user, model.NewPassword);
+        }
 
         if (!result.Succeeded)
             throw new BadRequestException(result.Errors.FirstOrDefault()?.Description ?? "Failed to change password.");

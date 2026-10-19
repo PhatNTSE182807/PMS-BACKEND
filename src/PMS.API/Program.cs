@@ -22,13 +22,16 @@ builder.Services.AddValidatorsFromAssemblyContaining(typeof(IValidationsMarker))
 builder.Services.AddSwagger();
 
 builder.Services.AddDataAccess(builder.Configuration)
-    .AddApplication(builder.Environment);
+    .AddApplication(builder.Environment)
+    .AddVehicleDocuments(builder.Configuration, builder.Environment);
 
 builder.Services.AddJwt(builder.Configuration);
 
 builder.Services.AddPublicRateLimits();
 
 builder.Services.AddEmailConfiguration(builder.Configuration);
+
+builder.Services.AddRealtimeAndJobs(builder.Configuration);
 
 var app = builder.Build();
 
@@ -62,6 +65,8 @@ app.UseMiddleware<TransactionMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.MapControllers();
+
+app.UseRealtimeAndJobs();
 
 app.Run();
 

@@ -12,6 +12,12 @@ public partial class PmsDbContext
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
+        // Vehicle paper checks live in PmsDbContext.VehicleDocuments.cs
+        ConfigureVehicleDocuments(modelBuilder);
+
+        // Reservations, gate sessions and payments live in PmsDbContext.Operations.cs
+        ConfigureOperations(modelBuilder);
+
         modelBuilder.Entity<ParkingLot>()
             .Property(e => e.LayoutTemplate)
             .HasMaxLength(30)

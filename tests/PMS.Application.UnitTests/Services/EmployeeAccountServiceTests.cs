@@ -176,6 +176,13 @@ public class EmployeeAccountServiceTests
     }
 
     [Fact]
+    public async Task GetStaffLotsAsync_Should_Return_The_Staffs_Own_Lot()
+    {
+        (await _sut.GetStaffLotsAsync(StaffId)).Should().ContainSingle().Which.Id.Should().Be(1);
+        (await _sut.GetStaffLotsAsync(ManagerId)).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task GetStaffAsync_Should_Return_Staff_Of_Managed_Lots_Only()
     {
         (await _sut.GetStaffAsync(ManagerId)).Should().ContainSingle().Which.Id.Should().Be(StaffId);

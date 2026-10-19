@@ -1,0 +1,311 @@
+namespace PMS.Application.Models.Operations;
+
+/// <summary>
+/// A vehicle at an entry lane (FR-OPS-01). The lane gives the vehicle type; the plate comes from ANPR
+/// (with its confidence) or is typed by the Staff. Overrides are the Staff's decisions on the alerts of a
+/// previous attempt and need <see cref="OverrideReason"/>.
+/// </summary>
+public class CheckInModel
+{
+    public int? GateId { get; set; }
+
+    public string PlateNumber { get; set; }
+
+    /// <summary>Bicycle, e-bike…: no ANPR, no duplicate-plate rule (FR-OPS-10).</summary>
+    public bool NoPlate { get; set; }
+
+    /// <summary>Vehicle type of the lane; defaults to the reservation's vehicle.</summary>
+    public int? VehicleTypeId { get; set; }
+
+    /// <summary>ANPR confidence 0..1 (or 0..100); null when typed by hand.</summary>
+    public decimal? AnprConfidence { get; set; }
+
+    /// <summary>The Staff checked or corrected a low-confidence plate (FR-OPS-14).</summary>
+    public bool PlateConfirmed { get; set; }
+
+    /// <summary>Scanned reservation QR (signed payload).</summary>
+    public string ReservationQr { get; set; }
+
+    /// <summary>Reservation code typed by the Staff (phone flat, FR-RSV-04 exceptions).</summary>
+    public string ReservationCode { get; set; }
+
+    /// <summary>Enter as a walk-in even though a reservation matched (e.g. arrived early, 4.2.1).</summary>
+    public bool IgnoreReservation { get; set; }
+
+    /// <summary>Optional bay picked on the 3D model for a walk-in.</summary>
+    public int? SlotId { get; set; }
+
+    /// <summary>Device failure: entry recorded by hand (FR-OPS-03).</summary>
+    public bool IsManual { get; set; }
+
+    public string ManualReason { get; set; }
+
+    public bool AllowBlacklisted { get; set; }
+
+    public bool AllowWhenFull { get; set; }
+
+    public bool AllowPlateMismatch { get; set; }
+
+    public string OverrideReason { get; set; }
+
+    public string ImageUrl { get; set; }
+}
+
+public class GateAlertModel
+{
+    /// <summary>LOT_CLOSED, PLATE_REQUIRED, LOW_CONFIDENCE, DUPLICATE_SESSION, BLACKLISTED, WHITELISTED, RESERVATION_INVALID,
+    /// RESERVATION_OUTSIDE_WINDOW, RESERVATION_PLATE_MISMATCH, ZONE_FULL, SLOT_UNAVAILABLE.</summary>
+    public string Code { get; set; }
+
+    public string Message { get; set; }
+
+    /// <summary>The barrier stays closed until this is resolved.</summary>
+    public bool Blocking { get; set; }
+
+    /// <summary>The Staff may let the vehicle in anyway with a reason.</summary>
+    public bool CanOverride { get; set; }
+
+    /// <summary>The other session for DUPLICATE_SESSION, so the Staff can look at it.</summary>
+    public long? RelatedSessionId { get; set; }
+}
+
+public class CheckInResultModel
+{
+    /// <summary>"Created" (barrier opens, waiting for the sensor) or "Blocked".</summary>
+    public string Outcome { get; set; }
+
+    public bool BarrierOpen { get; set; }
+
+    public List<GateAlertModel> Alerts { get; set; } = [];
+
+    public SessionResponseModel Session { get; set; }
+
+    /// <summary>Signed QR ticket for a Guest (lot code, entry time, lane, NFR-16).</summary>
+    public string Ticket { get; set; }
+}
+
+public class SessionResponseModel
+{
+    public long Id { get; set; }
+
+    public string Code { get; set; }
+
+    public int ParkingLotId { get; set; }
+
+    public string Status { get; set; }
+
+    public string SessionType { get; set; }
+
+    public string PlateNumber { get; set; }
+
+    public bool HasPlate { get; set; }
+
+    public int? VehicleTypeId { get; set; }
+
+    public string VehicleTypeName { get; set; }
+
+    public DateTime EntryTime { get; set; }
+
+    public DateTime? EntryConfirmedAt { get; set; }
+
+    public int EntryGateId { get; set; }
+
+    public int? ZoneId { get; set; }
+
+    public string ZoneName { get; set; }
+
+    public int? SlotId { get; set; }
+
+    public string SlotCode { get; set; }
+
+    public long? ReservationId { get; set; }
+
+    public string ReservationCode { get; set; }
+
+    public bool IsCustomerAccount { get; set; }
+
+    public decimal PaidAmount { get; set; }
+
+    public decimal FinalFee { get; set; }
+
+    public DateTime? ExitWindowEndsAt { get; set; }
+
+    public DateTime? ExitTime { get; set; }
+
+    public bool IsManualEntry { get; set; }
+
+    public bool IsLostTicket { get; set; }
+
+    public bool PlateMismatch { get; set; }
+
+    public bool IsOverdue { get; set; }
+
+    public string ZeroFeeReason { get; set; }
+
+    public string OverrideNote { get; set; }
+}
+
+/// <summary>Ask for the fee at a payment point (exit lane, counter or app): the session becomes "Chờ thanh toán".</summary>
+public class CheckoutQuoteRequestModel
+{
+    public int? GateId { get; set; }
+
+    /// <summary>Plate read at the exit, compared with the entry plate (FR-OPS-04).</summary>
+    public string PlateNumber { get; set; }
+
+    public decimal? AnprConfidence { get; set; }
+}
+
+public class FeeDayModel
+{
+    public DateOnly Date { get; set; }
+
+    public int Minutes { get; set; }
+
+    public int Blocks { get; set; }
+
+    public decimal Amount { get; set; }
+
+    public bool Capped { get; set; }
+}
+
+public class CheckoutQuoteModel
+{
+    public SessionResponseModel Session { get; set; }
+
+    public int DurationMinutes { get; set; }
+
+    public decimal Fee { get; set; }
+
+    public decimal LostTicketFee { get; set; }
+
+    public decimal ExitWindowLateFee { get; set; }
+
+    public decimal DepositApplied { get; set; }
+
+    public decimal AlreadyPaid { get; set; }
+
+    public decimal AmountDue { get; set; }
+
+    /// <summary>Residual deposit refunded at check-out (BR-03).</summary>
+    public decimal DepositRefund { get; set; }
+
+    public string ZeroFeeReason { get; set; }
+
+    /// <summary>Paid (or 0 VND) and the plates match: the barrier may open.</summary>
+    public bool CanOpenBarrier { get; set; }
+
+    public List<GateAlertModel> Alerts { get; set; } = [];
+
+    public List<FeeDayModel> Days { get; set; } = [];
+
+    /// <summary>PricingRule id/version, or null for the configured default tariff.</summary>
+    public int? PricingRuleId { get; set; }
+
+    public int? PricingRuleVersion { get; set; }
+}
+
+/// <summary>The vehicle passes the exit barrier.</summary>
+public class CheckoutModel
+{
+    public int? GateId { get; set; }
+
+    public string PlateNumber { get; set; }
+
+    /// <summary>The Staff compared entry and exit photos (required for vehicles without a plate, FR-OPS-10).</summary>
+    public bool PhotoChecked { get; set; }
+
+    public bool AllowPlateMismatch { get; set; }
+
+    public string OverrideReason { get; set; }
+
+    public bool IsManual { get; set; }
+
+    public string ManualReason { get; set; }
+}
+
+public class CheckoutResultModel
+{
+    public SessionResponseModel Session { get; set; }
+
+    public bool BarrierOpen { get; set; }
+
+    public decimal DepositRefund { get; set; }
+
+    public List<GateAlertModel> Alerts { get; set; } = [];
+}
+
+public class LostTicketModel
+{
+    public string Reason { get; set; }
+
+    /// <summary>BR-13 conditions met (photos, papers and ID match; standard fine): no Manager approval needed.</summary>
+    public bool ConditionsMet { get; set; }
+}
+
+public class SessionDecisionModel
+{
+    public string Reason { get; set; }
+}
+
+public class GateResponseModel
+{
+    public int Id { get; set; }
+
+    public string Code { get; set; }
+
+    public string Name { get; set; }
+
+    /// <summary>"In", "Out" or "Both".</summary>
+    public string Direction { get; set; }
+}
+
+public class ZoneCounterModel
+{
+    public int ZoneId { get; set; }
+
+    public string ZoneCode { get; set; }
+
+    public string ZoneName { get; set; }
+
+    public int? VehicleTypeId { get; set; }
+
+    public int TotalCapacity { get; set; }
+
+    public int OccupiedSpaces { get; set; }
+
+    public int AvailableSpaces { get; set; }
+
+    public bool IsFull => AvailableSpaces <= 0;
+}
+
+public class PlateListEntryModel
+{
+    public int Id { get; set; }
+
+    public string ListType { get; set; }
+
+    public string PlateNumber { get; set; }
+
+    public int? ParkingLotId { get; set; }
+
+    public string Reason { get; set; }
+
+    public DateTime ExpiresAt { get; set; }
+
+    public bool IsActive { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+}
+
+public class CreatePlateListEntryModel
+{
+    /// <summary>"Whitelist" or "Blacklist".</summary>
+    public string ListType { get; set; }
+
+    public string PlateNumber { get; set; }
+
+    public string Reason { get; set; }
+
+    public DateTime ExpiresAt { get; set; }
+}

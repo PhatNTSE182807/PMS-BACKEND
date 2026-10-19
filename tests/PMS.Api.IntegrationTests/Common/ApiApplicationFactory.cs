@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -10,6 +11,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PMS.Api.IntegrationTests.Helpers.Services;
 using PMS.Application.Services;
+using PMS.Application.Services.Impl;
+using PMS.Application.Services.Ocr;
 using PMS.DataAccess.Persistence;
 
 namespace PMS.Api.IntegrationTests.Common;
@@ -68,8 +71,24 @@ public class ApiApplicationFactory<TProgram> : WebApplicationFactory<TProgram> w
             services.AddSingleton<IEmailService, EmailTestService>();
             services.AddScoped<ITemplateService, TemplateTestService>();
             services.AddScoped<IGoogleTokenValidator, GoogleTokenTestValidator>();
+
+            // Vehicle papers: deterministic fake OCR, a private temp folder per factory, and the OCR job run
+            // inline instead of on the (process-wide) Hangfire server, so tests see the result at once
+            var storageOptions = new VehicleDocumentStorageOptions { StorageRoot = DocumentStorageRoot };
+            services.AddSingleton(storageOptions);
+            services.AddSingleton<IVehicleDocumentStorage>(_ => new LocalVehicleDocumentStorage(storageOptions, DocumentStorageRoot));
+            services.AddSingleton<IDocumentOcrService, FakeDocumentOcrService>();
+            services.AddScoped<IVehicleVerificationQueue, InlineVehicleVerificationQueue>();
         });
     }
-    
-    
+
+    /// <summary>Where this factory's uploaded vehicle papers are stored (deleted with the factory).</summary>
+    public string DocumentStorageRoot { get; } = Path.Combine(Path.GetTempPath(), $"pms-vehicle-documents-{Guid.NewGuid():N}");
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing && Directory.Exists(DocumentStorageRoot))
+            Directory.Delete(DocumentStorageRoot, true);
+    }
 }

@@ -36,6 +36,46 @@ public class UserProfileServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ChangePasswordAsync_Should_Set_A_First_Password_Without_The_Current_One()
+    {
+        var user = new ApplicationUser { Id = "google-user", Email = "g@example.com", Role = "User" };
+        _userManager.FindByIdAsync(user.Id).Returns(user);
+        _userManager.HasPasswordAsync(user).Returns(false);
+        _userManager.AddPasswordAsync(user, "NewPass@1").Returns(IdentityResult.Success);
+
+        var result = await _sut.ChangePasswordAsync(user.Id, new ChangePasswordModel { CurrentPassword = "", NewPassword = "NewPass@1", ConfirmPassword = "NewPass@1" });
+
+        result.Should().BeTrue();
+        await _userManager.Received(1).AddPasswordAsync(user, "NewPass@1");
+        await _userManager.DidNotReceiveWithAnyArgs().ChangePasswordAsync(default!, default!, default!);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_Should_Require_The_Current_Password_When_One_Is_Set()
+    {
+        var user = new ApplicationUser { Id = "pw-user", Email = "p@example.com", Role = "User", PasswordHash = "hash" };
+        _userManager.FindByIdAsync(user.Id).Returns(user);
+        _userManager.HasPasswordAsync(user).Returns(true);
+
+        var act = () => _sut.ChangePasswordAsync(user.Id, new ChangePasswordModel { CurrentPassword = " ", NewPassword = "NewPass@1", ConfirmPassword = "NewPass@1" });
+
+        await act.Should().ThrowAsync<BadRequestException>().WithMessage("Current password is required.");
+        await _userManager.DidNotReceiveWithAnyArgs().AddPasswordAsync(default!, default!);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_Should_Change_An_Existing_Password()
+    {
+        var user = new ApplicationUser { Id = "pw-user", Email = "p@example.com", Role = "User", PasswordHash = "hash" };
+        _userManager.FindByIdAsync(user.Id).Returns(user);
+        _userManager.HasPasswordAsync(user).Returns(true);
+        _userManager.ChangePasswordAsync(user, "OldPass@1", "NewPass@1").Returns(IdentityResult.Success);
+
+        (await _sut.ChangePasswordAsync(user.Id, new ChangePasswordModel { CurrentPassword = "OldPass@1", NewPassword = "NewPass@1", ConfirmPassword = "NewPass@1" }))
+            .Should().BeTrue();
+    }
+
+    [Fact]
     public async Task GetProfileAsync_Should_Return_UserProfile_When_User_Exists()
     {
         // Arrange

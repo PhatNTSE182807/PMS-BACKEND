@@ -8,9 +8,8 @@ public class ChangePasswordModelValidator : AbstractValidator<ChangePasswordMode
 {
     public ChangePasswordModelValidator()
     {
-        RuleFor(x => x.CurrentPassword)
-            .NotEmpty()
-            .WithMessage("Current password is required.");
+        // CurrentPassword may be empty: an account created by Google sign-in sets its first password
+        // without one. The service requires it for accounts that already have a password.
 
         RuleFor(x => x.NewPassword)
             .NotEmpty()

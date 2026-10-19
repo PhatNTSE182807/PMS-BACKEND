@@ -10,7 +10,7 @@ using PMS.DataAccess.Persistence.Entities;
 
 namespace PMS.Application.Services.Impl;
 
-public class SlotService(PmsDbContext pmsContext) : ISlotService
+public class SlotService(PmsDbContext pmsContext, ILotRealtimeNotifier notifier = null) : ISlotService
 {
     private static readonly string[] AllowedStatuses = ["Available", "Occupied", "Reserved", "Maintenance"];
 
@@ -191,6 +191,13 @@ public class SlotService(PmsDbContext pmsContext) : ISlotService
 
         slot.Status = matchedStatus;
         await pmsContext.SaveChangesAsync();
+
+        if (notifier != null)
+        {
+            var lotId = await pmsContext.Zones.Where(z => z.Id == slot.ZoneId).Select(z => z.ParkingLotId).FirstAsync();
+            await notifier.SlotStatusChangedAsync(lotId, slot.Id, slot.Status);
+        }
+
         return true;
     }
 

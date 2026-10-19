@@ -11,7 +11,7 @@ using PMS.DataAccess.Persistence.Entities;
 
 namespace PMS.Application.Services.Impl;
 
-public class ParkingLotService(PmsDbContext pmsContext) : IParkingLotService
+public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier notifier = null) : IParkingLotService
 {
     public async Task<IEnumerable<ParkingLotResponseModel>> GetAllAsync(string searchTerm = null, string status = null, bool includeDeleted = false)
     {
@@ -148,6 +148,8 @@ public class ParkingLotService(PmsDbContext pmsContext) : IParkingLotService
             ?? throw new NotFoundException($"Parking lot with ID {id} was not found.");
 
         await LotTemplates.ApplyAsync(pmsContext, lot, templateId, userId);
+        if (notifier != null)
+            await notifier.LayoutChangedAsync(id);
 
         return await GetByIdAsync(id);
     }
@@ -202,6 +204,9 @@ public class ParkingLotService(PmsDbContext pmsContext) : IParkingLotService
         lot.UpdatedAt = DateTime.UtcNow;
 
         await pmsContext.SaveChangesAsync();
+        // A temporary closure ends on its own: LotJobs.ReopenDueLotsAsync reopens the lot at ClosedUntil.
+        if (notifier != null)
+            await notifier.LotStatusChangedAsync(id, lot.Status);
         return true;
     }
 

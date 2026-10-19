@@ -101,6 +101,15 @@ public class EmployeeAccountService(
         return lots.Select(ToLotModel).ToList();
     }
 
+    public async Task<IEnumerable<AssignedParkingLotModel>> GetStaffLotsAsync(string staffId)
+    {
+        var lotIds = pmsContext.Employees
+            .Where(e => e.UserId == staffId && e.ParkingLotId != null && e.Status != "Terminated")
+            .Select(e => e.ParkingLotId.Value);
+        var lots = await pmsContext.ParkingLots.Where(p => lotIds.Contains(p.Id) && !p.IsDeleted).OrderBy(p => p.Name).ToListAsync();
+        return lots.Select(ToLotModel).ToList();
+    }
+
     public async Task<IEnumerable<EmployeeAccountResponseModel>> GetStaffAsync(string managerId, int? parkingLotId = null, bool? isActive = null, string searchTerm = null)
     {
         var lots = await ManagedLotsQuery(managerId).ToDictionaryAsync(p => p.Id);
