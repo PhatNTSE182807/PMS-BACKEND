@@ -26,8 +26,8 @@ public class EmployeeAccountModelValidatorTests
         FullName = "Nguyen Van A",
         Email = "nva@test.com",
         PhoneNumber = "0912345678",
-        Password = "Password1",
-        ConfirmPassword = "Password1",
+        Password = "Password1!",
+        ConfirmPassword = "Password1!",
         ParkingLotId = 1
     };
 
@@ -38,10 +38,22 @@ public class EmployeeAccountModelValidatorTests
     }
 
     [Theory]
-    [InlineData("password1")]
-    [InlineData("PASSWORD1")]
-    [InlineData("Password")]
-    [InlineData("Pass1")]
+    [InlineData("Abcde!")]
+    [InlineData("PASS@WORD")]
+    public void Create_Should_Accept_Six_Characters_With_An_Upper_Case_Letter_And_A_Special_Character(string password)
+    {
+        var model = ValidStaff();
+        model.Password = password;
+        model.ConfirmPassword = password;
+
+        _createValidator.Validate(model).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("password1!")]
+    [InlineData("Password1")]
+    [InlineData("Ab1!")]
+    [InlineData("Abcd!")]
     public void Create_Should_Reject_A_Weak_Password(string password)
     {
         var model = ValidStaff();

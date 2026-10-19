@@ -62,12 +62,12 @@ public class CreateStaffAccountModelValidator : AbstractValidator<CreateStaffAcc
         RuleFor(u => u.Password)
             .NotEmpty()
             .WithMessage("Password is required")
-            .MinimumLength(UserValidatorConfiguration.MinimumEmployeePasswordLength)
-            .WithMessage($"Password should have minimum {UserValidatorConfiguration.MinimumEmployeePasswordLength} characters")
+            .MinimumLength(UserValidatorConfiguration.MinimumPasswordLength)
+            .WithMessage($"Password should have minimum {UserValidatorConfiguration.MinimumPasswordLength} characters")
             .MaximumLength(UserValidatorConfiguration.MaximumPasswordLength)
             .WithMessage($"Password should have maximum {UserValidatorConfiguration.MaximumPasswordLength} characters")
-            .Matches(UserValidatorConfiguration.EmployeePasswordRegex)
-            .WithMessage("Password must contain upper case, lower case and a digit");
+            .Matches(UserValidatorConfiguration.PasswordRegex)
+            .WithMessage(UserValidatorConfiguration.PasswordRegexMessage);
 
         When(u => u.ConfirmPassword != null, () =>
         {

@@ -182,6 +182,35 @@ public class CreateUserModelValidatorTests
         result.ShouldHaveValidationErrorFor(u => u.Password);
     }
 
+    [Theory]
+    [InlineData("password!")]
+    [InlineData("Password1")]
+    public void Validator_Should_Have_Error_When_Password_Lacks_An_Upper_Case_Letter_Or_A_Special_Character(string password)
+    {
+        // Arrange
+        var model = new CreateUserModel { Password = password };
+
+        // Act
+        var result = _sut.TestValidate(model);
+
+        // Assert
+        result.ShouldHaveValidationErrorFor(u => u.Password)
+            .WithErrorMessage(UserValidatorConfiguration.PasswordRegexMessage);
+    }
+
+    [Fact]
+    public void Validator_Should_Not_Have_Error_When_Password_Has_Six_Characters_An_Upper_Case_Letter_And_A_Special_Character()
+    {
+        // Arrange
+        var model = new CreateUserModel { Password = "Abcde!" };
+
+        // Act
+        var result = _sut.TestValidate(model);
+
+        // Assert
+        result.ShouldNotHaveValidationErrorFor(u => u.Password);
+    }
+
     [Fact]
     public void Validator_Should_Have_Error_When_Password_Is_Too_Short()
     {

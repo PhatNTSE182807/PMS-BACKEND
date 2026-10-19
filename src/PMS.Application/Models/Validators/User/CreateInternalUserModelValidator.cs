@@ -35,7 +35,9 @@ public class CreateInternalUserModelValidator : AbstractValidator<CreateInternal
             .MinimumLength(UserValidatorConfiguration.MinimumPasswordLength)
             .WithMessage($"Password should have minimum {UserValidatorConfiguration.MinimumPasswordLength} characters")
             .MaximumLength(UserValidatorConfiguration.MaximumPasswordLength)
-            .WithMessage($"Password should have maximum {UserValidatorConfiguration.MaximumPasswordLength} characters");
+            .WithMessage($"Password should have maximum {UserValidatorConfiguration.MaximumPasswordLength} characters")
+            .Matches(UserValidatorConfiguration.PasswordRegex)
+            .WithMessage(UserValidatorConfiguration.PasswordRegexMessage);
 
         RuleFor(u => u.Email)
             .NotEmpty()

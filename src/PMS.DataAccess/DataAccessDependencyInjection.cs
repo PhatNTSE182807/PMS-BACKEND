@@ -67,8 +67,9 @@ public static class DataAccessDependencyInjection
 
         services.Configure<IdentityOptions>(options =>
         {
-            options.Password.RequireDigit = true;
-            options.Password.RequireLowercase = true;
+            // Same rule as UserValidatorConfiguration: 6+ characters, one upper case letter, one special character
+            options.Password.RequireDigit = false;
+            options.Password.RequireLowercase = false;
             options.Password.RequireNonAlphanumeric = true;
             options.Password.RequireUppercase = true;
             options.Password.RequiredLength = 6;

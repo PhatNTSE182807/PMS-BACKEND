@@ -6,16 +6,17 @@ public static class UserValidatorConfiguration
 
     public const int MaximumUsernameLength = 20;
 
+    /// <summary>Every account (customer, Manager, Staff, Admin): at least 6 characters.</summary>
     public const int MinimumPasswordLength = 6;
 
     public const int MaximumPasswordLength = 128;
 
+    /// <summary>At least one upper case letter and one special (non-alphanumeric) character.</summary>
+    public const string PasswordRegex = @"^(?=.*[A-Z])(?=.*[^A-Za-z0-9]).+$";
+
+    public const string PasswordRegexMessage = "Password must contain at least one upper case letter and one special character";
+
     public const string VietnamPhoneNumberRegex = @"^(\+84|84|0)[35789][0-9]{8}$";
-
-    /// <summary>BR-28: Manager/Staff accounts need at least 8 characters with upper case, lower case and a digit.</summary>
-    public const int MinimumEmployeePasswordLength = 8;
-
-    public const string EmployeePasswordRegex = @"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$";
 
     /// <summary>BR-28: a Vietnamese phone number of 10 digits starting with 0.</summary>
     public const string EmployeePhoneNumberRegex = @"^0[0-9]{9}$";

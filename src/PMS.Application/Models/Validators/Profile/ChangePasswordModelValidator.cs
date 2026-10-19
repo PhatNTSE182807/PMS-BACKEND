@@ -19,6 +19,8 @@ public class ChangePasswordModelValidator : AbstractValidator<ChangePasswordMode
             .WithMessage($"New password must be at least {UserValidatorConfiguration.MinimumPasswordLength} characters.")
             .MaximumLength(UserValidatorConfiguration.MaximumPasswordLength)
             .WithMessage($"New password must not exceed {UserValidatorConfiguration.MaximumPasswordLength} characters.")
+            .Matches(UserValidatorConfiguration.PasswordRegex)
+            .WithMessage(UserValidatorConfiguration.PasswordRegexMessage)
             .NotEqual(x => x.CurrentPassword)
             .WithMessage("New password must be different from the current password.");
 
