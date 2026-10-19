@@ -23,6 +23,11 @@ public class ParkingLotServiceTests
             .UseInMemoryDatabase(databaseName: $"ParkingLotTests_{Guid.NewGuid()}")
             .Options;
         _context = new PmsDbContext(options);
+        // Parking lot models build their slots for these vehicle types
+        _context.VehicleTypes.AddRange(
+            new VehicleType { Code = "CAR_4", Name = "4-Seat Car", IsActive = true },
+            new VehicleType { Code = "MOTORBIKE", Name = "Motorbike", IsActive = true });
+        _context.SaveChanges();
         _sut = new ParkingLotService(_context);
     }
 
@@ -36,7 +41,7 @@ public class ParkingLotServiceTests
             Address = "123 Le Loi, Ben Nghe, District 1",
             City = "Ho Chi Minh City",
             District = "District 1",
-            Capacity = 200,
+            LayoutTemplate = "L3S20",
             Is24Hours = true
         };
 
@@ -73,7 +78,7 @@ public class ParkingLotServiceTests
             Code = "LOT-DUP",
             Name = "Another Lot",
             Address = "789 Test",
-            Capacity = 100
+            LayoutTemplate = "L3S20",
         };
 
         var act = async () => await _sut.CreateAsync(model);

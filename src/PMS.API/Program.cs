@@ -26,6 +26,8 @@ builder.Services.AddDataAccess(builder.Configuration)
 
 builder.Services.AddJwt(builder.Configuration);
 
+builder.Services.AddPublicRateLimits();
+
 builder.Services.AddEmailConfiguration(builder.Configuration);
 
 var app = builder.Build();
@@ -46,6 +48,8 @@ app.UseCors(corsPolicyBuilder =>
 );
 
 app.UseRouting();
+
+app.UseRateLimiter();
 
 app.UseAuthentication();
 

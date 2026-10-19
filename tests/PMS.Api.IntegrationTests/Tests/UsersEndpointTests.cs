@@ -34,6 +34,7 @@ public class UsersEndpointTests
             .With(cu => cu.UserName = "IntegrationTest")
             .With(cu => cu.Password = "Password.1!")
             .With(cu => cu.PhoneNumber = "0987654321")
+            .With(cu => cu.CitizenId = "079123456789")
             .Build();
 
         // Act

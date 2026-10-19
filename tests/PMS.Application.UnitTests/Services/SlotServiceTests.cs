@@ -65,9 +65,7 @@ public class SlotServiceTests
             ZoneId = _testZone.Id,
             VehicleTypeId = _testVehicleType.Id,
             Code = "SLOT-01",
-            Status = "Available",
-            PosX = 10.5m,
-            PosY = 20.0m
+            Status = "Available"
         };
 
         var result = await _sut.CreateAsync(model);

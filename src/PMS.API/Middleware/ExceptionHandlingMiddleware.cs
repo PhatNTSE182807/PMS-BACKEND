@@ -37,6 +37,7 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
             NotFoundException => StatusCodes.Status404NotFound,
             ResourceNotFoundException => StatusCodes.Status404NotFound,
             BadRequestException => StatusCodes.Status400BadRequest,
+            ForbiddenException => StatusCodes.Status403Forbidden,
             UnprocessableRequestException => StatusCodes.Status422UnprocessableEntity,
             _ => code
         };

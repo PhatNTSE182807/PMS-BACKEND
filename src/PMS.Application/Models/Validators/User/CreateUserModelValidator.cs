@@ -50,6 +50,13 @@ public class CreateUserModelValidator : AbstractValidator<CreateUserModel>
             .WithMessage("Phone number is required")
             .Matches(UserValidatorConfiguration.VietnamPhoneNumberRegex)
             .WithMessage("Phone number is not a valid Vietnamese phone number");
+
+        // Uniqueness is checked by UserService, which owns the Customers table
+        RuleFor(u => u.CitizenId)
+            .NotEmpty()
+            .WithMessage("Citizen ID is required")
+            .Matches(UserValidatorConfiguration.CitizenIdRegex)
+            .WithMessage(UserValidatorConfiguration.CitizenIdMessage);
     }
 
     private bool EmailAddressIsUnique(string email)

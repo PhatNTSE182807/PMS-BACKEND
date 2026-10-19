@@ -1,3 +1,4 @@
+using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
@@ -7,9 +8,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PMS.API;
 using PMS.Api.IntegrationTests.Common.Constants;
+using PMS.Api.IntegrationTests.Helpers;
 using PMS.Application.Helpers;
+using PMS.Application.Models.Account;
+using PMS.Application.Models.Admin;
 using PMS.DataAccess.Identity;
 using PMS.DataAccess.Persistence;
+using PMS.DataAccess.Persistence.Entities;
 
 namespace PMS.Api.IntegrationTests.Common;
 
@@ -76,6 +81,56 @@ public static class FactoryExtension
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         return client;
+    }
+
+    /// <summary>
+    /// Admins do not create Staff (SRS FR-AUTH-07): a new Manager with a new lot creates the account
+    /// through POST /api/manager/staff. The phone number is made unique, as the Manager API requires.
+    /// The response carries the Staff id and employee code, like CreateUserResponseModel.
+    /// </summary>
+    public static async Task<HttpResponseMessage> CreateStaffThroughManagerAsync(this ApiApplicationFactory<Program> factory, CreateEmployeeAccountModel model)
+    {
+        var scope = factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var pmsContext = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
+
+        var tag = Guid.NewGuid().ToString("N")[..10];
+        var manager = new ApplicationUser
+        {
+            EmailConfirmed = true,
+            Email = $"mgr_{tag}@test.com",
+            UserName = $"mgr_{tag}",
+            Role = "Manager",
+            IsActive = true
+        };
+        await userManager.CreateAsync(manager, "Password.1!");
+
+        var lot = new ParkingLot
+        {
+            Code = $"LOT-{tag}",
+            Name = $"Lot {tag}",
+            Address = "1 Test Street",
+            Status = "Active",
+            TimeZoneId = "SE Asia Standard Time",
+            ManagerUserId = manager.Id,
+            CreatedAt = DateTime.UtcNow
+        };
+        pmsContext.ParkingLots.Add(lot);
+        await pmsContext.SaveChangesAsync();
+
+        var client = factory.CreateClient();
+        var token = JwtHelper.GenerateToken(manager, factory.Services.GetRequiredService<IConfiguration>());
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        return await client.PostAsync("/api/manager/staff", new JsonContent(new CreateStaffAccountModel
+        {
+            UserName = model.UserName,
+            FullName = model.FullName,
+            Email = model.Email,
+            Password = model.Password,
+            PhoneNumber = $"09{Random.Shared.Next(0, 100_000_000):D8}",
+            ParkingLotId = lot.Id
+        }));
     }
 
     public static HttpClient CreateUnauthorizedClient(this ApiApplicationFactory<Program> factory)

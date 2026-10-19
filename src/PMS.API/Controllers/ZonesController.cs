@@ -34,33 +34,13 @@ public class ZonesController(IZoneService zoneService) : ApiController
             await zoneService.GetByIdAsync(id)));
     }
 
-    [HttpPost]
-    public async Task<IActionResult> CreateAsync([FromBody] CreateZoneModel model)
-    {
-        return Ok(ApiResult<ZoneResponseModel>.Success(
-            await zoneService.CreateAsync(model)));
-    }
-
-    [HttpPost("/api/lots/{lotId:int}/zones")]
-    [HttpPost("/api/parking-lots/{lotId:int}/zones")]
-    public async Task<IActionResult> CreateForLotAsync(int lotId, [FromBody] CreateZoneModel model)
-    {
-        model.ParkingLotId = lotId;
-        return Ok(ApiResult<ZoneResponseModel>.Success(
-            await zoneService.CreateAsync(model)));
-    }
-
+    // Zones are generated from the lot's ready-made model (LotTemplates); there is no create or delete.
+    // Only an Admin adjusts a zone (name, reservation share); Managers do not configure lots.
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateZoneModel model)
     {
         return Ok(ApiResult<ZoneResponseModel>.Success(
             await zoneService.UpdateAsync(id, model)));
-    }
-
-    [HttpDelete("{id:int}")]
-    public async Task<IActionResult> DeleteAsync(int id)
-    {
-        return Ok(ApiResult<bool>.Success(
-            await zoneService.DeleteAsync(id)));
     }
 }

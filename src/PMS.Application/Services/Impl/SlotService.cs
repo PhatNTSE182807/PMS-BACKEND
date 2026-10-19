@@ -107,10 +107,6 @@ public class SlotService(PmsDbContext pmsContext) : ISlotService
             Status = initialStatus,
             DedicatedVehicleId = model.DedicatedVehicleId,
             DedicatedNote = model.DedicatedNote?.Trim(),
-            PosX = model.PosX,
-            PosY = model.PosY,
-            Width = model.Width,
-            Height = model.Height,
             IsActive = true,
             RowVersion = Array.Empty<byte>()
         };
@@ -167,10 +163,6 @@ public class SlotService(PmsDbContext pmsContext) : ISlotService
         if (model.DedicatedNote != null)
             slot.DedicatedNote = model.DedicatedNote.Trim();
 
-        if (model.PosX.HasValue) slot.PosX = model.PosX;
-        if (model.PosY.HasValue) slot.PosY = model.PosY;
-        if (model.Width.HasValue) slot.Width = model.Width;
-        if (model.Height.HasValue) slot.Height = model.Height;
 
         if (model.IsActive.HasValue)
             slot.IsActive = model.IsActive.Value;
@@ -233,10 +225,6 @@ public class SlotService(PmsDbContext pmsContext) : ISlotService
             Status = s.Status,
             DedicatedVehicleId = s.DedicatedVehicleId,
             DedicatedNote = s.DedicatedNote,
-            PosX = s.PosX,
-            PosY = s.PosY,
-            Width = s.Width,
-            Height = s.Height,
             IsActive = s.IsActive
         };
     }

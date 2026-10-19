@@ -60,7 +60,7 @@ public class VehiclesEndpointTests
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
         var vehicleTypeId = await SeedVehicleTypeAsync();
-        var model = new CreateVehicleModel { LicensePlate = "29-B1 123.45", VehicleTypeId = vehicleTypeId };
+        var model = new CreateVehicleModel { LicensePlate = "29-B1 123.45", VehicleTypeId = vehicleTypeId, CitizenId = "079123456789" };
 
         // Act
         var apiResponse = await client.PostAsync("/api/users/profile/vehicles", new JsonContent(model));
@@ -70,5 +70,6 @@ public class VehiclesEndpointTests
         var response = await ResponseHelper.GetApiResultAsync<VehicleResponseModel>(apiResponse);
         CheckResponse.Succeeded(response);
         response.Result.LicensePlate.Should().Be("29-B1 123.45");
+        response.Result.CitizenId.Should().Be("079123456789");
     }
 }

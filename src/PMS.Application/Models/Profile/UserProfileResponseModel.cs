@@ -15,6 +15,8 @@ public class UserProfileResponseModel
 
     public string AvatarUrl { get; set; }
 
+    public string CitizenId { get; set; }
+
     public bool IsActive { get; set; }
 
     public string Status { get; set; }

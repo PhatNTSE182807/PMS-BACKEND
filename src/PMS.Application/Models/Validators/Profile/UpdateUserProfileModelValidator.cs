@@ -36,5 +36,12 @@ public class UpdateUserProfileModelValidator : AbstractValidator<UpdateUserProfi
                 .MaximumLength(500)
                 .WithMessage("Avatar URL must not exceed 500 characters.");
         });
+
+        When(x => !string.IsNullOrWhiteSpace(x.CitizenId), () =>
+        {
+            RuleFor(x => x.CitizenId)
+                .Matches(UserValidatorConfiguration.CitizenIdRegex)
+                .WithMessage($"{UserValidatorConfiguration.CitizenIdMessage}.");
+        });
     }
 }

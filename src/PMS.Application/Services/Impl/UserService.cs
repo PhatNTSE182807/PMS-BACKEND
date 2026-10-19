@@ -37,6 +37,11 @@ public class UserService(
         user.EmailConfirmed = true;
         user.Role = "User";
 
+        var citizenId = createUserModel.CitizenId?.Trim();
+        if (pmsContext != null && !string.IsNullOrEmpty(citizenId) &&
+            await pmsContext.Customers.AnyAsync(c => c.CitizenId == citizenId))
+            throw new BadRequestException("Citizen ID is already registered to another account");
+
         var result = await userManager.CreateAsync(user, createUserModel.Password);
 
         if (!result.Succeeded) throw new BadRequestException(result.Errors.FirstOrDefault()?.Description);
@@ -52,6 +57,7 @@ public class UserService(
                     FullName = !string.IsNullOrWhiteSpace(createUserModel.FullName) ? createUserModel.FullName.Trim() : (user.UserName ?? "User"),
                     Phone = user.PhoneNumber,
                     Email = user.Email,
+                    CitizenId = string.IsNullOrEmpty(citizenId) ? null : citizenId,
                     CustomerType = "Individual",
                     MembershipTier = "Standard",
                     IsActive = true,

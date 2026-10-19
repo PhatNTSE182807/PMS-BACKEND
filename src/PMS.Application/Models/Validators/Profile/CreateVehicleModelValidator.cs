@@ -1,6 +1,7 @@
 using FluentValidation;
 using PMS.Application.Helpers;
 using PMS.Application.Models.Profile;
+using PMS.Application.Models.Validators.User;
 
 namespace PMS.Application.Models.Validators.Profile;
 
@@ -35,6 +36,13 @@ public class CreateVehicleModelValidator : AbstractValidator<CreateVehicleModel>
         RuleFor(x => x.Color)
             .MaximumLength(50)
             .WithMessage("Color must not exceed 50 characters.");
+
+        When(x => !string.IsNullOrWhiteSpace(x.CitizenId), () =>
+        {
+            RuleFor(x => x.CitizenId)
+                .Matches(UserValidatorConfiguration.CitizenIdRegex)
+                .WithMessage($"{UserValidatorConfiguration.CitizenIdMessage}.");
+        });
     }
 }
 
@@ -66,5 +74,12 @@ public class UpdateVehicleModelValidator : AbstractValidator<UpdateVehicleModel>
         RuleFor(x => x.Color)
             .MaximumLength(50)
             .WithMessage("Color must not exceed 50 characters.");
+
+        When(x => !string.IsNullOrWhiteSpace(x.CitizenId), () =>
+        {
+            RuleFor(x => x.CitizenId)
+                .Matches(UserValidatorConfiguration.CitizenIdRegex)
+                .WithMessage($"{UserValidatorConfiguration.CitizenIdMessage}.");
+        });
     }
 }

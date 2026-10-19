@@ -42,14 +42,14 @@ public class TwoFactorAuthIntegrationTests
         var email = $"{username}@test.com";
 
         // 1. Admin creates staff
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "Staff 2FA Test",
             Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
-        }));
+        });
         createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
@@ -90,14 +90,14 @@ public class TwoFactorAuthIntegrationTests
         var email = $"{username}@test.com";
 
         // 1. Create staff with two-factor sign-in
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "Staff Verify Test",
             Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
-        }));
+        });
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
         await EnableTwoFactorAsync(createResult.Result.Id.ToString());
@@ -165,14 +165,14 @@ public class TwoFactorAuthIntegrationTests
         var username = $"staff_fail_{Guid.NewGuid():N}"[..12];
         var email = $"{username}@test.com";
 
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "Staff Fail Test",
             Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
-        }));
+        });
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
         await EnableTwoFactorAsync(createResult.Result.Id.ToString());
@@ -203,14 +203,14 @@ public class TwoFactorAuthIntegrationTests
         var username = $"staff_rate_{Guid.NewGuid():N}"[..12];
         var email = $"{username}@test.com";
 
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "Staff Rate Test",
             Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
-        }));
+        });
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
         await EnableTwoFactorAsync(createResult.Result.Id.ToString());
@@ -242,14 +242,14 @@ public class TwoFactorAuthIntegrationTests
         var username = $"staff_bypass_{Guid.NewGuid():N}"[..12];
         var email = $"{username}@test.com";
 
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "Staff Bypass Test",
             Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
-        }));
+        });
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
         await EnableTwoFactorAsync(createResult.Result.Id.ToString());
@@ -280,14 +280,14 @@ public class TwoFactorAuthIntegrationTests
         var username = $"staff_nopwd_{Guid.NewGuid():N}"[..12];
         var email = $"{username}@test.com";
 
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "Staff No Pwd Test",
             Password = "ComplexPassword.1!",
             Email = email,
             PhoneNumber = "0901234567"
-        }));
+        });
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
 
         await EnableTwoFactorAsync(createResult.Result.Id.ToString());

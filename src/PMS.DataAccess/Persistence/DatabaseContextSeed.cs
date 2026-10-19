@@ -22,6 +22,18 @@ public static class DatabaseContextSeed
             await userManager.CreateAsync(user, "Admin123.?");
         }
 
+        // SQL Server gets these from AutomatedMigration; an in-memory database (tests, demo) needs them
+        // too, since parking lot models build their slots for these vehicle types
+        if (!pmsContext.VehicleTypes.Any())
+        {
+            pmsContext.VehicleTypes.AddRange(
+                new VehicleType { Code = "CAR_4", Name = "4-Seat Car", Description = "Sedan/Hatchback up to 5 seats", SortOrder = 1, IsActive = true },
+                new VehicleType { Code = "CAR_7", Name = "7-Seat Car", Description = "SUV/MPV up to 7 seats", SortOrder = 2, IsActive = true },
+                new VehicleType { Code = "MOTORBIKE", Name = "Motorbike", Description = "Two-wheeled motorcycles and scooters", SortOrder = 3, IsActive = true },
+                new VehicleType { Code = "BICYCLE", Name = "Bicycle", Description = "Bicycles and light electric bikes", SortOrder = 4, IsActive = true });
+            await pmsContext.SaveChangesAsync();
+        }
+
         await SeedUserAsync(pmsContext, userManager,
             "systemadmin", "System administrator", "admin@gmail.com", "0977888888", "Admin123@", "Admin");
 

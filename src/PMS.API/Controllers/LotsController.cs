@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PMS.Application.Models;
+using PMS.Application.Models.Layout;
 using PMS.Application.Models.ParkingLot;
 using PMS.Application.Services;
 using PMS.Shared.Services;
@@ -52,14 +53,25 @@ public class LotsController(
             await parkingLotService.CreateAsync(model, createdBy)));
     }
 
+    /// <summary>Only Admins configure a lot; Managers operate it (status below).</summary>
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateParkingLotModel model)
     {
         return Ok(ApiResult<ParkingLotResponseModel>.Success(
             await parkingLotService.UpdateAsync(id, model)));
     }
 
+    /// <summary>Builds the zones, slots and 3D layout from a ready-made model, for a lot that has no zones yet.</summary>
+    [HttpPut("{id:int}/template")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> ApplyTemplateAsync(int id, [FromBody] ApplyLotTemplateModel model)
+    {
+        return Ok(ApiResult<ParkingLotResponseModel>.Success(
+            await parkingLotService.ApplyTemplateAsync(id, model.LayoutTemplate, claimService.GetUserId())));
+    }
+
+    /// <summary>Operational: open, temporarily close or put the lot into maintenance.</summary>
     [HttpPatch("{id:int}/status")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> UpdateStatusAsync(int id, [FromBody] UpdateParkingLotStatusModel model)

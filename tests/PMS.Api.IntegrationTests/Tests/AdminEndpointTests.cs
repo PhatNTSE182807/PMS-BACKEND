@@ -80,19 +80,18 @@ public class AdminEndpointTests
     }
 
     [Fact]
-    public async Task CreateStaff_WhenAdmin_Should_Return_Success_With_NV_Code()
+    public async Task CreateStaff_ByManager_Should_Return_Success_With_NV_Code()
     {
-        var adminClient = await _factory.CreateDefaultClientAsync();
         var model = new CreateEmployeeAccountModel
         {
             UserName = $"stf_{Guid.NewGuid():N}"[..15],
-            FullName = "Admin Created Staff",
+            FullName = "Manager Created Staff",
             Email = $"stf_{Guid.NewGuid():N}@test.com",
             Password = "Password.1!",
             PhoneNumber = "0909876543"
         };
 
-        var response = await adminClient.PostAsync("/api/admin/staff", new JsonContent(model));
+        var response = await _factory.CreateStaffThroughManagerAsync(model);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var apiResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(response);
@@ -145,21 +144,21 @@ public class AdminEndpointTests
     }
 
     [Fact]
-    public async Task CreateStaff_WhenManagerRole_Should_Return_Forbidden()
+    public async Task CreateStaff_WhenAdmin_Should_Return_NotFound_Because_Only_Managers_Create_Staff()
     {
-        var managerClient = await _factory.CreateClientWithRoleAsync("Manager");
+        var adminClient = await _factory.CreateDefaultClientAsync();
         var model = new CreateEmployeeAccountModel
         {
-            UserName = "mgrstaff01",
-            FullName = "Manager Delegated Staff",
-            Email = "mgrstaff@test.com",
+            UserName = "admstaff01",
+            FullName = "Admin Created Staff",
+            Email = "admstaff@test.com",
             Password = "Password.1!",
             PhoneNumber = "0901234567"
         };
 
-        var response = await managerClient.PostAsync("/api/admin/staff", new JsonContent(model));
+        var response = await adminClient.PostAsync("/api/admin/staff", new JsonContent(model));
 
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -186,14 +185,14 @@ public class AdminEndpointTests
         var password = "Password.1!";
         var email = $"{username}@test.com";
 
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "Staff To Deactivate",
             Email = email,
             Password = password,
             PhoneNumber = "0901234567"
-        }));
+        });
         createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
         var staffId = createResult.Result.Id.ToString();

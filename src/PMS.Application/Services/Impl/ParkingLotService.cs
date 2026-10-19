@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
+using PMS.Application.Helpers;
 using PMS.Application.Models.ParkingLot;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
@@ -74,12 +75,11 @@ public class ParkingLotService(PmsDbContext pmsContext) : IParkingLotService
             Address = p.Address,
             City = p.City,
             District = p.District,
-            Latitude = p.Latitude,
-            Longitude = p.Longitude,
             OpenTime = p.OpenTime,
             CloseTime = p.CloseTime,
             Is24Hours = p.Is24Hours,
             Capacity = p.Capacity,
+            LayoutTemplate = p.LayoutTemplate,
             ImageUrl = p.ImageUrl,
             Description = p.Description,
             Phone = p.Phone,
@@ -119,12 +119,9 @@ public class ParkingLotService(PmsDbContext pmsContext) : IParkingLotService
             Address = model.Address.Trim(),
             City = model.City?.Trim(),
             District = model.District?.Trim(),
-            Latitude = model.Latitude,
-            Longitude = model.Longitude,
             OpenTime = model.OpenTime,
             CloseTime = model.CloseTime,
             Is24Hours = model.Is24Hours,
-            Capacity = model.Capacity,
             ImageUrl = model.ImageUrl?.Trim(),
             Description = model.Description?.Trim(),
             Phone = model.Phone?.Trim(),
@@ -139,7 +136,20 @@ public class ParkingLotService(PmsDbContext pmsContext) : IParkingLotService
         pmsContext.ParkingLots.Add(lot);
         await pmsContext.SaveChangesAsync();
 
+        // Zones, slots, capacity and the published 3D layout all come from the chosen model
+        await LotTemplates.ApplyAsync(pmsContext, lot, model.LayoutTemplate, createdBy);
+
         return MapToResponseModel(lot);
+    }
+
+    public async Task<ParkingLotResponseModel> ApplyTemplateAsync(int id, string templateId, string userId)
+    {
+        var lot = await pmsContext.ParkingLots.FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted)
+            ?? throw new NotFoundException($"Parking lot with ID {id} was not found.");
+
+        await LotTemplates.ApplyAsync(pmsContext, lot, templateId, userId);
+
+        return await GetByIdAsync(id);
     }
 
     public async Task<ParkingLotResponseModel> UpdateAsync(int id, UpdateParkingLotModel model)
@@ -156,12 +166,9 @@ public class ParkingLotService(PmsDbContext pmsContext) : IParkingLotService
         lot.Address = model.Address.Trim();
         lot.City = model.City?.Trim();
         lot.District = model.District?.Trim();
-        lot.Latitude = model.Latitude;
-        lot.Longitude = model.Longitude;
         lot.OpenTime = model.OpenTime;
         lot.CloseTime = model.CloseTime;
         lot.Is24Hours = model.Is24Hours;
-        lot.Capacity = model.Capacity;
         lot.ImageUrl = model.ImageUrl?.Trim();
         lot.Description = model.Description?.Trim();
         lot.Phone = model.Phone?.Trim();
@@ -230,12 +237,11 @@ public class ParkingLotService(PmsDbContext pmsContext) : IParkingLotService
             Address = p.Address,
             City = p.City,
             District = p.District,
-            Latitude = p.Latitude,
-            Longitude = p.Longitude,
             OpenTime = p.OpenTime,
             CloseTime = p.CloseTime,
             Is24Hours = p.Is24Hours,
             Capacity = p.Capacity,
+            LayoutTemplate = p.LayoutTemplate,
             ImageUrl = p.ImageUrl,
             Description = p.Description,
             Phone = p.Phone,

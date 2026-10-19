@@ -23,6 +23,9 @@ public partial class Vehicle
 
     public bool IsDefault { get; set; }
 
+    /// <summary>Citizen ID (CCCD) of the registered owner on the vehicle papers.</summary>
+    public string CitizenId { get; set; }
+
     public bool IsActive { get; set; }
 
     public DateTime CreatedAt { get; set; }

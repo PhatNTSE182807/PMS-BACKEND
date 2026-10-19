@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -8,6 +9,27 @@ namespace PMS.API;
 
 public static class ApiDependencyInjection
 {
+    /// <summary>Rate limit for the public 3D layout channel (SRS FR-3D-08).</summary>
+    public const string PublicLayoutRateLimit = "public-layout";
+
+    /// <summary>120 requests a minute per client IP: enough to poll statuses every second.</summary>
+    public static void AddPublicRateLimits(this IServiceCollection services)
+    {
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddPolicy(PublicLayoutRateLimit, context =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 120,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0
+                    }));
+        });
+    }
+
     public static void AddJwt(this IServiceCollection services, IConfiguration configuration)
     {
         var secretKey = configuration.GetValue<string>("JwtConfiguration:SecretKey");

@@ -12,6 +12,9 @@ public class UpdateVehicleModel
 
     public string Color { get; set; }
 
+    /// <summary>Citizen ID (CCCD) of the registered owner; left unchanged when empty.</summary>
+    public string CitizenId { get; set; }
+
     public bool IsDefault { get; set; }
 
     public bool IsActive { get; set; } = true;

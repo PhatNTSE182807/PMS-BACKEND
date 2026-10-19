@@ -163,6 +163,23 @@ public static class AutomatedMigration
                 END
             END
 
+            -- Citizen ID (CCCD, 12 digits): the customer's own, and the registered owner of each vehicle
+            IF COL_LENGTH('dbo.Customers', 'CitizenId') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[Customers] ADD [CitizenId] [varchar](12) NULL;
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Customers_CitizenId')
+            BEGIN
+                -- Dynamic SQL: the column may have been added earlier in this same batch
+                EXEC('CREATE UNIQUE NONCLUSTERED INDEX [IX_Customers_CitizenId] ON [dbo].[Customers]([CitizenId] ASC) WHERE [CitizenId] IS NOT NULL');
+            END
+
+            IF COL_LENGTH('dbo.Vehicles', 'CitizenId') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[Vehicles] ADD [CitizenId] [varchar](12) NULL;
+            END
+
             IF OBJECT_ID('dbo.Employees', 'U') IS NULL
             BEGIN
                 CREATE TABLE [dbo].[Employees](
@@ -216,6 +233,12 @@ public static class AutomatedMigration
                     [CreatedBy] [nvarchar](450) NULL
                 );
                 CREATE UNIQUE NONCLUSTERED INDEX [IX_ParkingLots_Code] ON [dbo].[ParkingLots]([Code] ASC);
+            END
+
+            -- Ready-made building model the lot's zones, slots and 3D layout are generated from
+            IF COL_LENGTH('dbo.ParkingLots', 'LayoutTemplate') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[ParkingLots] ADD [LayoutTemplate] [varchar](30) NULL;
             END
 
             IF OBJECT_ID('dbo.Zones', 'U') IS NULL
@@ -316,6 +339,43 @@ public static class AutomatedMigration
                     [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime())
                 );
                 CREATE NONCLUSTERED INDEX [IX_AuditLogs_CreatedAt] ON [dbo].[AuditLogs]([CreatedAt] DESC);
+            END
+
+            -- Layout 3D (Draft / Published / Archived) and where each slot sits in it (Slot3DMeta)
+            IF OBJECT_ID('dbo.LotLayouts', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[LotLayouts](
+                    [Id] [int] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ParkingLotId] [int] NOT NULL,
+                    [Version] [int] NOT NULL,
+                    [Status] [varchar](20) NOT NULL DEFAULT 'Draft',
+                    [TemplateId] [varchar](30) NULL,
+                    [FloorsJson] [nvarchar](max) NOT NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [CreatedBy] [nvarchar](450) NULL,
+                    [UpdatedAt] [datetime2](3) NULL,
+                    [PublishedAt] [datetime2](3) NULL,
+                    [PublishedBy] [nvarchar](450) NULL,
+                    CONSTRAINT [FK_LotLayouts_ParkingLots] FOREIGN KEY([ParkingLotId]) REFERENCES [dbo].[ParkingLots] ([Id])
+                );
+                CREATE NONCLUSTERED INDEX [IX_LotLayouts_ParkingLotId_Status] ON [dbo].[LotLayouts]([ParkingLotId] ASC, [Status] ASC);
+            END
+
+            IF OBJECT_ID('dbo.LotLayoutSlots', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[LotLayoutSlots](
+                    [Id] [int] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [LayoutId] [int] NOT NULL,
+                    [SlotId] [int] NOT NULL,
+                    [FloorNo] [int] NOT NULL,
+                    [Row] [int] NOT NULL,
+                    [Col] [int] NOT NULL,
+                    [Rotation] [int] NOT NULL DEFAULT 0,
+                    [ModelUrl] [nvarchar](500) NULL,
+                    CONSTRAINT [FK_LotLayoutSlots_LotLayouts] FOREIGN KEY([LayoutId]) REFERENCES [dbo].[LotLayouts] ([Id]) ON DELETE CASCADE,
+                    CONSTRAINT [FK_LotLayoutSlots_Slots] FOREIGN KEY([SlotId]) REFERENCES [dbo].[Slots] ([Id])
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_LotLayoutSlots_LayoutId_SlotId] ON [dbo].[LotLayoutSlots]([LayoutId] ASC, [SlotId] ASC);
             END
         ";
 

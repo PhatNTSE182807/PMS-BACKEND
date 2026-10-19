@@ -37,39 +37,20 @@ public class SlotsController(ISlotService slotService) : ApiController
             await slotService.GetByIdAsync(id)));
     }
 
-    [HttpPost]
-    public async Task<IActionResult> CreateAsync([FromBody] CreateSlotModel model)
-    {
-        return Ok(ApiResult<SlotResponseModel>.Success(
-            await slotService.CreateAsync(model)));
-    }
-
-    [HttpPost("/api/zones/{zoneId:int}/slots")]
-    public async Task<IActionResult> CreateForZoneAsync(int zoneId, [FromBody] CreateSlotModel model)
-    {
-        model.ZoneId = zoneId;
-        return Ok(ApiResult<SlotResponseModel>.Success(
-            await slotService.CreateAsync(model)));
-    }
-
+    // Slots are generated from the lot's ready-made model (LotTemplates); there is no create or delete.
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateSlotModel model)
     {
         return Ok(ApiResult<SlotResponseModel>.Success(
             await slotService.UpdateAsync(id, model)));
     }
 
+    /// <summary>Operational: put a bay into or out of maintenance.</summary>
     [HttpPatch("{id:int}/status")]
     public async Task<IActionResult> UpdateStatusAsync(int id, [FromBody] UpdateSlotStatusModel model)
     {
         return Ok(ApiResult<bool>.Success(
             await slotService.UpdateStatusAsync(id, model.Status)));
-    }
-
-    [HttpDelete("{id:int}")]
-    public async Task<IActionResult> DeleteAsync(int id)
-    {
-        return Ok(ApiResult<bool>.Success(
-            await slotService.DeleteAsync(id)));
     }
 }

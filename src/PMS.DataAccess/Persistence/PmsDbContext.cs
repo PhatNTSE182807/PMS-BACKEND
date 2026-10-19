@@ -316,6 +316,7 @@ public partial class PmsDbContext : DbContext
         modelBuilder.Entity<Customer>(entity =>
         {
             entity.Property(e => e.Address).HasMaxLength(500);
+            entity.Property(e => e.CitizenId).HasMaxLength(12).IsUnicode(false);
             entity.Property(e => e.AnonymizedAt).HasPrecision(3);
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(3)
@@ -1258,6 +1259,7 @@ public partial class PmsDbContext : DbContext
 
             entity.Property(e => e.Brand).HasMaxLength(100);
             entity.Property(e => e.Color).HasMaxLength(50);
+            entity.Property(e => e.CitizenId).HasMaxLength(12).IsUnicode(false);
             entity.Property(e => e.IsDefault).HasDefaultValue(false);
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(3)

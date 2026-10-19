@@ -19,6 +19,8 @@ public partial class Customer
 
     public string AvatarUrl { get; set; }
 
+    public string CitizenId { get; set; }
+
     public DateOnly? DateOfBirth { get; set; }
 
     public string Gender { get; set; }

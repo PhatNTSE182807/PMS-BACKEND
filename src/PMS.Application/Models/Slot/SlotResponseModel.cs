@@ -30,13 +30,5 @@ public class SlotResponseModel
 
     public string DedicatedNote { get; set; }
 
-    public decimal? PosX { get; set; }
-
-    public decimal? PosY { get; set; }
-
-    public decimal? Width { get; set; }
-
-    public decimal? Height { get; set; }
-
     public bool IsActive { get; set; }
 }

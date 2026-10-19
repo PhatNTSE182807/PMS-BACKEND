@@ -49,6 +49,9 @@ public partial class ParkingLot
 
     public string ManagerUserId { get; set; }
 
+    /// <summary>Ready-made building model (L3S20, L3S50, L4S30) the zones, slots and 3D layout come from.</summary>
+    public string LayoutTemplate { get; set; }
+
     public string TimeZoneId { get; set; } = "SE Asia Standard Time";
 
     public bool IsDeleted { get; set; }

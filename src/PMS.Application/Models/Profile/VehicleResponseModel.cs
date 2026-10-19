@@ -18,6 +18,9 @@ public class VehicleResponseModel
 
     public string Color { get; set; }
 
+    /// <summary>Citizen ID (CCCD) of the registered owner.</summary>
+    public string CitizenId { get; set; }
+
     public bool IsDefault { get; set; }
 
     public bool IsActive { get; set; }

@@ -31,7 +31,7 @@ public class ParkingConfigurationConformanceTests
             Code = code,
             Name = "Conformance Test Lot",
             Address = "100 Test Blvd",
-            Capacity = 200
+            LayoutTemplate = "L3S20",
         }));
         var lotResult = await ResponseHelper.GetApiResultAsync<ParkingLotResponseModel>(lotResponse);
         return lotResult.Result.Id;
@@ -51,7 +51,7 @@ public class ParkingConfigurationConformanceTests
             Code = $"L_{Guid.NewGuid():N}"[..8].ToUpperInvariant(),
             Name = "RBAC Lot",
             Address = "123 RBAC",
-            Capacity = 50
+            LayoutTemplate = "L3S20",
         };
 
         // 1. POST /api/lots: Admin only (Manager/User/Anon rejected)
@@ -100,7 +100,7 @@ public class ParkingConfigurationConformanceTests
             Code = code,
             Name = "Lot A",
             Address = "Address A",
-            Capacity = 50
+            LayoutTemplate = "L3S20",
         }));
         first.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -109,7 +109,7 @@ public class ParkingConfigurationConformanceTests
             Code = code,
             Name = "Lot B",
             Address = "Address B",
-            Capacity = 60
+            LayoutTemplate = "L3S20",
         }));
         second.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -137,84 +137,96 @@ public class ParkingConfigurationConformanceTests
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
-    [Fact]
-    public async Task CreateZone_Composite_Code_Uniqueness_Should_Work()
+    /// <summary>The first generated slot of a lot (lots are built from a ready-made model).</summary>
+    private async Task<Slot> FirstSlotAsync(int lotId)
     {
-        var adminClient = await _factory.CreateDefaultClientAsync();
-        var lot1Id = await CreateTestLotAsync();
-        var lot2Id = await CreateTestLotAsync();
-
-        var zoneCode = "ZA";
-
-        // 1. Create ZA in Lot 1 -> Success
-        var first = await adminClient.PostAsync($"/api/lots/{lot1Id}/zones", new JsonContent(new CreateZoneModel
-        {
-            ParkingLotId = lot1Id,
-            Code = zoneCode,
-            Name = "Zone A Lot 1",
-            Capacity = 20
-        }));
-        first.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        // 2. Create duplicate ZA in Lot 1 -> BadRequest
-        var duplicateInSameLot = await adminClient.PostAsync($"/api/lots/{lot1Id}/zones", new JsonContent(new CreateZoneModel
-        {
-            ParkingLotId = lot1Id,
-            Code = zoneCode,
-            Name = "Zone A Lot 1 Duplicate",
-            Capacity = 20
-        }));
-        duplicateInSameLot.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-
-        // 3. Create ZA in Lot 2 -> Success (composite uniqueness allows same code across lots)
-        var sameCodeInDifferentLot = await adminClient.PostAsync($"/api/lots/{lot2Id}/zones", new JsonContent(new CreateZoneModel
-        {
-            ParkingLotId = lot2Id,
-            Code = zoneCode,
-            Name = "Zone A Lot 2",
-            Capacity = 25
-        }));
-        sameCodeInDifferentLot.StatusCode.Should().Be(HttpStatusCode.OK);
+        var pmsContext = _factory.GetRequiredService<PmsDbContext>();
+        return await pmsContext.Slots.Include(s => s.Zone)
+            .Where(s => s.Zone.ParkingLotId == lotId)
+            .OrderBy(s => s.Code)
+            .FirstAsync();
     }
 
     [Fact]
-    public async Task DeleteZone_WhenHasOccupiedSlots_Should_Return_BadRequest()
+    public async Task CreateLot_Without_A_Model_Should_Return_BadRequest()
+    {
+        var adminClient = await _factory.CreateDefaultClientAsync();
+
+        var missing = await adminClient.PostAsync("/api/lots", new JsonContent(new CreateParkingLotModel
+        {
+            Name = "No Model Lot",
+            Address = "1 Nowhere"
+        }));
+        var unknown = await adminClient.PostAsync("/api/lots", new JsonContent(new CreateParkingLotModel
+        {
+            Name = "Custom Model Lot",
+            Address = "1 Nowhere",
+            LayoutTemplate = "MY_OWN_3D"
+        }));
+
+        missing.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        unknown.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task CreateLot_Should_Generate_Zones_And_Slots_From_The_Model()
     {
         var adminClient = await _factory.CreateDefaultClientAsync();
         var lotId = await CreateTestLotAsync();
 
-        var zoneResponse = await adminClient.PostAsync($"/api/lots/{lotId}/zones", new JsonContent(new CreateZoneModel
-        {
-            ParkingLotId = lotId,
-            Code = "Z_OCC",
-            Name = "Zone Occupied",
-            Capacity = 10
-        }));
-        var zoneResult = await ResponseHelper.GetApiResultAsync<ZoneResponseModel>(zoneResponse);
-        var zoneId = zoneResult.Result.Id;
+        var lot = await ResponseHelper.GetApiResultAsync<ParkingLotResponseModel>(await adminClient.GetAsync($"/api/lots/{lotId}"));
+        lot.Result.LayoutTemplate.Should().Be("L3S20");
+        lot.Result.Capacity.Should().Be(60);
+        lot.Result.TotalZones.Should().Be(3);
+        lot.Result.TotalSlots.Should().Be(60);
+    }
 
-        var pmsContext = _factory.GetRequiredService<PmsDbContext>();
-        var vehicleType = await pmsContext.VehicleTypes.FirstOrDefaultAsync();
-        if (vehicleType == null)
-        {
-            vehicleType = new VehicleType { Id = 1, Code = "CAR", Name = "Car", IsActive = true };
-            pmsContext.VehicleTypes.Add(vehicleType);
-            await pmsContext.SaveChangesAsync();
-        }
+    [Fact]
+    public async Task Zone_And_Slot_Structure_Cannot_Be_Edited_By_Hand()
+    {
+        var adminClient = await _factory.CreateDefaultClientAsync();
+        var lotId = await CreateTestLotAsync();
+        var slot = await FirstSlotAsync(lotId);
 
-        pmsContext.Slots.Add(new Slot
-        {
-            ZoneId = zoneId,
-            VehicleTypeId = vehicleType.Id,
-            Code = "S_OCC_1",
-            Status = "Occupied",
-            IsActive = true,
-            RowVersion = Array.Empty<byte>()
-        });
-        await pmsContext.SaveChangesAsync();
+        // Create and delete endpoints are gone: the structure comes from the lot's model
+        (await adminClient.PostAsync($"/api/lots/{lotId}/zones", new JsonContent(new CreateZoneModel { Name = "Extra", Capacity = 5 })))
+            .StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+        (await adminClient.DeleteAsync($"/api/zones/{slot.ZoneId}")).StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+        (await adminClient.PostAsync($"/api/zones/{slot.ZoneId}/slots", new JsonContent(new CreateSlotModel { Code = "EXTRA" })))
+            .StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+        (await adminClient.DeleteAsync($"/api/slots/{slot.Id}")).StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+    }
 
-        var deleteResponse = await adminClient.DeleteAsync($"/api/zones/{zoneId}");
-        deleteResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    [Fact]
+    public async Task Managers_Should_Not_Configure_Lots_Zones_Or_Slots()
+    {
+        var managerClient = await _factory.CreateClientWithRoleAsync("Manager");
+        var lotId = await CreateTestLotAsync();
+        var slot = await FirstSlotAsync(lotId);
+
+        (await managerClient.PutAsync($"/api/lots/{lotId}", new JsonContent(new UpdateParkingLotModel { Name = "X", Address = "Y", Is24Hours = true })))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await managerClient.PutAsync($"/api/lots/{lotId}/template", new JsonContent(new { layoutTemplate = "L4S30" })))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await managerClient.PutAsync($"/api/zones/{slot.ZoneId}", new JsonContent(new UpdateZoneModel { Name = "X", Capacity = 20 })))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await managerClient.PutAsync($"/api/slots/{slot.Id}", new JsonContent(new UpdateSlotModel { Code = "X" })))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        // Operating the lot is still theirs: a bay can go into maintenance
+        (await managerClient.PatchAsync($"/api/slots/{slot.Id}/status", new JsonContent(new UpdateSlotStatusModel { Status = "Maintenance" })))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task ApplyTemplate_To_A_Lot_With_Zones_Should_Return_BadRequest()
+    {
+        var adminClient = await _factory.CreateDefaultClientAsync();
+        var lotId = await CreateTestLotAsync();
+
+        var response = await adminClient.PutAsync($"/api/lots/{lotId}/template", new JsonContent(new { layoutTemplate = "L4S30" }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -222,36 +234,9 @@ public class ParkingConfigurationConformanceTests
     {
         var adminClient = await _factory.CreateDefaultClientAsync();
         var lotId = await CreateTestLotAsync();
+        var slot = await FirstSlotAsync(lotId);
 
-        var zoneResponse = await adminClient.PostAsync($"/api/lots/{lotId}/zones", new JsonContent(new CreateZoneModel
-        {
-            ParkingLotId = lotId,
-            Code = "Z_SLOT",
-            Name = "Zone For Slots",
-            Capacity = 10
-        }));
-        var zoneResult = await ResponseHelper.GetApiResultAsync<ZoneResponseModel>(zoneResponse);
-
-        var pmsContext = _factory.GetRequiredService<PmsDbContext>();
-        var vehicleType = await pmsContext.VehicleTypes.FirstOrDefaultAsync();
-        if (vehicleType == null)
-        {
-            vehicleType = new VehicleType { Id = 1, Code = "CAR", Name = "Car", IsActive = true };
-            pmsContext.VehicleTypes.Add(vehicleType);
-            await pmsContext.SaveChangesAsync();
-        }
-
-        var slotResponse = await adminClient.PostAsync($"/api/zones/{zoneResult.Result.Id}/slots", new JsonContent(new CreateSlotModel
-        {
-            ZoneId = zoneResult.Result.Id,
-            VehicleTypeId = vehicleType.Id,
-            Code = "SLOT_X",
-            Status = "Available"
-        }));
-        var slotResult = await ResponseHelper.GetApiResultAsync<SlotResponseModel>(slotResponse);
-
-        // Try updating to invalid status
-        var badStatusResponse = await adminClient.PatchAsync($"/api/slots/{slotResult.Result.Id}/status", new JsonContent(new UpdateSlotStatusModel
+        var badStatusResponse = await adminClient.PatchAsync($"/api/slots/{slot.Id}/status", new JsonContent(new UpdateSlotStatusModel
         {
             Status = "NonExistentStatus123"
         }));
@@ -266,7 +251,7 @@ public class ParkingConfigurationConformanceTests
         {
             Name = $"Auto Code Lot {Guid.NewGuid():N}"[..20],
             Address = "123 Auto Street",
-            Capacity = 100
+            LayoutTemplate = "L3S20",
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -284,108 +269,5 @@ public class ParkingConfigurationConformanceTests
 
         var publicResponse = await _factory.CreateUnauthorizedClient().GetAsync("/api/public/parking-lots");
         publicResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    [Fact]
-    public async Task CreateZone_Without_Code_And_Type_Alias_Should_AutoGenerate_Code_And_Succeed()
-    {
-        var adminClient = await _factory.CreateDefaultClientAsync();
-        var lotId = await CreateTestLotAsync();
-
-        var response = await adminClient.PostAsync($"/api/parking-lots/{lotId}/zones", new JsonContent(new CreateZoneModel
-        {
-            ParkingLotId = lotId,
-            Name = "Auto Code Zone",
-            Type = "Car"
-        }));
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var result = await ResponseHelper.GetApiResultAsync<ZoneResponseModel>(response);
-        result.Succeeded.Should().BeTrue();
-        result.Result.Code.Should().StartWith("ZN-");
-        result.Result.ZoneType.Should().Be("Car");
-    }
-
-    [Fact]
-    public async Task DeleteSlot_When_Reserved_Should_Return_BadRequest()
-    {
-        var adminClient = await _factory.CreateDefaultClientAsync();
-        var lotId = await CreateTestLotAsync();
-
-        var zoneResponse = await adminClient.PostAsync($"/api/lots/{lotId}/zones", new JsonContent(new CreateZoneModel
-        {
-            ParkingLotId = lotId,
-            Code = "Z_RESV",
-            Name = "Zone Reserved Test",
-            Capacity = 10
-        }));
-        var zoneResult = await ResponseHelper.GetApiResultAsync<ZoneResponseModel>(zoneResponse);
-
-        var pmsContext = _factory.GetRequiredService<PmsDbContext>();
-        var vehicleType = await pmsContext.VehicleTypes.FirstOrDefaultAsync();
-        if (vehicleType == null)
-        {
-            vehicleType = new VehicleType { Id = 1, Code = "CAR", Name = "Car", IsActive = true };
-            pmsContext.VehicleTypes.Add(vehicleType);
-            await pmsContext.SaveChangesAsync();
-        }
-
-        var slot = new Slot
-        {
-            ZoneId = zoneResult.Result.Id,
-            VehicleTypeId = vehicleType.Id,
-            Code = "SLOT_RES1",
-            Status = "Reserved",
-            IsActive = true,
-            RowVersion = Array.Empty<byte>()
-        };
-        pmsContext.Slots.Add(slot);
-        await pmsContext.SaveChangesAsync();
-
-        var deleteResponse = await adminClient.DeleteAsync($"/api/slots/{slot.Id}");
-        deleteResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var content = await deleteResponse.Content.ReadAsStringAsync();
-        content.Should().Contain("reserved");
-    }
-
-    [Fact]
-    public async Task DeleteZone_When_Has_Reserved_Slots_Should_Return_BadRequest()
-    {
-        var adminClient = await _factory.CreateDefaultClientAsync();
-        var lotId = await CreateTestLotAsync();
-
-        var zoneResponse = await adminClient.PostAsync($"/api/lots/{lotId}/zones", new JsonContent(new CreateZoneModel
-        {
-            ParkingLotId = lotId,
-            Code = "Z_ZNRES",
-            Name = "Zone with Reserved Slot",
-            Capacity = 10
-        }));
-        var zoneResult = await ResponseHelper.GetApiResultAsync<ZoneResponseModel>(zoneResponse);
-
-        var pmsContext = _factory.GetRequiredService<PmsDbContext>();
-        var vehicleType = await pmsContext.VehicleTypes.FirstOrDefaultAsync();
-        if (vehicleType == null)
-        {
-            vehicleType = new VehicleType { Id = 1, Code = "CAR", Name = "Car", IsActive = true };
-            pmsContext.VehicleTypes.Add(vehicleType);
-            await pmsContext.SaveChangesAsync();
-        }
-
-        pmsContext.Slots.Add(new Slot
-        {
-            ZoneId = zoneResult.Result.Id,
-            VehicleTypeId = vehicleType.Id,
-            Code = "SLOT_RES2",
-            Status = "Reserved",
-            IsActive = true,
-            RowVersion = Array.Empty<byte>()
-        });
-        await pmsContext.SaveChangesAsync();
-
-        var deleteResponse = await adminClient.DeleteAsync($"/api/zones/{zoneResult.Result.Id}");
-        deleteResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var content = await deleteResponse.Content.ReadAsStringAsync();
-        content.Should().Contain("reserved");
     }
 }

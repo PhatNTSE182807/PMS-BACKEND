@@ -16,6 +16,9 @@ public interface IParkingLotService
 
     Task<ParkingLotResponseModel> UpdateAsync(int id, UpdateParkingLotModel model);
 
+    /// <summary>Builds zones, slots and the 3D layout from a model, for a lot that has no zones yet.</summary>
+    Task<ParkingLotResponseModel> ApplyTemplateAsync(int id, string templateId, string userId);
+
     Task<bool> UpdateStatusAsync(int id, UpdateParkingLotStatusModel model);
 
     Task<bool> DeleteAsync(int id);

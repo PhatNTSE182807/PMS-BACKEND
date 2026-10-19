@@ -29,7 +29,8 @@ public class CreateUserModelValidatorTests
             UserName = "validUser",
             Email = "validuser@example.com",
             Password = "Password.1!",
-            PhoneNumber = "0987654321"
+            PhoneNumber = "0987654321",
+            CitizenId = "079123456789"
         };
         _userManager.FindByNameAsync(model.UserName).Returns((ApplicationUser)null);
         _userManager.FindByEmailAsync(model.Email).Returns((ApplicationUser)null);

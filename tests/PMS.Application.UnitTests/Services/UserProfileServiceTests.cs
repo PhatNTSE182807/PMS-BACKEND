@@ -192,6 +192,7 @@ public class UserProfileServiceTests : IDisposable
             Brand = "Honda",
             Model = "Civic",
             Color = "Black",
+            CitizenId = "079123456789",
             IsDefault = true
         };
 

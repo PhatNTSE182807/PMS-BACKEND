@@ -26,7 +26,7 @@ public class LotsEndpointTests
             Name = "Integration Test Lot",
             Address = "123 Integration Way",
             City = "HCMC",
-            Capacity = 150,
+            LayoutTemplate = "L3S20",
             Is24Hours = true
         };
 
@@ -49,7 +49,7 @@ public class LotsEndpointTests
             Code = "LOT_FORBID",
             Name = "Forbidden Lot",
             Address = "123 Way",
-            Capacity = 50
+            LayoutTemplate = "L3S20",
         };
 
         var response = await userClient.PostAsync("/api/lots", new JsonContent(model));
@@ -66,7 +66,7 @@ public class LotsEndpointTests
             Code = "LOT_ANON",
             Name = "Anon Lot",
             Address = "123 Way",
-            Capacity = 50
+            LayoutTemplate = "L3S20",
         };
 
         var response = await unauthClient.PostAsync("/api/lots", new JsonContent(model));
@@ -98,7 +98,7 @@ public class LotsEndpointTests
             Code = code,
             Name = "Lifecycle Lot",
             Address = "789 Test Ave",
-            Capacity = 100,
+            LayoutTemplate = "L3S20",
             Is24Hours = true
         }));
         createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -116,7 +116,6 @@ public class LotsEndpointTests
         {
             Name = "Updated Lifecycle Lot",
             Address = "789 Test Ave Updated",
-            Capacity = 120,
             Is24Hours = true
         }));
         updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);

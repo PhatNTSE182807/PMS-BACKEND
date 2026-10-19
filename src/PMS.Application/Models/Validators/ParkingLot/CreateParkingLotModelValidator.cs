@@ -1,4 +1,5 @@
 using FluentValidation;
+using PMS.Application.Helpers;
 using PMS.Application.Models.ParkingLot;
 
 namespace PMS.Application.Models.Validators.ParkingLot;
@@ -20,8 +21,10 @@ public class CreateParkingLotModelValidator : AbstractValidator<CreateParkingLot
             .NotEmpty().WithMessage("Address is required.")
             .MaximumLength(500).WithMessage("Address must not exceed 500 characters.");
 
-        RuleFor(x => x.Capacity)
-            .GreaterThanOrEqualTo(0).WithMessage("Capacity must be greater than or equal to 0.");
+        // Lots are built from a ready-made model only; capacity, zones and slots come from it
+        RuleFor(x => x.LayoutTemplate)
+            .NotEmpty().WithMessage("Choose a parking lot model.")
+            .Must(LotTemplates.Exists).WithMessage("Unknown parking lot model.");
 
         RuleFor(x => x.OpenTime)
             .NotNull().When(x => !x.Is24Hours).WithMessage("Open time is required when parking lot is not 24 hours.");

@@ -14,17 +14,14 @@ public class CreateParkingLotModel
 
     public string District { get; set; }
 
-    public decimal? Latitude { get; set; }
-
-    public decimal? Longitude { get; set; }
-
     public TimeOnly? OpenTime { get; set; }
 
     public TimeOnly? CloseTime { get; set; }
 
     public bool Is24Hours { get; set; } = true;
 
-    public int Capacity { get; set; }
+    /// <summary>Ready-made building model (GET /api/lot-templates); zones, slots and capacity come from it.</summary>
+    public string LayoutTemplate { get; set; }
 
     public string ImageUrl { get; set; }
 

@@ -16,10 +16,6 @@ public class ParkingLotResponseModel
 
     public string District { get; set; }
 
-    public decimal? Latitude { get; set; }
-
-    public decimal? Longitude { get; set; }
-
     public TimeOnly? OpenTime { get; set; }
 
     public TimeOnly? CloseTime { get; set; }
@@ -27,6 +23,8 @@ public class ParkingLotResponseModel
     public bool Is24Hours { get; set; }
 
     public int Capacity { get; set; }
+
+    public string LayoutTemplate { get; set; }
 
     public string ImageUrl { get; set; }
 

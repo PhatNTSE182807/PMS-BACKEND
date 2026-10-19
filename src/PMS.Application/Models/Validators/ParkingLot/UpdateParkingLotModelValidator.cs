@@ -15,9 +15,6 @@ public class UpdateParkingLotModelValidator : AbstractValidator<UpdateParkingLot
             .NotEmpty().WithMessage("Address is required.")
             .MaximumLength(500).WithMessage("Address must not exceed 500 characters.");
 
-        RuleFor(x => x.Capacity)
-            .GreaterThanOrEqualTo(0).WithMessage("Capacity must be greater than or equal to 0.");
-
         RuleFor(x => x.OpenTime)
             .NotNull().When(x => !x.Is24Hours).WithMessage("Open time is required when parking lot is not 24 hours.");
 

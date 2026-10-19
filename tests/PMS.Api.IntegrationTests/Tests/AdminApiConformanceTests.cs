@@ -40,10 +40,9 @@ public class AdminApiConformanceTests
         (await userClient.PostAsync("/api/admin/managers", new JsonContent(dummyModel))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await managerClient.PostAsync("/api/admin/managers", new JsonContent(dummyModel))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        // 2. POST /api/admin/staff
-        (await unauthClient.PostAsync("/api/admin/staff", new JsonContent(dummyModel))).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await userClient.PostAsync("/api/admin/staff", new JsonContent(dummyModel))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await managerClient.PostAsync("/api/admin/staff", new JsonContent(dummyModel))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        // 2. POST /api/admin/staff no longer exists: Managers create Staff (SRS FR-AUTH-07)
+        var adminClient = await _factory.CreateDefaultClientAsync();
+        (await adminClient.PostAsync("/api/admin/staff", new JsonContent(dummyModel))).StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         // 3. GET /api/admin/users
         (await unauthClient.GetAsync("/api/admin/users")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -142,14 +141,14 @@ public class AdminApiConformanceTests
         var unauthClient = _factory.CreateUnauthorizedClient();
 
         var username = $"act_{Guid.NewGuid():N}"[..12];
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "Immediate Login Staff",
             Email = $"{username}@test.com",
             Password = "ComplexPassword.1!",
             PhoneNumber = "0901234567"
-        }));
+        });
         createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
         var userId = createResult.Result.Id.ToString();
@@ -185,13 +184,13 @@ public class AdminApiConformanceTests
         var adminClient = await _factory.CreateDefaultClientAsync();
         var username = $"nopwd_{Guid.NewGuid():N}"[..12];
 
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = "No Password Staff",
             Email = $"{username}@test.com",
             PhoneNumber = "0901234567"
-        }));
+        });
 
         createResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await createResponse.Content.ReadAsStringAsync()).Should().Contain("Password is required");
@@ -205,14 +204,14 @@ public class AdminApiConformanceTests
         var fullName = $"SearchedEmployee_{uniqueTag}";
         var username = $"srch_{uniqueTag}";
 
-        var createResponse = await adminClient.PostAsync("/api/admin/staff", new JsonContent(new CreateEmployeeAccountModel
+        var createResponse = await _factory.CreateStaffThroughManagerAsync(new CreateEmployeeAccountModel
         {
             UserName = username,
             FullName = fullName,
             Email = $"{username}@test.com",
             Password = "ComplexPassword.1!",
             PhoneNumber = "0901234567"
-        }));
+        });
         createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var createResult = await ResponseHelper.GetApiResultAsync<CreateUserResponseModel>(createResponse);
         var employeeCode = createResult.Result.EmployeeCode;

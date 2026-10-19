@@ -59,6 +59,7 @@ public class UserProfileService : IUserProfileService
             PhoneNumber = !string.IsNullOrWhiteSpace(customer.Phone) ? customer.Phone : user.PhoneNumber,
             Email = !string.IsNullOrWhiteSpace(customer.Email) ? customer.Email : user.Email,
             AvatarUrl = customer.AvatarUrl,
+            CitizenId = customer.CitizenId,
             IsActive = isUserActive,
             Status = status,
             HasPassword = !string.IsNullOrEmpty(user.PasswordHash),
@@ -100,6 +101,15 @@ public class UserProfileService : IUserProfileService
         if (model.AvatarUrl != null)
         {
             customer.AvatarUrl = string.IsNullOrWhiteSpace(model.AvatarUrl) ? null : model.AvatarUrl.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(model.CitizenId))
+        {
+            var citizenId = model.CitizenId.Trim();
+            var taken = await _pmsContext.Customers.AnyAsync(c => c.CitizenId == citizenId && c.Id != customer.Id);
+            if (taken)
+                throw new BadRequestException("Citizen ID is already registered to another account.");
+            customer.CitizenId = citizenId;
         }
 
         customer.UpdatedAt = DateTime.UtcNow;
@@ -158,6 +168,11 @@ public class UserProfileService : IUserProfileService
         var hasExistingVehicles = await _pmsContext.Vehicles
             .AnyAsync(v => v.CustomerId == customer.Id && v.IsActive);
 
+        // The registered owner's Citizen ID; a vehicle in the user's own name uses theirs
+        var citizenId = !string.IsNullOrWhiteSpace(model.CitizenId) ? model.CitizenId.Trim() : customer.CitizenId;
+        if (string.IsNullOrEmpty(citizenId))
+            throw new BadRequestException("Citizen ID of the vehicle owner is required.");
+
         var isDefault = model.IsDefault || !hasExistingVehicles;
 
         if (isDefault)
@@ -175,6 +190,7 @@ public class UserProfileService : IUserProfileService
             Brand = model.Brand?.Trim(),
             Model = model.Model?.Trim(),
             Color = model.Color?.Trim(),
+            CitizenId = citizenId,
             IsDefault = isDefault,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
@@ -234,6 +250,8 @@ public class UserProfileService : IUserProfileService
         vehicle.Brand = model.Brand?.Trim();
         vehicle.Model = model.Model?.Trim();
         vehicle.Color = model.Color?.Trim();
+        if (!string.IsNullOrWhiteSpace(model.CitizenId))
+            vehicle.CitizenId = model.CitizenId.Trim();
         vehicle.IsActive = model.IsActive;
         vehicle.UpdatedAt = DateTime.UtcNow;
 
@@ -400,6 +418,7 @@ public class UserProfileService : IUserProfileService
             Brand = v.Brand,
             Model = v.Model,
             Color = v.Color,
+            CitizenId = v.CitizenId,
             IsDefault = v.IsDefault,
             IsActive = v.IsActive,
             CreatedAt = v.CreatedAt,

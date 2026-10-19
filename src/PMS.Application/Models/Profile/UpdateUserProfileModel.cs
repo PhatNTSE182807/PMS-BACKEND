@@ -9,4 +9,7 @@ public class UpdateUserProfileModel
     public string PhoneNumber { get; set; }
 
     public string AvatarUrl { get; set; }
+
+    /// <summary>Citizen ID (CCCD); accounts created with Google add it here. Left unchanged when empty.</summary>
+    public string CitizenId { get; set; }
 }
