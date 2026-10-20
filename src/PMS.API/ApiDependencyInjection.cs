@@ -45,6 +45,7 @@ public static class ApiDependencyInjection
         services.AddSignalR();
         services.AddScoped<ILotRealtimeNotifier, SignalRLotRealtimeNotifier>();
         services.AddScoped<IVehicleVerificationNotifier, SignalRVehicleVerificationNotifier>();
+        services.AddScoped<IParkingRealtimeNotifier, SignalRParkingRealtimeNotifier>();
 
         var database = configuration.GetSection("Database").Get<DatabaseConfiguration>();
         services.AddHangfire(config =>
@@ -64,6 +65,7 @@ public static class ApiDependencyInjection
     {
         app.MapHub<LotHub>(LotHub.Path);
         app.MapHub<VehicleVerificationHub>(VehicleVerificationHub.Path);
+        app.MapHub<ParkingOpsHub>(ParkingOpsHub.Path);
         app.UseHangfireDashboard("/hangfire");
 
         var jobs = app.Services.GetRequiredService<IRecurringJobManager>();
@@ -71,6 +73,10 @@ public static class ApiDependencyInjection
         jobs.AddOrUpdate<LotJobs>(LotJobs.CleanupCredentialsJobId, j => j.CleanupExpiredCredentialsAsync(), Cron.Daily(3));
         // BR-26: vehicle paper photos are deleted 30 days after the final decision
         jobs.AddOrUpdate<VehicleDocumentJobs>(VehicleDocumentJobs.PurgeDocumentsJobId, j => j.PurgeExpiredDocumentsAsync(), Cron.Daily(2));
+        // Deposit deadlines, no-shows, reminders, turn-arounds, pending payments and refund retries
+        jobs.AddOrUpdate<ParkingJobs>(ParkingJobs.MinutelyJobId, j => j.RunMinutelyAsync(), Cron.Minutely());
+        // BR-20: overdue and abandoned vehicles
+        jobs.AddOrUpdate<ParkingJobs>(ParkingJobs.OverdueJobId, j => j.FlagOverdueSessionsAsync(), "*/15 * * * *");
     }
 
     public static void AddJwt(this IServiceCollection services, IConfiguration configuration)
@@ -101,7 +107,8 @@ public static class ApiDependencyInjection
                     OnMessageReceived = context =>
                     {
                         var accessToken = context.Request.Query["access_token"];
-                        if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments(VehicleVerificationHub.Path))
+                        if (!string.IsNullOrEmpty(accessToken) && (context.HttpContext.Request.Path.StartsWithSegments(VehicleVerificationHub.Path)
+                                || context.HttpContext.Request.Path.StartsWithSegments(ParkingOpsHub.Path)))
                             context.Token = accessToken;
                         return Task.CompletedTask;
                     },
