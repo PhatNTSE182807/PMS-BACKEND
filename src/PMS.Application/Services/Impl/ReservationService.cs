@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers.Parking;
@@ -42,18 +43,12 @@ public class ReservationService(
         if (vehicleType == null || !Rules.ReservableVehicleTypeCodes.Contains(vehicleType.Code, StringComparer.OrdinalIgnoreCase))
             throw new BadRequestException("This vehicle type cannot be reserved.");
 
-        // BR-07: limits per account and per vehicle
-        var active = await pmsContext.Reservations.AsNoTracking()
-            .Where(r => r.CustomerId == customer.Id && ReservationStatus.Active.Contains(r.Status))
-            .Select(r => r.VehicleId)
-            .ToListAsync();
-        if (active.Count >= Rules.MaxActivePerAccount)
-            throw new BadRequestException($"Each account can have at most {Rules.MaxActivePerAccount} active reservations.");
-        if (active.Count(v => v == vehicle.Id) >= Rules.MaxActivePerVehicle)
-            throw new BadRequestException("This vehicle already has an active reservation.");
-
-        var reservation = await ParkingInventory.WithSlotLockAsync([model.SlotId], async () =>
+        // Per account and per plate, so a double click or a second tab cannot slip past BR-07
+        var reservation = await WithBookingLockAsync([$"customer:{customer.Id}", $"plate:{vehicle.PlateNormalized}"], () =>
+            ParkingInventory.WithSlotLockAsync([model.SlotId], async () =>
         {
+            await EnsureBookingLimitsAsync(customer.Id, vehicle);
+
             var slot = await LoadSlotForLotAsync(model.SlotId, lot.Id);
             if (!ParkingInventory.Compatible(types, slot.VehicleTypeId, vehicle.VehicleTypeId))
                 throw new BadRequestException("This slot is for another vehicle type.");
@@ -83,7 +78,7 @@ public class ReservationService(
             Log(created.Id, "Created", null, $"{slot.Code} @ {arrival:O}", userId);
             await pmsContext.SaveChangesAsync();
             return created;
-        });
+        }));
 
         QueueReservationPush(reservation);
         await inventory.FlushAsync();
@@ -273,7 +268,118 @@ public class ReservationService(
             payment.Status = PaymentStatus.Expired;
     }
 
+    public async Task<GateReservationLookupModel> LookupForGateAsync(int lotId, string code, string qr)
+    {
+        await lotScope.EnsureCanOperateAsync(lotId);
+
+        Reservation reservation;
+        if (!string.IsNullOrWhiteSpace(qr))
+        {
+            var claims = signer.Verify(qr.Trim(), ParkingTokenSigner.ReservationKind);
+            if (claims == null || !long.TryParse(claims.GetValueOrDefault("id"), out var id))
+                throw new BadRequestException("This reservation QR is not genuine.");
+            if (claims.GetValueOrDefault("lot") != lotId.ToString())
+                throw new BadRequestException("This reservation is for another parking lot.");
+            reservation = await pmsContext.Reservations.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
+        }
+        else if (!string.IsNullOrWhiteSpace(code))
+        {
+            var trimmed = code.Trim().ToUpperInvariant();
+            reservation = await pmsContext.Reservations.AsNoTracking().FirstOrDefaultAsync(r => r.ReservationCode == trimmed);
+            if (reservation != null && reservation.ParkingLotId != lotId)
+                throw new BadRequestException("This reservation is for another parking lot.");
+        }
+        else
+        {
+            throw new BadRequestException("Scan the reservation QR or type its code.");
+        }
+
+        if (reservation == null)
+            throw new NotFoundException("Reservation not found.");
+
+        var vehicle = await pmsContext.Vehicles.AsNoTracking().Include(v => v.VehicleType).Include(v => v.Customer)
+            .FirstOrDefaultAsync(v => v.Id == reservation.VehicleId);
+
+        // The booked vehicle (or its plate) must not be parked anywhere already
+        var openSession = await pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => SessionStatus.Open.Contains(s.Status)
+                        && (s.VehicleId == reservation.VehicleId
+                            || (vehicle != null && s.HasPlate && s.EntryPlateNormalized == vehicle.PlateNormalized)))
+            .Select(s => s.SessionCode)
+            .FirstOrDefaultAsync();
+
+        var from = reservation.StartTime.AddMinutes(-Rules.EarlyArrivalMinutes);
+        string problem = null;
+        if (reservation.Status != ReservationStatus.Confirmed)
+            problem = reservation.Status == ReservationStatus.CheckedIn
+                ? "This reservation has already checked in."
+                : $"This reservation is {reservation.Status} and cannot check in.";
+        else if (openSession != null)
+            problem = $"This vehicle is already parked (session {openSession}).";
+        else if (Now < from)
+            problem = "Too early: check-in has not opened yet.";
+        else if (Now > reservation.EndTime)
+            problem = "The hold has ended; the vehicle can only enter as a walk-in.";
+
+        return new GateReservationLookupModel
+        {
+            Reservation = await ToModelAsync(reservation),
+            VehicleTypeId = vehicle?.VehicleTypeId ?? reservation.VehicleTypeId ?? 0,
+            VehicleTypeName = vehicle?.VehicleType?.Name,
+            VehicleBrand = vehicle?.Brand,
+            VehicleModel = vehicle?.Model,
+            VehicleColor = vehicle?.Color,
+            CustomerName = vehicle?.Customer?.FullName,
+            CanCheckIn = problem == null,
+            Problem = problem,
+            OpenSessionCode = openSession
+        };
+    }
+
     // ---- helpers ----------------------------------------------------------------------------------
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> BookingGates = new();
+
+    /// <summary>Runs one booking at a time per key (account, plate); keys are taken in a fixed order so two requests never deadlock.</summary>
+    private static async Task<T> WithBookingLockAsync<T>(IEnumerable<string> keys, Func<Task<T>> action)
+    {
+        var gates = keys.Distinct().Order(StringComparer.Ordinal).Select(k => BookingGates.GetOrAdd(k, _ => new SemaphoreSlim(1, 1))).ToList();
+        var taken = new List<SemaphoreSlim>();
+        try
+        {
+            foreach (var gate in gates)
+            {
+                await gate.WaitAsync();
+                taken.Add(gate);
+            }
+            return await action();
+        }
+        finally
+        {
+            foreach (var gate in taken)
+                gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// BR-07: at most N bookings in progress per account, and one per vehicle. The vehicle is matched by
+    /// plate, so the same car added twice (or to two accounts) still gets only one booking.
+    /// </summary>
+    private async Task EnsureBookingLimitsAsync(int customerId, Vehicle vehicle)
+    {
+        var forAccount = await pmsContext.Reservations.AsNoTracking()
+            .CountAsync(r => r.CustomerId == customerId && ReservationStatus.Active.Contains(r.Status));
+        if (forAccount >= Rules.MaxActivePerAccount)
+            throw new BadRequestException($"Each account can have at most {Rules.MaxActivePerAccount} active reservations.");
+
+        var forPlate = await pmsContext.Reservations.AsNoTracking()
+            .Where(r => ReservationStatus.Active.Contains(r.Status))
+            .Join(pmsContext.Vehicles.Where(v => v.Id == vehicle.Id || v.PlateNormalized == vehicle.PlateNormalized),
+                r => r.VehicleId, v => v.Id, (r, v) => r.Id)
+            .CountAsync();
+        if (forPlate >= Rules.MaxActivePerVehicle)
+            throw new BadRequestException($"Vehicle {vehicle.PlateNumber} already has an active reservation.");
+    }
 
     private void EnsureArrivalAllowed(DateTime arrival)
     {

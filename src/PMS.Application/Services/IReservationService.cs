@@ -26,4 +26,7 @@ public interface IReservationService
 
     /// <summary>Reservations of a lot for its Staff and Managers.</summary>
     Task<IReadOnlyList<ReservationResponseModel>> GetForLotAsync(int lotId, string status, DateTime? fromUtc, DateTime? toUtc);
+
+    /// <summary>Entry lane: the booking behind a scanned QR or typed code, its vehicle and whether it can check in now.</summary>
+    Task<GateReservationLookupModel> LookupForGateAsync(int lotId, string code, string qr);
 }

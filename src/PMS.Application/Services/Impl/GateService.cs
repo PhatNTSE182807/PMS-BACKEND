@@ -135,18 +135,26 @@ public class GateService(
         if (!types.ContainsKey(vehicleTypeId))
             throw new BadRequestException("Unknown vehicle type.");
 
-        // FR-OPS-11: the same plate already has an open session here
-        if (normalized.Length > 0)
+        // FR-OPS-11: one vehicle is parked in one place. The plate, or the booked vehicle when a reservation
+        // is used with another plate, must not have an open session in any lot.
+        var bookedVehicleId = reservation?.VehicleId;
+        var bookedPlate = bookedVehicleId != null
+            ? await pmsContext.Vehicles.AsNoTracking().Where(v => v.Id == bookedVehicleId).Select(v => v.PlateNormalized).FirstOrDefaultAsync() ?? string.Empty
+            : string.Empty;
+        if (normalized.Length > 0 || bookedVehicleId != null)
         {
             var open = await pmsContext.ParkingSessions.AsNoTracking()
-                .Where(s => s.ParkingLotId == lotId && s.HasPlate && s.EntryPlateNormalized == normalized && SessionStatus.Open.Contains(s.Status))
+                .Where(s => SessionStatus.Open.Contains(s.Status)
+                            && ((normalized.Length > 0 && s.HasPlate && s.EntryPlateNormalized == normalized)
+                                || (bookedPlate.Length > 0 && s.HasPlate && s.EntryPlateNormalized == bookedPlate)
+                                || (bookedVehicleId != null && s.VehicleId == bookedVehicleId)))
                 .Select(s => new { s.Id, s.SessionCode })
                 .FirstOrDefaultAsync();
             if (open != null)
                 alerts.Add(new GateAlertModel
                 {
                     Code = "DUPLICATE_SESSION",
-                    Message = $"This plate already has open session {open.SessionCode}: close the ghost session or refuse entry (possible fake plate).",
+                    Message = $"This vehicle is already parked (open session {open.SessionCode}): close the ghost session or refuse entry (possible fake plate).",
                     Blocking = true,
                     CanOverride = false,
                     RelatedSessionId = open.Id
@@ -218,11 +226,17 @@ public class GateService(
             ? ((int?)reservation.CustomerId, (Guid?)reservation.VehicleId)
             : await VerifiedOwnerAsync(normalized);
 
-        var session = await WithPlateLockAsync(lotId, normalized, async () =>
+        // Lock on the vehicle when it is known (a reservation may come with another plate), else on the plate
+        var session = await WithPlateLockAsync(vehicleId != null ? $"vehicle:{vehicleId}" : normalized, async () =>
         {
-            if (normalized.Length > 0 && await pmsContext.ParkingSessions.AnyAsync(s =>
-                    s.ParkingLotId == lotId && s.HasPlate && s.EntryPlateNormalized == normalized && SessionStatus.Open.Contains(s.Status)))
-                throw new ConflictException("This plate just entered at another lane.");
+            if (await pmsContext.ParkingSessions.AnyAsync(s => SessionStatus.Open.Contains(s.Status)
+                    && ((normalized.Length > 0 && s.HasPlate && s.EntryPlateNormalized == normalized)
+                        || (bookedPlate.Length > 0 && s.HasPlate && s.EntryPlateNormalized == bookedPlate)
+                        || (vehicleId != null && s.VehicleId == vehicleId))))
+                throw new ConflictException("This vehicle just entered at another lane.");
+            // The same reservation can be used for one entry only (two lanes scanning one QR)
+            if (reservation != null && await pmsContext.Reservations.AnyAsync(r => r.Id == reservation.Id && r.Status != ReservationStatus.Confirmed))
+                throw new ConflictException("This reservation has already checked in.");
 
             var tariff = await tariffs.ForAsync(lotId, reservation?.ZoneId, vehicleTypeId, Now);
             var created = new ParkingSession
@@ -830,10 +844,10 @@ public class GateService(
                ?? throw new NotFoundException("Session not found.");
     }
 
-    private static async Task<T> WithPlateLockAsync<T>(int lotId, string plate, Func<Task<T>> action)
+    private static async Task<T> WithPlateLockAsync<T>(string plate, Func<Task<T>> action)
     {
         if (plate.Length == 0) return await action();
-        var gate = PlateGates.GetOrAdd($"{lotId}:{plate}", _ => new SemaphoreSlim(1, 1));
+        var gate = PlateGates.GetOrAdd(plate, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync();
         try
         {

@@ -20,8 +20,11 @@ public static class ReservationStatus
     /// <summary>No-show: not checked in before the hold ended; the deposit is kept (BR-05).</summary>
     public const string NoShow = "NoShow";
 
-    /// <summary>States that keep the slot (BR-07 counts them too).</summary>
-    public static readonly string[] Active = [PendingDeposit, Confirmed];
+    /// <summary>
+    /// Bookings still in progress (BR-07 limits): waiting for the deposit, confirmed, or the vehicle is
+    /// parked on it. A checked-in booking counts until the vehicle leaves, so a parked car cannot book again.
+    /// </summary>
+    public static readonly string[] Active = [PendingDeposit, Confirmed, CheckedIn];
 }
 
 /// <summary>Parking session states (SRS 4.3.2) plus the two pre-entry states before the sensor confirms passage.</summary>

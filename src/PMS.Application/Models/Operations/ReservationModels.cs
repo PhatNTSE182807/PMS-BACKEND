@@ -84,6 +84,36 @@ public class ReservationResponseModel
     public PaymentResponseModel PendingPayment { get; set; }
 }
 
+/// <summary>
+/// What the entry lane shows once the Staff scans a reservation QR or types its code: the booking, the
+/// booked vehicle (to fill the plate and vehicle type) and whether it can check in right now.
+/// </summary>
+public class GateReservationLookupModel
+{
+    public ReservationResponseModel Reservation { get; set; }
+
+    public int VehicleTypeId { get; set; }
+
+    public string VehicleTypeName { get; set; }
+
+    public string VehicleBrand { get; set; }
+
+    public string VehicleModel { get; set; }
+
+    public string VehicleColor { get; set; }
+
+    public string CustomerName { get; set; }
+
+    /// <summary>True when the booking is confirmed, inside its check-in window and the vehicle is not parked anywhere.</summary>
+    public bool CanCheckIn { get; set; }
+
+    /// <summary>Why it cannot check in (null when it can).</summary>
+    public string Problem { get; set; }
+
+    /// <summary>Open session of the booked vehicle, if it is already inside a lot.</summary>
+    public string OpenSessionCode { get; set; }
+}
+
 /// <summary>Signed reservation QR (FR-RSV-04, NFR-16); the app renders <see cref="QrPayload"/> as a QR code.</summary>
 public class ReservationQrModel
 {
