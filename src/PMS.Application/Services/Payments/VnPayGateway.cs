@@ -226,18 +226,18 @@ public class VnPayGateway(
 
     private static string ResponseMessage(string code) => code switch
     {
-        "00" => "Giao dịch thành công",
-        "07" => "Trừ tiền thành công, giao dịch bị nghi ngờ",
-        "09" => "Thẻ/Tài khoản chưa đăng ký InternetBanking",
-        "10" => "Xác thực thông tin thẻ/tài khoản không đúng quá 3 lần",
-        "11" => "Đã hết hạn chờ thanh toán",
-        "12" => "Thẻ/Tài khoản bị khóa",
-        "13" => "Nhập sai mật khẩu xác thực giao dịch (OTP)",
-        "24" => "Khách hàng hủy giao dịch",
-        "51" => "Tài khoản không đủ số dư",
-        "65" => "Tài khoản vượt quá hạn mức giao dịch trong ngày",
-        "75" => "Ngân hàng thanh toán đang bảo trì",
-        "79" => "Nhập sai mật khẩu thanh toán quá số lần quy định",
-        _ => "Giao dịch không thành công"
+        "00" => "Transaction successful",
+        "07" => "Amount debited, but the transaction is flagged as suspicious",
+        "09" => "The card/account is not registered for Internet Banking",
+        "10" => "Card/account verification failed more than 3 times",
+        "11" => "The payment window has expired",
+        "12" => "The card/account is locked",
+        "13" => "Wrong transaction OTP",
+        "24" => "The customer cancelled the transaction",
+        "51" => "Insufficient balance",
+        "65" => "The daily transaction limit was exceeded",
+        "75" => "The paying bank is under maintenance",
+        "79" => "Wrong payment password too many times",
+        _ => "Transaction failed"
     };
 }

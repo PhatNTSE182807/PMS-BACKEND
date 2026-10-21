@@ -19,7 +19,7 @@ public class LotScopeService(PmsDbContext pmsContext, IClaimService claimService
     public async Task EnsureCanOperateAsync(int lotId)
     {
         if (!await CanOperateAsync(UserId, Role, lotId))
-            throw new ForbiddenException("Bạn không được phân công ở bãi này. You are not assigned to this parking lot.");
+            throw new ForbiddenException("You are not assigned to this parking lot.");
     }
 
     public async Task<bool> CanOperateAsync(string userId, string role, int lotId)
@@ -39,6 +39,6 @@ public class LotScopeService(PmsDbContext pmsContext, IClaimService claimService
     public async Task EnsureCanManageAsync(int lotId)
     {
         if (Role is not ("Manager" or "Admin") || !await CanOperateAsync(UserId, Role, lotId))
-            throw new ForbiddenException("Bạn không quản lý bãi này. You do not manage this parking lot.");
+            throw new ForbiddenException("You do not manage this parking lot.");
     }
 }

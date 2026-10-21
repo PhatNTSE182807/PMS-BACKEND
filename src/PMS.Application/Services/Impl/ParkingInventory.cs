@@ -37,11 +37,11 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
         }
         catch (DbUpdateConcurrencyException)
         {
-            throw new ConflictException("Slot này vừa được người khác giữ chỗ. This slot was just taken by someone else.");
+            throw new ConflictException("This slot was just taken by someone else.");
         }
         catch (DbUpdateException e) when (e.InnerException?.Message.Contains("IX_Reservations_SlotId_Active") == true)
         {
-            throw new ConflictException("Slot này vừa được người khác giữ chỗ. This slot was just taken by someone else.");
+            throw new ConflictException("This slot was just taken by someone else.");
         }
         finally
         {
@@ -67,7 +67,7 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
     public async Task HoldAsync(Slot slot, int lotId)
     {
         if (!slot.IsActive || slot.Status != SlotStatus.Available)
-            throw new ConflictException("Slot này không còn trống. This slot is no longer available.");
+            throw new ConflictException("This slot is no longer available.");
 
         slot.Status = SlotStatus.Reserved;
         await AdjustCounterAsync(slot.ZoneId, lotId, available: -1, occupied: 0);

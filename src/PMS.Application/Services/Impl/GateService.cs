@@ -69,7 +69,7 @@ public class GateService(
         {
             // Signed ticket from the entry (works even when the QR was printed while the gate was offline)
             var claims = signer.Verify(ticket, ParkingTokenSigner.TicketKind)
-                         ?? throw new BadRequestException("Vé QR không hợp lệ. The ticket QR is not genuine.");
+                         ?? throw new BadRequestException("The ticket QR is not genuine.");
             code = claims.GetValueOrDefault("sc");
         }
 
@@ -80,12 +80,12 @@ public class GateService(
         {
             var normalized = ParkingText.NormalizePlate(plate);
             if (normalized.Length == 0)
-                throw new BadRequestException("Nhập biển số, mã vé hoặc quét vé. Give a plate, a ticket or a session code.");
+                throw new BadRequestException("Give a plate, a ticket or a session code.");
             session = await query.Where(s => s.EntryPlateNormalized == normalized).OrderByDescending(s => s.EntryTime).FirstOrDefaultAsync();
         }
 
         return session == null
-            ? throw new NotFoundException("Không có phiên gửi xe đang mở. No open session found.")
+            ? throw new NotFoundException("No open session found.")
             : await ToModelAsync(session);
     }
 
@@ -95,9 +95,9 @@ public class GateService(
     {
         await lotScope.EnsureCanOperateAsync(lotId);
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(p => p.Id == lotId && !p.IsDeleted)
-                  ?? throw new NotFoundException("Không tìm thấy bãi xe. Parking lot not found.");
+                  ?? throw new NotFoundException("Parking lot not found.");
         if (model.IsManual && string.IsNullOrWhiteSpace(model.ManualReason))
-            throw new BadRequestException("Lượt vào thủ công phải có lý do (FR-OPS-03). A manual entry needs a reason.");
+            throw new BadRequestException("A manual entry needs a reason.");
 
         var gate = await ResolveGateAsync(lotId, model.GateId, "In");
         var alerts = new List<GateAlertModel>();
@@ -107,14 +107,14 @@ public class GateService(
         var confidence = NormalizeConfidence(model.AnprConfidence);
 
         if (lot.Status != "Active")
-            alerts.Add(Block("LOT_CLOSED", "Bãi đang tạm đóng, không nhận xe vào. The lot is closed for entry.", canOverride: false));
+            alerts.Add(Block("LOT_CLOSED", "The lot is closed for entry.", canOverride: false));
 
         if (!model.NoPlate && normalized.Length == 0)
-            alerts.Add(Block("PLATE_REQUIRED", "Chưa có biển số; nhập tay hoặc chọn xe không biển số. Enter the plate or mark the vehicle as plate-less.", false));
+            alerts.Add(Block("PLATE_REQUIRED", "Enter the plate or mark the vehicle as plate-less.", false));
 
         // FR-OPS-14: low ANPR confidence → the Staff confirms or corrects the plate first
         if (!model.NoPlate && confidence < Rules.AnprConfidenceThreshold)
-            alerts.Add(Overridable("LOW_CONFIDENCE", $"ANPR chỉ tin cậy {confidence:P0}; kiểm tra lại biển số. Check the plate.", model.PlateConfirmed, overrides, "plate confirmed"));
+            alerts.Add(Overridable("LOW_CONFIDENCE", $"ANPR is only {confidence:P0} confident; check the plate.", model.PlateConfirmed, overrides, "plate confirmed"));
 
         // Reservation: signed QR, typed code, or the plate of a verified vehicle (FR-RSV-04, BR-02)
         Reservation reservation = null;
@@ -129,11 +129,11 @@ public class GateService(
             // A refused reservation QR already blocks the lane; report that instead of the missing type
             if (alerts.Any(a => a.Blocking))
                 return new CheckInResultModel { Outcome = "Blocked", BarrierOpen = false, Alerts = alerts };
-            throw new BadRequestException("Chưa biết loại xe của làn. The lane's vehicle type is required.");
+            throw new BadRequestException("The lane's vehicle type is required.");
         }
         var vehicleTypeId = laneType.Value;
         if (!types.ContainsKey(vehicleTypeId))
-            throw new BadRequestException("Loại xe không hợp lệ. Unknown vehicle type.");
+            throw new BadRequestException("Unknown vehicle type.");
 
         // FR-OPS-11: the same plate already has an open session here
         if (normalized.Length > 0)
@@ -146,7 +146,7 @@ public class GateService(
                 alerts.Add(new GateAlertModel
                 {
                     Code = "DUPLICATE_SESSION",
-                    Message = $"Biển số đang có phiên mở {open.SessionCode}: đề xuất đóng phiên ma hoặc từ chối (nghi biển giả). This plate already has an open session.",
+                    Message = $"This plate already has open session {open.SessionCode}: close the ghost session or refuse entry (possible fake plate).",
                     Blocking = true,
                     CanOverride = false,
                     RelatedSessionId = open.Id
@@ -162,12 +162,12 @@ public class GateService(
                 .ToListAsync();
             var black = lists.FirstOrDefault(p => p.ListType == PlateListType.Blacklist);
             if (black != null)
-                alerts.Add(Overridable("BLACKLISTED", $"Biển số trong Blacklist: {black.Reason}. Blacklisted plate.", model.AllowBlacklisted, overrides, "blacklist allowed"));
+                alerts.Add(Overridable("BLACKLISTED", $"Blacklisted plate: {black.Reason}.", model.AllowBlacklisted, overrides, "blacklist allowed"));
             var white = lists.FirstOrDefault(p => p.ListType == PlateListType.Whitelist);
             if (white != null)
             {
                 whitelisted = true;
-                alerts.Add(new GateAlertModel { Code = "WHITELISTED", Message = $"Whitelist: {white.Reason} (miễn phí).", Blocking = false });
+                alerts.Add(new GateAlertModel { Code = "WHITELISTED", Message = $"Whitelisted: {white.Reason} (free of charge).", Blocking = false });
             }
         }
 
@@ -185,7 +185,7 @@ public class GateService(
                 var slot = await pmsContext.Slots.AsNoTracking().Include(s => s.Zone).FirstOrDefaultAsync(s => s.Id == chosen);
                 if (slot == null || slot.Zone?.ParkingLotId != lotId || slot.Status != SlotStatus.Available || !slot.IsActive
                     || !ParkingInventory.Compatible(types, slot.VehicleTypeId, vehicleTypeId))
-                    alerts.Add(Block("SLOT_UNAVAILABLE", "Slot đã chọn không trống hoặc sai loại xe. Pick another bay.", false));
+                    alerts.Add(Block("SLOT_UNAVAILABLE", "The chosen bay is not free or is for another vehicle type. Pick another bay.", false));
                 else
                 {
                     slotId = slot.Id;
@@ -199,16 +199,16 @@ public class GateService(
 
             var target = counters.FirstOrDefault(c => c.ZoneId == zoneId);
             if (target is { IsFull: true } && !whitelisted)
-                alerts.Add(Overridable("ZONE_FULL", $"{target.ZoneName} đã hết chỗ. The zone is full.", model.AllowWhenFull, overrides, "zone full allowed"));
+                alerts.Add(Overridable("ZONE_FULL", $"{target.ZoneName} is full.", model.AllowWhenFull, overrides, "zone full allowed"));
         }
 
         if (overrides.Count > 0 && string.IsNullOrWhiteSpace(model.OverrideReason))
-            throw new BadRequestException("Cho xe vào khi có cảnh báo phải ghi lý do. Give a reason for the override.");
+            throw new BadRequestException("Give a reason for the override.");
 
         if (alerts.Any(a => a.Blocking))
         {
             var codes = string.Join(", ", alerts.Where(a => a.Blocking).Select(a => a.Code));
-            inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "ENTRY_BLOCKED", $"{gate.Code}: {(plate.Length > 0 ? plate : "xe không biển số")} — {codes}", null) ?? Task.CompletedTask);
+            inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "ENTRY_BLOCKED", $"{gate.Code}: {(plate.Length > 0 ? plate : "plate-less vehicle")} — {codes}", null) ?? Task.CompletedTask);
             await inventory.FlushAsync();
             return new CheckInResultModel { Outcome = "Blocked", BarrierOpen = false, Alerts = alerts };
         }
@@ -222,7 +222,7 @@ public class GateService(
         {
             if (normalized.Length > 0 && await pmsContext.ParkingSessions.AnyAsync(s =>
                     s.ParkingLotId == lotId && s.HasPlate && s.EntryPlateNormalized == normalized && SessionStatus.Open.Contains(s.Status)))
-                throw new ConflictException("Biển số vừa vào ở làn khác. This plate just entered at another lane.");
+                throw new ConflictException("This plate just entered at another lane.");
 
             var tariff = await tariffs.ForAsync(lotId, reservation?.ZoneId, vehicleTypeId, Now);
             var created = new ParkingSession
@@ -315,7 +315,7 @@ public class GateService(
     public async Task<SessionResponseModel> CancelEntryAsync(long sessionId)
     {
         var session = await ScopedSessionAsync(sessionId, tracked: true);
-        await CancelPendingEntryAsync(session, "Xe quay đầu / Staff hủy");
+        await CancelPendingEntryAsync(session, "Vehicle turned around / cancelled by Staff");
         await pmsContext.SaveChangesAsync();
         await inventory.FlushAsync();
         return await ToModelAsync(session);
@@ -350,7 +350,7 @@ public class GateService(
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         ParkingStateMachines.EnsureSession(session.Status, SessionStatus.Active);
         if (session.Status != SessionStatus.PendingPayment)
-            throw new BadRequestException("Phiên không ở trạng thái chờ thanh toán. The session is not waiting for payment.");
+            throw new BadRequestException("The session is not waiting for payment.");
         session.Status = SessionStatus.Active;
         session.UpdatedAt = Now;
         await pmsContext.SaveChangesAsync();
@@ -365,7 +365,7 @@ public class GateService(
         var quote = await QuoteAsync(session, null, null, mutate: true);
         await pmsContext.SaveChangesAsync();
         if (quote.AmountDue <= 0)
-            throw new BadRequestException("Phiên đã được thanh toán hoặc phí 0đ. Nothing is due.");
+            throw new BadRequestException("Nothing is due.");
 
         return await paymentService.RecordCashAsync(session, quote.AmountDue, model.Amount, model.Prepaid, lotScope.UserId);
     }
@@ -376,7 +376,7 @@ public class GateService(
         var quote = await QuoteAsync(session, null, null, mutate: true);
         await pmsContext.SaveChangesAsync();
         if (quote.AmountDue <= 0)
-            throw new BadRequestException("Phiên đã được thanh toán hoặc phí 0đ. Nothing is due.");
+            throw new BadRequestException("Nothing is due.");
 
         var customerUserId = session.CustomerId == null
             ? null
@@ -391,7 +391,7 @@ public class GateService(
     {
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         if (model.IsManual && string.IsNullOrWhiteSpace(model.ManualReason))
-            throw new BadRequestException("Lượt ra thủ công phải có lý do (FR-OPS-03). A manual exit needs a reason.");
+            throw new BadRequestException("A manual exit needs a reason.");
 
         var quote = await QuoteAsync(session, model.PlateNumber, null, mutate: true);
         await pmsContext.SaveChangesAsync();
@@ -400,8 +400,8 @@ public class GateService(
             QueueSessionPush(session);
             await inventory.FlushAsync();
             throw new BadRequestException(session.ExitWindowEndsAt != null && Now > session.ExitWindowEndsAt
-                ? $"Đã quá Exit Window, cần trả thêm {quote.AmountDue:N0}đ (BR-10). The Exit Window has passed."
-                : $"Còn phải trả {quote.AmountDue:N0}đ. {quote.AmountDue:N0} VND is still due.");
+                ? $"The Exit Window has passed: {quote.AmountDue:N0} VND more is due (BR-10)."
+                : $"{quote.AmountDue:N0} VND is still due.");
         }
 
         // FR-OPS-04 / FR-OPS-10: plates or photos must match unless the Staff lets it pass with a reason
@@ -422,7 +422,7 @@ public class GateService(
         if (alerts.Count > 0)
             return new CheckoutResultModel { Session = await ToModelAsync(session), BarrierOpen = false, Alerts = alerts };
         if (overrides.Contains("PLATE_MISMATCH") && string.IsNullOrWhiteSpace(model.OverrideReason))
-            throw new BadRequestException("Cho xe ra khi lệch biển số phải ghi lý do. Give a reason.");
+            throw new BadRequestException("A reason is required to let a vehicle out when the plates differ.");
 
         var gate = await ResolveGateAsync(session.ParkingLotId, model.GateId, "Out");
         ParkingStateMachines.EnsureSession(session.Status, SessionStatus.Completed);
@@ -450,7 +450,7 @@ public class GateService(
                 reservation.CompletedAt = Now;
                 reservation.UpdatedAt = Now;
                 // BR-03: what the fee did not use of the deposit goes back automatically
-                refunded = await paymentService.RefundDepositAsync(reservation, quote.DepositRefund, $"Hoàn phần dư cọc {reservation.ReservationCode}", "System");
+                refunded = await paymentService.RefundDepositAsync(reservation, quote.DepositRefund, $"Deposit remainder refund {reservation.ReservationCode}", "System");
                 var (userId, id, lotId, slotId) = (reservation.UserId, reservation.Id, reservation.ParkingLotId, reservation.SlotId);
                 inventory.Queue(() => notifier?.ReservationChangedAsync(userId, id, lotId, ReservationStatus.Completed, slotId) ?? Task.CompletedTask);
             }
@@ -466,7 +466,7 @@ public class GateService(
     {
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         if (string.IsNullOrWhiteSpace(model?.Reason))
-            throw new BadRequestException("Cần ghi lý do / thông tin xác minh. A reason is required.");
+            throw new BadRequestException("A reason is required.");
         ParkingStateMachines.EnsureSession(session.Status, SessionStatus.LostTicketPending);
 
         var tariff = await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
@@ -492,7 +492,7 @@ public class GateService(
         else
         {
             var (lotId, id, code) = (session.ParkingLotId, session.Id, session.SessionCode);
-            inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "LOST_TICKET_APPROVAL", $"Mất vé {code} cần Manager duyệt.", id) ?? Task.CompletedTask);
+            inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "LOST_TICKET_APPROVAL", $"Lost ticket {code} needs a Manager's approval.", id) ?? Task.CompletedTask);
         }
 
         await pmsContext.SaveChangesAsync();
@@ -504,10 +504,10 @@ public class GateService(
     public async Task<SessionResponseModel> DecideLostTicketAsync(long sessionId, bool approve, string reason)
     {
         var session = await pmsContext.ParkingSessions.FirstOrDefaultAsync(s => s.Id == sessionId)
-                      ?? throw new NotFoundException("Không tìm thấy phiên gửi xe. Session not found.");
+                      ?? throw new NotFoundException("Session not found.");
         await lotScope.EnsureCanManageAsync(session.ParkingLotId);
         if (session.Status != SessionStatus.LostTicketPending)
-            throw new BadRequestException("Phiên không chờ duyệt mất vé. No lost-ticket case is waiting.");
+            throw new BadRequestException("No lost-ticket case is waiting.");
 
         if (approve)
         {
@@ -531,10 +531,10 @@ public class GateService(
     public async Task<SessionResponseModel> CloseAbnormallyAsync(long sessionId, string reason)
     {
         var session = await pmsContext.ParkingSessions.FirstOrDefaultAsync(s => s.Id == sessionId)
-                      ?? throw new NotFoundException("Không tìm thấy phiên gửi xe. Session not found.");
+                      ?? throw new NotFoundException("Session not found.");
         await lotScope.EnsureCanManageAsync(session.ParkingLotId);
         if (string.IsNullOrWhiteSpace(reason))
-            throw new BadRequestException("Cần lý do và bằng chứng (BR-15). A reason is required.");
+            throw new BadRequestException("A reason is required.");
         if (session.Status is SessionStatus.PendingPayment or SessionStatus.LostTicketPending)
             session.Status = SessionStatus.Active;
         ParkingStateMachines.EnsureSession(session.Status, SessionStatus.AbnormalClosed);
@@ -589,7 +589,7 @@ public class GateService(
         var quote = await QuoteAsync(session, null, null, mutate: true);
         await pmsContext.SaveChangesAsync();
         if (quote.AmountDue <= 0)
-            throw new BadRequestException("Không còn khoản nào phải trả; bạn có thể ra bãi. Nothing is due.");
+            throw new BadRequestException("Nothing is due.");
 
         return await paymentService.CreateSessionPaymentAsync(session, quote.AmountDue, model.Provider, PaymentChannel.App,
             model.ReturnUrl, userId, null, context);
@@ -604,9 +604,9 @@ public class GateService(
     private async Task<CheckoutQuoteModel> QuoteAsync(ParkingSession session, string exitPlate, decimal? exitConfidence, bool mutate)
     {
         if (session.Status == SessionStatus.LostTicketPending)
-            throw new BadRequestException("Hồ sơ mất vé đang chờ Manager duyệt. The lost-ticket case is waiting for a Manager.");
+            throw new BadRequestException("The lost-ticket case is waiting for a Manager.");
         if (!SessionStatus.Inside.Contains(session.Status))
-            throw new BadRequestException($"Phiên đang {session.Status}, không tính phí được. This session cannot be charged.");
+            throw new BadRequestException($"The session is {session.Status} and cannot be charged.");
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstAsync(p => p.Id == session.ParkingLotId);
         var timeZone = ParkingText.FindTimeZone(lot.TimeZoneId ?? options.TimeZoneId);
@@ -658,14 +658,14 @@ public class GateService(
         var alerts = new List<GateAlertModel>();
         var exitNormalized = ParkingText.NormalizePlate(exitPlate);
         if (!session.HasPlate)
-            alerts.Add(Block("PHOTO_CHECK_REQUIRED", "Xe không biển số: đối chiếu ảnh vào – ra. Compare the entry and exit photos.", true));
+            alerts.Add(Block("PHOTO_CHECK_REQUIRED", "Compare the entry and exit photos.", true));
         else if (exitNormalized.Length > 0 && exitNormalized != session.EntryPlateNormalized)
         {
             if (mutate) session.PlateMismatch = true;
-            alerts.Add(Block("PLATE_MISMATCH", $"Biển số ra {exitPlate} khác biển số vào {session.EntryPlateNumber}. Plates differ.", true));
+            alerts.Add(Block("PLATE_MISMATCH", $"Exit plate {exitPlate} differs from entry plate {session.EntryPlateNumber}.", true));
         }
         if (session.HasPlate && exitConfidence != null && NormalizeConfidence(exitConfidence) < Rules.AnprConfidenceThreshold)
-            alerts.Add(Block("LOW_CONFIDENCE", "ANPR cổng ra tin cậy thấp: đối chiếu ảnh. Compare the photos.", true));
+            alerts.Add(Block("LOW_CONFIDENCE", "Exit ANPR confidence is low: compare the entry and exit photos.", true));
 
         return new CheckoutQuoteModel
         {
@@ -698,7 +698,7 @@ public class GateService(
             var claims = signer.Verify(model.ReservationQr, ParkingTokenSigner.ReservationKind);
             if (claims == null || claims.GetValueOrDefault("lot") != lotId.ToString() || !long.TryParse(claims.GetValueOrDefault("id"), out var id))
             {
-                alerts.Add(Block("RESERVATION_INVALID", "QR đặt chỗ không hợp lệ hoặc của bãi khác. Invalid reservation QR (enter as walk-in instead).", true));
+                alerts.Add(Block("RESERVATION_INVALID", "Invalid reservation QR (enter as walk-in instead).", true));
                 return null;
             }
             reservation = await pmsContext.Reservations.FirstOrDefaultAsync(r => r.Id == id);
@@ -729,13 +729,13 @@ public class GateService(
         if (reservation == null)
         {
             if (explicitMatch)
-                alerts.Add(Block("RESERVATION_INVALID", "Không tìm thấy đặt chỗ. Reservation not found (enter as walk-in instead).", true));
+                alerts.Add(Block("RESERVATION_INVALID", "Reservation not found (enter as walk-in instead).", true));
             return null;
         }
 
         if (reservation.ParkingLotId != lotId || reservation.Status != ReservationStatus.Confirmed)
         {
-            alerts.Add(Block("RESERVATION_INVALID", $"Đặt chỗ {reservation.ReservationCode} đang {reservation.Status}, không check-in được. Enter as walk-in.", true));
+            alerts.Add(Block("RESERVATION_INVALID", $"Reservation {reservation.ReservationCode} is {reservation.Status} and cannot check in. Enter as walk-in.", true));
             return null;
         }
 
@@ -745,8 +745,8 @@ public class GateService(
         {
             alerts.Add(Block("RESERVATION_OUTSIDE_WINDOW",
                 Now < from
-                    ? $"Đến sớm: check-in theo đặt chỗ từ {from:HH:mm} UTC. Wait, or enter as walk-in (the booking is kept)."
-                    : "Đã quá thời gian giữ chỗ. The hold has ended; enter as walk-in.", true));
+                    ? $"Too early: reservation check-in opens at {from:HH:mm} UTC. Wait, or enter as walk-in (the booking is kept)."
+                    : "The hold has ended; enter as walk-in.", true));
             return null;
         }
 
@@ -755,7 +755,7 @@ public class GateService(
         {
             var bookedPlate = await pmsContext.Vehicles.Where(v => v.Id == reservation.VehicleId).Select(v => v.PlateNormalized).FirstOrDefaultAsync();
             if (bookedPlate != normalized)
-                alerts.Add(Overridable("RESERVATION_PLATE_MISMATCH", "Biển số không khớp đặt chỗ; xác minh xe cùng tài khoản, cùng loại. Plate differs from the booking.",
+                alerts.Add(Overridable("RESERVATION_PLATE_MISMATCH", "The plate differs from the booking; verify it is a vehicle of the same account and type.",
                     model.AllowPlateMismatch, overrides, "reservation vehicle changed"));
         }
 
@@ -792,8 +792,8 @@ public class GateService(
 
         gates =
         [
-            new Gate { ParkingLotId = lotId, Code = "IN-1", Name = "Làn vào 1", Direction = "In", IsActive = true },
-            new Gate { ParkingLotId = lotId, Code = "OUT-1", Name = "Làn ra 1", Direction = "Out", IsActive = true }
+            new Gate { ParkingLotId = lotId, Code = "IN-1", Name = "Entry lane 1", Direction = "In", IsActive = true },
+            new Gate { ParkingLotId = lotId, Code = "OUT-1", Name = "Exit lane 1", Direction = "Out", IsActive = true }
         ];
         pmsContext.Gates.AddRange(gates);
         await pmsContext.SaveChangesAsync();
@@ -805,7 +805,7 @@ public class GateService(
         var gates = await EnsureGatesAsync(lotId);
         if (gateId != null)
             return gates.FirstOrDefault(g => g.Id == gateId)
-                   ?? throw new BadRequestException("Làn không thuộc bãi này. The lane is not in this lot.");
+                   ?? throw new BadRequestException("The lane is not in this lot.");
         return gates.FirstOrDefault(g => g.Direction == direction) ?? gates.FirstOrDefault(g => g.Direction == "Both") ?? gates[0];
     }
 
@@ -813,21 +813,21 @@ public class GateService(
     {
         var query = tracked ? pmsContext.ParkingSessions : pmsContext.ParkingSessions.AsNoTracking();
         var session = await query.FirstOrDefaultAsync(s => s.Id == sessionId)
-                      ?? throw new NotFoundException("Không tìm thấy phiên gửi xe. Session not found.");
+                      ?? throw new NotFoundException("Session not found.");
         await lotScope.EnsureCanOperateAsync(session.ParkingLotId);
         return session;
     }
 
     private async Task<int> CustomerIdAsync(string userId) =>
         await pmsContext.Customers.Where(c => c.UserId == userId).Select(c => (int?)c.Id).FirstOrDefaultAsync()
-        ?? throw new NotFoundException("Chưa có hồ sơ khách hàng. Customer profile not found.");
+        ?? throw new NotFoundException("Customer profile not found.");
 
     private async Task<ParkingSession> OwnSessionAsync(string userId, long sessionId, bool tracked)
     {
         var customerId = await CustomerIdAsync(userId);
         var query = tracked ? pmsContext.ParkingSessions : pmsContext.ParkingSessions.AsNoTracking();
         return await query.FirstOrDefaultAsync(s => s.Id == sessionId && s.CustomerId == customerId)
-               ?? throw new NotFoundException("Không tìm thấy phiên gửi xe. Session not found.");
+               ?? throw new NotFoundException("Session not found.");
     }
 
     private static async Task<T> WithPlateLockAsync<T>(int lotId, string plate, Func<Task<T>> action)
@@ -841,7 +841,7 @@ public class GateService(
         }
         catch (DbUpdateException e) when (e.InnerException?.Message.Contains("IX_ParkingSessions_OpenPlate") == true)
         {
-            throw new ConflictException("Biển số vừa vào ở làn khác. This plate just entered at another lane.");
+            throw new ConflictException("This plate just entered at another lane.");
         }
         finally
         {

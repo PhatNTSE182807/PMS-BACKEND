@@ -51,7 +51,7 @@ public class ParkingJobs(
             .ToListAsync();
         foreach (var reservation in due)
         {
-            await reservations.EndAsync(reservation, ReservationStatus.Expired, "Quá hạn thanh toán cọc", "System", null);
+            await reservations.EndAsync(reservation, ReservationStatus.Expired, "Deposit not paid in time", "System", null);
             QueueReservation(reservation);
         }
 
@@ -70,7 +70,7 @@ public class ParkingJobs(
             // A vehicle that already passed the entry lane is not a no-show
             if (await pmsContext.ParkingSessions.AnyAsync(s => s.ReservationId == reservation.Id && s.Status == SessionStatus.PendingEntry))
                 continue;
-            await reservations.EndAsync(reservation, ReservationStatus.NoShow, "Không check-in trong thời gian giữ chỗ", "System", null);
+            await reservations.EndAsync(reservation, ReservationStatus.NoShow, "Not checked in during the hold", "System", null);
             QueueReservation(reservation);
         }
 
@@ -122,7 +122,7 @@ public class ParkingJobs(
             .Where(s => s.Status == SessionStatus.PendingEntry && s.EntryTime <= cutoff)
             .ToListAsync();
         foreach (var session in stale)
-            await gates.CancelPendingEntryAsync(session, "Không có tín hiệu cảm biến: xe quay đầu");
+            await gates.CancelPendingEntryAsync(session, "No sensor signal: the vehicle turned around");
 
         await SaveAndFlushAsync();
         return stale.Count;
@@ -171,7 +171,7 @@ public class ParkingJobs(
             if (session.OverdueNotifiedAt == null)
             {
                 session.OverdueNotifiedAt = Now;
-                inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "SESSION_OVERDUE", $"Xe {code} đỗ quá {options.Gate.OverdueHours} giờ.", id) ?? Task.CompletedTask);
+                inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "SESSION_OVERDUE", $"Vehicle {code} has been parked for over {options.Gate.OverdueHours} hours.", id) ?? Task.CompletedTask);
             }
 
             if (session.AbandonedFlaggedAt == null && session.EntryTime <= abandonedBefore)
@@ -181,11 +181,11 @@ public class ParkingJobs(
                 {
                     SessionId = session.Id,
                     ViolationType = "Abandoned",
-                    Note = $"Xe bỏ quên quá {options.Gate.AbandonedDays} ngày",
+                    Note = $"Vehicle abandoned for over {options.Gate.AbandonedDays} days",
                     ReportedBy = "System",
                     ReportedAt = Now
                 });
-                inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "SESSION_ABANDONED", $"Xe {code} có thể bị bỏ quên: đã tạo sự cố.", id) ?? Task.CompletedTask);
+                inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "SESSION_ABANDONED", $"Vehicle {code} may be abandoned: an incident was opened.", id) ?? Task.CompletedTask);
             }
         }
 

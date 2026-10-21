@@ -29,18 +29,18 @@ public class ReservationService(
         EnsureArrivalAllowed(arrival);
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(p => p.Id == model.ParkingLotId && !p.IsDeleted)
-                  ?? throw new NotFoundException("Không tìm thấy bãi xe. Parking lot not found.");
+                  ?? throw new NotFoundException("Parking lot not found.");
         if (lot.Status != "Active")
-            throw new BadRequestException("Bãi đang tạm đóng, không nhận đặt chỗ mới. The lot is not taking reservations right now.");
+            throw new BadRequestException("The lot is not taking reservations right now.");
 
         var vehicle = await pmsContext.Vehicles.AsNoTracking()
                           .FirstOrDefaultAsync(v => v.Id == model.VehicleId && v.CustomerId == customer.Id && v.IsActive)
-                      ?? throw new BadRequestException("Xe không thuộc tài khoản của bạn. This vehicle is not on your account.");
+                      ?? throw new BadRequestException("This vehicle is not on your account.");
 
         var types = await inventory.VehicleTypesAsync();
         var vehicleType = types.GetValueOrDefault(vehicle.VehicleTypeId);
         if (vehicleType == null || !Rules.ReservableVehicleTypeCodes.Contains(vehicleType.Code, StringComparer.OrdinalIgnoreCase))
-            throw new BadRequestException("Loại xe này không được đặt chỗ trước (BR-01). This vehicle type cannot be reserved.");
+            throw new BadRequestException("This vehicle type cannot be reserved.");
 
         // BR-07: limits per account and per vehicle
         var active = await pmsContext.Reservations.AsNoTracking()
@@ -48,15 +48,15 @@ public class ReservationService(
             .Select(r => r.VehicleId)
             .ToListAsync();
         if (active.Count >= Rules.MaxActivePerAccount)
-            throw new BadRequestException($"Mỗi tài khoản chỉ có tối đa {Rules.MaxActivePerAccount} đặt chỗ hiệu lực. Reservation limit reached.");
+            throw new BadRequestException($"Each account can have at most {Rules.MaxActivePerAccount} active reservations.");
         if (active.Count(v => v == vehicle.Id) >= Rules.MaxActivePerVehicle)
-            throw new BadRequestException("Xe này đã có một đặt chỗ hiệu lực. This vehicle already has an active reservation.");
+            throw new BadRequestException("This vehicle already has an active reservation.");
 
         var reservation = await ParkingInventory.WithSlotLockAsync([model.SlotId], async () =>
         {
             var slot = await LoadSlotForLotAsync(model.SlotId, lot.Id);
             if (!ParkingInventory.Compatible(types, slot.VehicleTypeId, vehicle.VehicleTypeId))
-                throw new BadRequestException("Slot này không dành cho loại xe của bạn. This slot is for another vehicle type.");
+                throw new BadRequestException("This slot is for another vehicle type.");
             await EnsureSlotHasNoActiveReservationAsync(slot.Id, null);
 
             await inventory.HoldAsync(slot, lot.Id);
@@ -108,9 +108,9 @@ public class ReservationService(
         var reservation = await OwnAsync(userId, id, tracked: true);
         ParkingStateMachines.EnsureReservation(reservation.Status, ReservationStatus.Confirmed);
         if (reservation.Status != ReservationStatus.Confirmed)
-            throw new BadRequestException("Chỉ đổi được đặt chỗ đã xác nhận. Only confirmed reservations can be changed.");
+            throw new BadRequestException("Only confirmed reservations can be changed.");
         if (Now > reservation.StartTime.AddMinutes(-Rules.CancelRefundMinutes))
-            throw new BadRequestException($"Đã quá hạn đổi ({Rules.CancelRefundMinutes} phút trước giờ đến). The change deadline has passed.");
+            throw new BadRequestException($"Changes close {Rules.CancelRefundMinutes} minutes before arrival; the deadline has passed.");
 
         if (model.ArrivalTime is { } newArrivalOffset)
         {
@@ -134,7 +134,7 @@ public class ReservationService(
             {
                 var slot = await LoadSlotForLotAsync(newSlotId, reservation.ParkingLotId);
                 if (!ParkingInventory.Compatible(types, slot.VehicleTypeId, reservation.VehicleTypeId ?? slot.VehicleTypeId))
-                    throw new BadRequestException("Slot này không dành cho loại xe của bạn. This slot is for another vehicle type.");
+                    throw new BadRequestException("This slot is for another vehicle type.");
                 await EnsureSlotHasNoActiveReservationAsync(slot.Id, reservation.Id);
 
                 await inventory.HoldAsync(slot, reservation.ParkingLotId);
@@ -163,7 +163,7 @@ public class ReservationService(
     public async Task<ReservationResponseModel> CancelAsync(string userId, long id, string reason)
     {
         var reservation = await OwnAsync(userId, id, tracked: true);
-        var cleanReason = string.IsNullOrWhiteSpace(reason) ? "Khách hủy" : reason.Trim();
+        var cleanReason = string.IsNullOrWhiteSpace(reason) ? "Cancelled by the customer" : reason.Trim();
 
         if (reservation.Status == ReservationStatus.PendingDeposit)
         {
@@ -174,11 +174,11 @@ public class ReservationService(
         {
             var refund = RefundIfCancelledNow(reservation);
             await EndAsync(reservation, ReservationStatus.Cancelled, cleanReason, "User", userId);
-            await paymentService.RefundDepositAsync(reservation, refund, $"Hoàn cọc hủy {reservation.ReservationCode}", userId);
+            await paymentService.RefundDepositAsync(reservation, refund, $"Cancellation refund {reservation.ReservationCode}", userId);
         }
         else
         {
-            throw new BadRequestException($"Không thể hủy đặt chỗ đang {reservation.Status}. This reservation can no longer be cancelled.");
+            throw new BadRequestException("This reservation can no longer be cancelled.");
         }
 
         await pmsContext.SaveChangesAsync();
@@ -191,7 +191,7 @@ public class ReservationService(
     {
         var reservation = await OwnAsync(userId, id, tracked: false);
         if (reservation.Status != ReservationStatus.Confirmed)
-            throw new BadRequestException("Mã QR chỉ có sau khi đặt cọc thành công. The QR code is issued once the deposit is paid.");
+            throw new BadRequestException("The QR code is issued once the deposit is paid.");
 
         var validFrom = reservation.StartTime.AddMinutes(-Rules.EarlyArrivalMinutes);
         return new ReservationQrModel
@@ -213,10 +213,10 @@ public class ReservationService(
     public async Task<ReservationResponseModel> CancelByLotAsync(long id, string reason)
     {
         var reservation = await pmsContext.Reservations.FirstOrDefaultAsync(r => r.Id == id)
-                          ?? throw new NotFoundException("Không tìm thấy đặt chỗ. Reservation not found.");
+                          ?? throw new NotFoundException("Reservation not found.");
         await lotScope.EnsureCanManageAsync(reservation.ParkingLotId);
         if (string.IsNullOrWhiteSpace(reason))
-            throw new BadRequestException("Cần nhập lý do hủy. A reason is required.");
+            throw new BadRequestException("A reason is required.");
 
         if (reservation.Status == ReservationStatus.PendingDeposit)
         {
@@ -227,11 +227,11 @@ public class ReservationService(
             await EndAsync(reservation, ReservationStatus.LotCancelled, reason.Trim(), "Lot", lotScope.UserId);
             // FR-RSV-09: the lot cancelled, so the whole deposit goes back
             var held = await paymentService.DepositHeldAsync(reservation.Id);
-            await paymentService.RefundDepositAsync(reservation, held, $"Bãi hủy đặt chỗ {reservation.ReservationCode}", lotScope.UserId);
+            await paymentService.RefundDepositAsync(reservation, held, $"Lot cancelled reservation {reservation.ReservationCode}", lotScope.UserId);
         }
         else
         {
-            throw new BadRequestException($"Không thể hủy đặt chỗ đang {reservation.Status}. This reservation can no longer be cancelled.");
+            throw new BadRequestException("This reservation can no longer be cancelled.");
         }
 
         await pmsContext.SaveChangesAsync();
@@ -278,9 +278,9 @@ public class ReservationService(
     private void EnsureArrivalAllowed(DateTime arrival)
     {
         if (arrival <= Now)
-            throw new BadRequestException("Giờ đến phải ở tương lai. The arrival time must be in the future.");
+            throw new BadRequestException("The arrival time must be in the future.");
         if (arrival > Now.AddHours(Rules.MaxLeadHours))
-            throw new BadRequestException($"Chỉ đặt trước tối đa {Rules.MaxLeadHours} giờ (BR-01). Arrival must be within {Rules.MaxLeadHours} hours.");
+            throw new BadRequestException($"Arrival must be within {Rules.MaxLeadHours} hours (BR-01).");
     }
 
     private decimal DepositFor(string vehicleTypeCode) =>
@@ -295,11 +295,11 @@ public class ReservationService(
     private async Task<Slot> LoadSlotForLotAsync(int slotId, int lotId)
     {
         var slot = await pmsContext.Slots.Include(s => s.Zone).FirstOrDefaultAsync(s => s.Id == slotId)
-                   ?? throw new NotFoundException("Không tìm thấy slot. Slot not found.");
+                   ?? throw new NotFoundException("Slot not found.");
         if (slot.Zone?.ParkingLotId != lotId)
-            throw new BadRequestException("Slot không thuộc bãi này. The slot is not in this lot.");
+            throw new BadRequestException("The slot is not in this lot.");
         if (!slot.IsActive || slot.Status != SlotStatus.Available)
-            throw new ConflictException("Slot này không còn trống. This slot is no longer available.");
+            throw new ConflictException("This slot is no longer available.");
         return slot;
     }
 
@@ -307,18 +307,18 @@ public class ReservationService(
     {
         if (await pmsContext.Reservations.AnyAsync(r => r.SlotId == slotId && r.Id != except
                                                         && (r.Status == ReservationStatus.PendingDeposit || r.Status == ReservationStatus.Confirmed || r.Status == ReservationStatus.CheckedIn)))
-            throw new ConflictException("Slot này vừa được người khác giữ chỗ. This slot was just taken by someone else.");
+            throw new ConflictException("This slot was just taken by someone else.");
     }
 
     private async Task<Customer> CustomerAsync(string userId) =>
         await pmsContext.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.UserId == userId)
-        ?? throw new BadRequestException("Tài khoản chưa có hồ sơ khách hàng. Add a vehicle to your profile first.");
+        ?? throw new BadRequestException("Add a vehicle to your profile first.");
 
     private async Task<Reservation> OwnAsync(string userId, long id, bool tracked)
     {
         var query = tracked ? pmsContext.Reservations : pmsContext.Reservations.AsNoTracking();
         return await query.FirstOrDefaultAsync(r => r.Id == id && r.UserId == userId)
-               ?? throw new NotFoundException("Không tìm thấy đặt chỗ. Reservation not found.");
+               ?? throw new NotFoundException("Reservation not found.");
     }
 
     private void Log(long reservationId, string action, string oldValue, string newValue, string by) =>

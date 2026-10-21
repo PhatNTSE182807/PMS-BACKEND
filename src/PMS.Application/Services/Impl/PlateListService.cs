@@ -28,15 +28,15 @@ public class PlateListService(PmsDbContext pmsContext, LotScopeService lotScope,
         await lotScope.EnsureCanManageAsync(lotId);
         var type = new[] { PlateListType.Whitelist, PlateListType.Blacklist }
             .FirstOrDefault(t => string.Equals(t, model.ListType?.Trim(), StringComparison.OrdinalIgnoreCase))
-            ?? throw new BadRequestException("Loại danh sách phải là Whitelist hoặc Blacklist. ListType must be Whitelist or Blacklist.");
+            ?? throw new BadRequestException("ListType must be Whitelist or Blacklist.");
         var normalized = ParkingText.NormalizePlate(model.PlateNumber);
         if (normalized.Length < 4)
-            throw new BadRequestException("Biển số không hợp lệ. Invalid plate.");
+            throw new BadRequestException("Invalid plate.");
         if (string.IsNullOrWhiteSpace(model.Reason))
-            throw new BadRequestException("Bắt buộc có lý do. A reason is required.");
+            throw new BadRequestException("A reason is required.");
         var now = clock.GetUtcNow().UtcDateTime;
         if (model.ExpiresAt.ToUniversalTime() <= now)
-            throw new BadRequestException("Ngày hết hạn phải ở tương lai. The expiry date must be in the future.");
+            throw new BadRequestException("The expiry date must be in the future.");
 
         var entry = new PlateListEntry
         {
@@ -59,7 +59,7 @@ public class PlateListService(PmsDbContext pmsContext, LotScopeService lotScope,
     {
         await lotScope.EnsureCanManageAsync(lotId);
         var entry = await pmsContext.PlateLists.FirstOrDefaultAsync(p => p.Id == id && p.ParkingLotId == lotId)
-                    ?? throw new NotFoundException("Không tìm thấy mục. Entry not found.");
+                    ?? throw new NotFoundException("Entry not found.");
         entry.IsActive = false;
         await pmsContext.SaveChangesAsync();
         return true;
