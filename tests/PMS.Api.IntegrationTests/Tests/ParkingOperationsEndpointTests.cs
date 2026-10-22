@@ -340,6 +340,8 @@ public class ParkingOperationsEndpointTests : IDisposable
             await db.SaveChangesAsync();
             var car = new Vehicle { CustomerId = customer.Id, VehicleTypeId = CarTypeId, PlateNumber = plate, PlateNormalized = new string(plate.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant(), IsActive = true, CreatedAt = DateTime.UtcNow };
             db.Vehicles.Add(car);
+            // Only vehicles whose papers Staff approved can be booked
+            db.VehicleVerifications.Add(new VehicleVerification { VehicleId = car.Id, CustomerId = customer.Id, UserId = user.Id, Status = "Approved", CreatedAt = DateTime.UtcNow, DecidedAt = DateTime.UtcNow });
             await db.SaveChangesAsync();
             return (test.ClientFor(user), car.Id);
         }

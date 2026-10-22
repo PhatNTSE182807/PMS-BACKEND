@@ -2,27 +2,26 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
-using PMS.Application.Helpers.VehicleDocuments;
 using PMS.Application.Models.VehicleDocuments;
-using PMS.Application.Services.Ocr;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
 
 namespace PMS.Application.Services.Impl;
 
+/// <summary>
+/// Vehicle paper checks: the owner uploads the registration certificate (front) and Citizen ID card
+/// (front and back), submits them, and Staff compare them with the vehicle and the account by eye
+/// before approving or rejecting the vehicle. There is no automatic reading (OCR).
+/// </summary>
 public class VehicleDocumentService(
     PmsDbContext pmsContext,
     IVehicleDocumentStorage storage,
     VehicleDocumentStorageOptions storageOptions,
-    IVehicleVerificationQueue queue,
     IVehicleVerificationNotifier notifier = null) : IVehicleDocumentService
 {
-    private static readonly string[] ActiveStatuses = [VehicleVerificationStatus.Pending, VehicleVerificationStatus.Processing];
-
     public async Task<VehicleVerificationModel> UploadAsync(string userId, Guid vehicleId, string documentType, string side,
         Stream content, string fileName, long length)
     {
@@ -30,6 +29,8 @@ public class VehicleDocumentService(
                        ?? throw new BadRequestException("Document type must be RegistrationCertificate or CitizenId.");
         side = VehicleDocumentKinds.Sides.FirstOrDefault(s => s.Equals(side, StringComparison.OrdinalIgnoreCase))
                ?? throw new BadRequestException("Side must be Front or Back.");
+        if (!VehicleDocumentKinds.IsRequired(documentType, side))
+            throw new BadRequestException("Only the front of the registration certificate is needed.");
 
         if (content == null || length <= 0)
             throw new BadRequestException("Choose a file to upload.");
@@ -47,9 +48,12 @@ public class VehicleDocumentService(
         var (vehicle, customer) = await FindOwnVehicleAsync(userId, vehicleId);
 
         var verification = await LatestAsync(vehicle.Id);
-        if (verification != null && ActiveStatuses.Contains(verification.Status))
-            throw new BadRequestException("Your papers are being checked. Wait for the result before uploading again.");
+        if (verification != null && VehicleVerificationStatus.Waiting.Contains(verification.Status))
+            throw new BadRequestException("Your papers are waiting for Staff review. Wait for the decision before uploading again.");
+        if (verification != null && VehicleVerificationStatus.Verified.Contains(verification.Status))
+            throw new BadRequestException("This vehicle is already approved.");
 
+        // A rejected check stays as history; new photos start a new check
         if (verification is not { Status: VehicleVerificationStatus.Draft })
         {
             verification = new VehicleVerification
@@ -104,14 +108,14 @@ public class VehicleDocumentService(
 
         var missing = MissingDocuments(verification);
         if (missing.Count > 0)
-            throw new BadRequestException($"Upload every side first; missing: {string.Join(", ", missing)}.");
+            throw new BadRequestException($"Upload every paper first; missing: {string.Join(", ", missing)}.");
 
-        verification.Status = VehicleVerificationStatus.Pending;
+        // Straight to the Staff queue: a person compares the papers with the vehicle and the account
+        verification.Status = VehicleVerificationStatus.NeedsReview;
+        verification.StatusReason = "Waiting for Staff to compare your papers with this vehicle.";
         verification.SubmittedAt = DateTime.UtcNow;
         await pmsContext.SaveChangesAsync();
 
-        // OCR runs in the background (Hangfire), so the request returns at once
-        queue.Enqueue(verification.Id);
         if (notifier != null)
             await notifier.VerificationChangedAsync(userId, verification.Id, vehicle.Id, verification.Status);
 
@@ -137,13 +141,21 @@ public class VehicleDocumentService(
     public async Task<List<VehicleVerificationReviewModel>> GetReviewQueueAsync(string status)
     {
         status = string.IsNullOrWhiteSpace(status) ? VehicleVerificationStatus.NeedsReview : status.Trim();
+        // The work list also holds checks left waiting from the time papers were read by OCR
+        var statuses = status == VehicleVerificationStatus.NeedsReview ? VehicleVerificationStatus.Waiting
+            : status == VehicleVerificationStatus.Approved ? VehicleVerificationStatus.Verified
+            : [status];
 
-        var verifications = await pmsContext.VehicleVerifications
+        var query = pmsContext.VehicleVerifications
             .Include(v => v.Documents)
             .Include(v => v.Vehicle).ThenInclude(v => v.VehicleType)
             .Include(v => v.Vehicle).ThenInclude(v => v.Customer)
-            .Where(v => v.Status == status)
-            .OrderBy(v => v.SubmittedAt ?? v.CreatedAt)
+            .Where(v => statuses.Contains(v.Status));
+
+        // Waiting checks oldest first; decisions newest first
+        var verifications = await (status == VehicleVerificationStatus.NeedsReview
+                ? query.OrderBy(v => v.SubmittedAt ?? v.CreatedAt)
+                : query.OrderByDescending(v => v.DecidedAt ?? v.CreatedAt))
             .Take(200)
             .ToListAsync();
 
@@ -165,12 +177,15 @@ public class VehicleDocumentService(
     public async Task<VehicleVerificationReviewModel> ReviewAsync(string staffUserId, Guid verificationId, ReviewVehicleVerificationModel model)
     {
         var verification = await FindForReviewAsync(verificationId);
-        if (verification.Status != VehicleVerificationStatus.NeedsReview)
-            throw new BadRequestException("Only checks waiting for review can be approved or rejected.");
+        if (!VehicleVerificationStatus.Waiting.Contains(verification.Status))
+            throw new BadRequestException("Only registrations waiting for review can be approved or rejected.");
         if (!model.Approve && string.IsNullOrWhiteSpace(model.Note))
             throw new BadRequestException("Give the customer a reason when rejecting.");
 
         verification.Status = model.Approve ? VehicleVerificationStatus.Approved : VehicleVerificationStatus.Rejected;
+        verification.StatusReason = model.Approve
+            ? "Papers checked by Staff. The vehicle can be booked and is recognised at the gates."
+            : "Staff could not approve these papers. Upload new photos to try again.";
         verification.ReviewedBy = staffUserId;
         verification.ReviewNote = model.Note?.Trim();
         verification.DecidedAt = DateTime.UtcNow;
@@ -194,12 +209,12 @@ public class VehicleDocumentService(
         return null;
     }
 
-    /// <summary>The sides still needed: front and back of both papers.</summary>
+    /// <summary>The required files not uploaded yet, as "Type/Side".</summary>
     public static List<string> MissingDocuments(VehicleVerification verification) =>
-        (from type in VehicleDocumentKinds.Types
-         from side in VehicleDocumentKinds.Sides
-         where !verification.Documents.Any(d => d.DocumentType == type && d.Side == side)
-         select $"{type}/{side}").ToList();
+        VehicleDocumentKinds.Required
+            .Where(r => !verification.Documents.Any(d => d.DocumentType == r.Type && d.Side == r.Side))
+            .Select(r => $"{r.Type}/{r.Side}")
+            .ToList();
 
     internal static T ToModel<T>(VehicleVerification v, Vehicle vehicle, VehicleDocumentStorageOptions options) where T : VehicleVerificationModel, new()
     {
@@ -210,8 +225,6 @@ public class VehicleDocumentService(
             LicensePlate = vehicle?.PlateNumber,
             Status = v.Status,
             StatusReason = v.StatusReason,
-            Confidence = v.Confidence == null ? null : (double)v.Confidence.Value,
-            Fields = string.IsNullOrEmpty(v.ResultJson) ? [] : JsonSerializer.Deserialize<List<FieldCheck>>(v.ResultJson),
             Documents = v.Documents
                 .OrderBy(d => Array.IndexOf(VehicleDocumentKinds.Types, d.DocumentType))
                 .ThenBy(d => Array.IndexOf(VehicleDocumentKinds.Sides, d.Side))
@@ -229,7 +242,6 @@ public class VehicleDocumentService(
             MissingDocuments = v.Status == VehicleVerificationStatus.Draft ? MissingDocuments(v) : [],
             CreatedAt = v.CreatedAt,
             SubmittedAt = v.SubmittedAt,
-            ProcessedAt = v.ProcessedAt,
             DecidedAt = v.DecidedAt,
             ReviewNote = v.ReviewNote,
             FilesDeleteAt = v.FilesDeletedAt ?? v.DecidedAt?.AddDays(options.RetentionDays),
@@ -242,6 +254,7 @@ public class VehicleDocumentService(
         var model = ToModel<VehicleVerificationReviewModel>(v, v.Vehicle, options);
         model.CustomerName = v.Vehicle?.Customer?.FullName;
         model.CustomerCitizenId = v.Vehicle?.Customer?.CitizenId;
+        model.CustomerDateOfBirth = v.Vehicle?.Customer?.DateOfBirth;
         model.VehicleType = v.Vehicle?.VehicleType?.Name;
         model.Brand = v.Vehicle?.Brand;
         model.Model = v.Vehicle?.Model;

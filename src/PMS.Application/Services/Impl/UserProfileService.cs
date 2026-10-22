@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Models.Profile;
+using PMS.Application.Models.VehicleDocuments;
 using PMS.DataAccess.Identity;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
@@ -40,6 +41,7 @@ public class UserProfileService : IUserProfileService
             .ThenByDescending(v => v.CreatedAt)
             .Select(v => MapToVehicleResponse(v))
             .ToListAsync();
+        await WithPapersAsync(vehicles);
 
         var isUserActive = user.IsActive && customer.IsActive;
         var status = "Active";
@@ -133,7 +135,7 @@ public class UserProfileService : IUserProfileService
         if (customer == null)
             return new List<VehicleResponseModel>();
 
-        return await _pmsContext.Vehicles
+        var vehicles = await _pmsContext.Vehicles
             .AsNoTracking()
             .Include(v => v.VehicleType)
             .Where(v => v.CustomerId == customer.Id && v.IsActive)
@@ -141,6 +143,7 @@ public class UserProfileService : IUserProfileService
             .ThenByDescending(v => v.CreatedAt)
             .Select(v => MapToVehicleResponse(v))
             .ToListAsync();
+        return await WithPapersAsync(vehicles);
     }
 
     public async Task<VehicleResponseModel> AddVehicleAsync(string userId, CreateVehicleModel model)
@@ -234,6 +237,16 @@ public class UserProfileService : IUserProfileService
         if (duplicatePlate != null)
             throw new BadRequestException("Another vehicle with this license plate is already registered.");
 
+        // Submitted papers were checked against this plate and owner; changing them needs a new registration
+        var newCitizenId = string.IsNullOrWhiteSpace(model.CitizenId) ? vehicle.CitizenId : model.CitizenId.Trim();
+        if (plateNormalized != vehicle.PlateNormalized || newCitizenId != vehicle.CitizenId)
+        {
+            var papers = await LatestPapersAsync([vehicle.Id]);
+            var status = papers.TryGetValue(vehicle.Id, out var check) ? check.Status : null;
+            if (status != null && status != VehicleVerificationStatus.Draft && status != VehicleVerificationStatus.Rejected)
+                throw new BadRequestException("The papers of this vehicle were already submitted. Remove it and register it again to change the plate or owner.");
+        }
+
         if (model.IsDefault && !vehicle.IsDefault)
         {
             await UnsetOtherDefaultVehiclesAsync(customer.Id, vehicleId);
@@ -258,7 +271,7 @@ public class UserProfileService : IUserProfileService
         await _pmsContext.SaveChangesAsync();
 
         vehicle.VehicleType = vehicleType;
-        return MapToVehicleResponse(vehicle);
+        return (await WithPapersAsync([MapToVehicleResponse(vehicle)]))[0];
     }
 
     public async Task<bool> DeleteVehicleAsync(string userId, Guid vehicleId)
@@ -323,7 +336,7 @@ public class UserProfileService : IUserProfileService
         vehicle.UpdatedAt = DateTime.UtcNow;
 
         await _pmsContext.SaveChangesAsync();
-        return MapToVehicleResponse(vehicle);
+        return (await WithPapersAsync([MapToVehicleResponse(vehicle)]))[0];
     }
 
     public async Task<List<VehicleTypeResponseModel>> GetVehicleTypesAsync()
@@ -408,6 +421,44 @@ public class UserProfileService : IUserProfileService
             v.IsDefault = false;
             v.UpdatedAt = DateTime.UtcNow;
         }
+    }
+
+    /// <summary>The latest paper check of each vehicle (status and Staff note), keyed by vehicle id.</summary>
+    private async Task<Dictionary<Guid, (string Status, string Note)>> LatestPapersAsync(List<Guid> vehicleIds)
+    {
+        var checks = await _pmsContext.VehicleVerifications
+            .AsNoTracking()
+            .Where(v => vehicleIds.Contains(v.VehicleId))
+            .Select(v => new { v.VehicleId, v.Status, v.ReviewNote, v.CreatedAt })
+            .ToListAsync();
+
+        return checks
+            .GroupBy(c => c.VehicleId)
+            .ToDictionary(g => g.Key, g =>
+            {
+                var latest = g.OrderByDescending(c => c.CreatedAt).First();
+                return (latest.Status, latest.ReviewNote);
+            });
+    }
+
+    /// <summary>Fills each vehicle's registration status from its latest paper check.</summary>
+    private async Task<List<VehicleResponseModel>> WithPapersAsync(List<VehicleResponseModel> vehicles)
+    {
+        if (vehicles.Count == 0)
+            return vehicles;
+
+        var papers = await LatestPapersAsync(vehicles.Select(v => v.VehicleId).ToList());
+        foreach (var vehicle in vehicles)
+        {
+            if (!papers.TryGetValue(vehicle.VehicleId, out var check))
+                continue;
+            // Checks left over from the OCR era read like the current statuses
+            vehicle.VerificationStatus = VehicleVerificationStatus.Waiting.Contains(check.Status) ? VehicleVerificationStatus.NeedsReview
+                : VehicleVerificationStatus.Verified.Contains(check.Status) ? VehicleVerificationStatus.Approved
+                : check.Status;
+            vehicle.VerificationNote = check.Note;
+        }
+        return vehicles;
     }
 
     private static string NormalizePlate(string plate)

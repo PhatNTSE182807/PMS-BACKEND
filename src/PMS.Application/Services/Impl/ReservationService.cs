@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers.Parking;
 using PMS.Application.Models.Operations;
+using PMS.Application.Models.VehicleDocuments;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
 
@@ -37,6 +38,15 @@ public class ReservationService(
         var vehicle = await pmsContext.Vehicles.AsNoTracking()
                           .FirstOrDefaultAsync(v => v.Id == model.VehicleId && v.CustomerId == customer.Id && v.IsActive)
                       ?? throw new BadRequestException("This vehicle is not on your account.");
+
+        // Only a vehicle whose papers Staff approved can be booked
+        var papers = await pmsContext.VehicleVerifications.AsNoTracking()
+            .Where(v => v.VehicleId == vehicle.Id)
+            .OrderByDescending(v => v.CreatedAt)
+            .Select(v => v.Status)
+            .FirstOrDefaultAsync();
+        if (papers == null || !VehicleVerificationStatus.Verified.Contains(papers))
+            throw new BadRequestException("This vehicle is waiting for Staff to approve its papers and cannot be booked yet.");
 
         var types = await inventory.VehicleTypesAsync();
         var vehicleType = types.GetValueOrDefault(vehicle.VehicleTypeId);

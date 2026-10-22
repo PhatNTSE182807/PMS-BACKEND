@@ -7,8 +7,9 @@ using PMS.Application.Models.VehicleDocuments;
 namespace PMS.Application.Services;
 
 /// <summary>
-/// Upload of a vehicle's papers (cà vẹt front/back, CCCD front/back), OCR verification in the background
-/// and the Staff review of checks that need a person (SRS FR-VER-01..04, BR-26).
+/// Papers of a new vehicle (registration certificate front, Citizen ID front and back) and the Staff
+/// review that approves or rejects the vehicle (SRS FR-VER-01..04, BR-26). Staff compare the papers
+/// by eye; nothing is read automatically.
 /// </summary>
 public interface IVehicleDocumentService
 {
@@ -16,7 +17,7 @@ public interface IVehicleDocumentService
     Task<VehicleVerificationModel> UploadAsync(string userId, Guid vehicleId, string documentType, string side,
         Stream content, string fileName, long length);
 
-    /// <summary>Submits the draft (all four sides uploaded) and queues the OCR job.</summary>
+    /// <summary>Submits the draft (every required file uploaded) to the Staff review queue.</summary>
     Task<VehicleVerificationModel> SubmitAsync(string userId, Guid vehicleId);
 
     /// <summary>The vehicle's latest check, or null when its papers were never uploaded.</summary>
@@ -25,21 +26,15 @@ public interface IVehicleDocumentService
     /// <summary>One of the owner's own files (for previews).</summary>
     Task<VehicleDocumentContent> OpenFileAsync(string userId, Guid vehicleId, Guid documentId);
 
-    /// <summary>Checks waiting for Staff (default NeedsReview), oldest first.</summary>
+    /// <summary>Checks with a status (default NeedsReview: waiting ones, oldest first; decisions newest first).</summary>
     Task<List<VehicleVerificationReviewModel>> GetReviewQueueAsync(string status);
 
     Task<VehicleVerificationReviewModel> GetForReviewAsync(Guid verificationId);
 
     Task<VehicleDocumentContent> OpenFileForReviewAsync(Guid verificationId, Guid documentId);
 
-    /// <summary>Approves or rejects a check in NeedsReview.</summary>
+    /// <summary>Approves or rejects a check waiting for review.</summary>
     Task<VehicleVerificationReviewModel> ReviewAsync(string staffUserId, Guid verificationId, ReviewVehicleVerificationModel model);
-}
-
-/// <summary>Queues the OCR of a submitted check (Hangfire in the API).</summary>
-public interface IVehicleVerificationQueue
-{
-    void Enqueue(Guid verificationId);
 }
 
 /// <summary>Pushes check status changes to the uploader and the Staff review queue (SignalR in the API).</summary>

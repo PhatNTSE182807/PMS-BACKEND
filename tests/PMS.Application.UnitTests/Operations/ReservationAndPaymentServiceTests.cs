@@ -50,6 +50,7 @@ public class ReservationAndPaymentServiceTests
             CustomerId = t.Customer.Id, VehicleTypeId = t.TypeId("CAR_7"), PlateNumber = "51B-999.99", PlateNormalized = "51B99999", IsActive = true
         };
         t.Db.Vehicles.Add(second);
+        t.ApprovePapers(second);
         await t.Db.SaveChangesAsync();
 
         var act = () => t.Reservations.CreateAsync(t.CustomerUserId, new CreateReservationModel

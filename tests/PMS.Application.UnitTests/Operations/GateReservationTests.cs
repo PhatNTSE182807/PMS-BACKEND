@@ -44,6 +44,7 @@ public class GateReservationTests
         var t = await new OperationsTestContext().SeedAsync();
         var copy = new Vehicle { CustomerId = t.Customer.Id, VehicleTypeId = t.Car.VehicleTypeId, PlateNumber = "51A-123.45", PlateNormalized = "51A12345", IsActive = true };
         t.Db.Vehicles.Add(copy);
+        t.ApprovePapers(copy);
         await t.Db.SaveChangesAsync();
         await t.Reservations.CreateAsync(t.CustomerUserId, Booking(t, t.Car, skipSlots: 0));
 

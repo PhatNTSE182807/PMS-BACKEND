@@ -8,9 +8,9 @@ using PMS.Shared.Services;
 namespace PMS.API.Controllers;
 
 /// <summary>
-/// Manual review of vehicle paper checks that OCR could not verify (SRS FR-VER-03/04): mismatches,
-/// unreadable or low-confidence fields. Reserved for the "Xác minh phương tiện" (vehicle verification)
-/// permission, which Staff hold; Managers and Admins can act too.
+/// Staff review of new vehicle registrations (SRS FR-VER-03/04): compare the uploaded registration
+/// certificate and Citizen ID card with the vehicle and the account, then approve or reject the vehicle.
+/// Staff hold this permission; Managers and Admins can act too.
 /// </summary>
 [Route("api/vehicle-verifications")]
 [Tags("Vehicle Verification")]
@@ -19,7 +19,7 @@ public class VehicleVerificationsController(
     IVehicleDocumentService vehicleDocumentService,
     IClaimService claimService) : ApiController
 {
-    /// <summary>Checks with the given status (default NeedsReview), oldest first.</summary>
+    /// <summary>Checks with the given status: NeedsReview (default, oldest first), Approved or Rejected (newest first).</summary>
     [HttpGet]
     public async Task<IActionResult> GetQueueAsync([FromQuery] string status = null)
     {

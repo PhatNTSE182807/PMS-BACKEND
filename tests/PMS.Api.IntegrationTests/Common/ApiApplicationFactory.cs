@@ -12,7 +12,6 @@ using Microsoft.Extensions.DependencyInjection;
 using PMS.Api.IntegrationTests.Helpers.Services;
 using PMS.Application.Services;
 using PMS.Application.Services.Impl;
-using PMS.Application.Services.Ocr;
 using PMS.DataAccess.Persistence;
 
 namespace PMS.Api.IntegrationTests.Common;
@@ -72,13 +71,10 @@ public class ApiApplicationFactory<TProgram> : WebApplicationFactory<TProgram> w
             services.AddScoped<ITemplateService, TemplateTestService>();
             services.AddScoped<IGoogleTokenValidator, GoogleTokenTestValidator>();
 
-            // Vehicle papers: deterministic fake OCR, a private temp folder per factory, and the OCR job run
-            // inline instead of on the (process-wide) Hangfire server, so tests see the result at once
+            // Vehicle papers go to a private temp folder per factory
             var storageOptions = new VehicleDocumentStorageOptions { StorageRoot = DocumentStorageRoot };
             services.AddSingleton(storageOptions);
             services.AddSingleton<IVehicleDocumentStorage>(_ => new LocalVehicleDocumentStorage(storageOptions, DocumentStorageRoot));
-            services.AddSingleton<IDocumentOcrService, FakeDocumentOcrService>();
-            services.AddScoped<IVehicleVerificationQueue, InlineVehicleVerificationQueue>();
         });
     }
 

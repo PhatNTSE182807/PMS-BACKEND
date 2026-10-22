@@ -124,9 +124,15 @@ public sealed class OperationsTestContext
         await Db.SaveChangesAsync();
         Car = new Vehicle { CustomerId = Customer.Id, VehicleTypeId = TypeId("CAR_4"), PlateNumber = "51A-123.45", PlateNormalized = "51A12345", IsActive = true, CreatedAt = Now };
         Db.Vehicles.Add(Car);
+        // Only vehicles whose papers Staff approved can be booked
+        ApprovePapers(Car);
         await Db.SaveChangesAsync();
         return this;
     }
+
+    /// <summary>Adds a Staff-approved paper check, so the vehicle can be booked.</summary>
+    public void ApprovePapers(Vehicle vehicle) =>
+        Db.VehicleVerifications.Add(new VehicleVerification { VehicleId = vehicle.Id, CustomerId = Customer.Id, UserId = CustomerUserId, Status = "Approved", CreatedAt = Now, DecidedAt = Now });
 
     public int TypeId(string code) => Db.VehicleTypes.Single(v => v.Code == code).Id;
 

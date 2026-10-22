@@ -14,9 +14,6 @@
         <PackageReference Include="Mapster" Version="7.4.0" />
         <PackageReference Include="Mapster.DependencyInjection" Version="1.0.1" />
         <PackageReference Include="MimeKit" Version="4.18.1" />
-        <!-- OCR of vehicle papers: Tesseract 5 (native Windows x64 binaries included; PrivateAssets=none so its build targets copy them into the API and test outputs) and PDFium to render PDFs -->
-        <PackageReference Include="Tesseract" Version="5.2.0" PrivateAssets="none" />
-        <PackageReference Include="Docnet.Core" Version="2.6.0" />
     </ItemGroup>
 
     <ItemGroup>

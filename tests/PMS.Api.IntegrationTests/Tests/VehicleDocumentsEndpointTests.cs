@@ -12,7 +12,6 @@ using PMS.Api.IntegrationTests.Common;
 using PMS.Api.IntegrationTests.Helpers;
 using PMS.Application.Models.Profile;
 using PMS.Application.Models.VehicleDocuments;
-using PMS.Application.Services.Ocr;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
 using Xunit;
@@ -20,8 +19,8 @@ using Xunit;
 namespace PMS.Api.IntegrationTests.Tests;
 
 /// <summary>
-/// Upload of the cà vẹt and CCCD photos, OCR verification with the fake engine (it reads the text
-/// embedded after a PNG header) and the Staff review of checks that need a person.
+/// Upload of the registration certificate (front) and Citizen ID (front and back), submission to the
+/// Staff queue, and the Staff decision that approves or rejects the new vehicle.
 /// </summary>
 public class VehicleDocumentsEndpointTests : IDisposable
 {
@@ -29,24 +28,11 @@ public class VehicleDocumentsEndpointTests : IDisposable
 
     private const string OwnCitizenId = "079204006789";
 
-    private const string CertificateText = """
-        Tên chủ xe (Owner's full name): NGUYỄN TẤN PHÁT
-        Nhãn hiệu (Brand): PORSCHE   Số loại (Model code): TAYCAN 4S
-        Màu sơn (Color): XANH
-        Biển số đăng ký (Number plate): 51K-992.88
-        """;
-
-    private const string CardText = """
-        Số / No.: 079204006789
-        Họ và tên / Full name:
-        NGUYỄN TẤN PHÁT
-        """;
-
     public void Dispose() => _factory.Dispose();
 
-    private static byte[] Png(string ocrText = "") =>
+    private static byte[] Png(string marker = "") =>
         new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }
-            .Concat(Encoding.UTF8.GetBytes(FakeDocumentOcrService.Marker + "\n" + ocrText))
+            .Concat(Encoding.UTF8.GetBytes(marker))
             .ToArray();
 
     private static MultipartFormDataContent FileContent(byte[] bytes, string fileName = "photo.png", string contentType = "image/png")
@@ -56,7 +42,7 @@ public class VehicleDocumentsEndpointTests : IDisposable
         return new MultipartFormDataContent { { file, "file", fileName } };
     }
 
-    /// <summary>A customer named Nguyễn Tấn Phát with Citizen ID 079204006789 and a Porsche Taycan 51K-992.88.</summary>
+    /// <summary>A customer with Citizen ID 079204006789 and a Porsche Taycan 51K-992.88.</summary>
     private async Task<(HttpClient Client, Guid VehicleId)> CustomerWithVehicleAsync(string plate = "51K-992.88")
     {
         var client = await _factory.CreateClientWithRoleAsync("User");
@@ -77,7 +63,7 @@ public class VehicleDocumentsEndpointTests : IDisposable
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var vehicle = (await ResponseHelper.GetApiResultAsync<VehicleResponseModel>(response)).Result;
 
-        // The profile the CCCD is compared with
+        // The account data Staff compare the papers with
         var customer = await context.Vehicles.Where(v => v.Id == vehicle.VehicleId).Select(v => v.Customer).SingleAsync();
         customer.FullName = "Nguyễn Tấn Phát";
         customer.CitizenId = OwnCitizenId;
@@ -88,12 +74,12 @@ public class VehicleDocumentsEndpointTests : IDisposable
 
     private static string DocumentsUrl(Guid vehicleId) => $"/api/users/profile/vehicles/{vehicleId}/documents";
 
-    private static async Task UploadAllAsync(HttpClient client, Guid vehicleId, string certificateText, string cardText)
+    /// <summary>Uploads every required file: certificate front, Citizen ID front and back.</summary>
+    private static async Task UploadAllAsync(HttpClient client, Guid vehicleId)
     {
-        foreach (var (type, text) in new[] { ("RegistrationCertificate", certificateText), ("CitizenId", cardText) })
-        foreach (var side in new[] { "Front", "Back" })
+        foreach (var (type, side) in VehicleDocumentKinds.Required)
         {
-            var response = await client.PostAsync($"{DocumentsUrl(vehicleId)}/{type}/{side}", FileContent(Png(side == "Front" ? text : "")));
+            var response = await client.PostAsync($"{DocumentsUrl(vehicleId)}/{type}/{side}", FileContent(Png($"{type}-{side}")));
             response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         }
     }
@@ -111,6 +97,17 @@ public class VehicleDocumentsEndpointTests : IDisposable
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         return (await ResponseHelper.GetApiResultAsync<VehicleVerificationModel>(response)).Result;
     }
+
+    private static async Task<VehicleResponseModel> VehicleAsync(HttpClient client, Guid vehicleId)
+    {
+        var response = await client.GetAsync("/api/users/profile/vehicles");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await ResponseHelper.GetApiResultAsync<VehicleResponseModel[]>(response)).Result.Single(v => v.VehicleId == vehicleId);
+    }
+
+    private static Task<HttpResponseMessage> ReviewAsync(HttpClient staff, Guid verificationId, bool approve, string note = null) =>
+        staff.PostAsync($"/api/vehicle-verifications/{verificationId}/review",
+            new JsonContent(new ReviewVehicleVerificationModel { Approve = approve, Note = note }));
 
     [Fact]
     public async Task Upload_Should_Reject_Files_That_Are_Not_Jpeg_Png_Or_Pdf()
@@ -138,7 +135,7 @@ public class VehicleDocumentsEndpointTests : IDisposable
         var verification = (await ResponseHelper.GetApiResultAsync<VehicleVerificationModel>(response)).Result;
         verification.Status.Should().Be(VehicleVerificationStatus.Draft);
         verification.Documents.Single().ContentType.Should().Be(contentType);
-        verification.MissingDocuments.Should().HaveCount(3);
+        verification.MissingDocuments.Should().BeEquivalentTo("RegistrationCertificate/Front", "CitizenId/Front");
     }
 
     [Fact]
@@ -156,7 +153,8 @@ public class VehicleDocumentsEndpointTests : IDisposable
     [Theory]
     [InlineData("Passport", "Front")]
     [InlineData("CitizenId", "Inside")]
-    public async Task Upload_Should_Reject_Unknown_Document_Types_And_Sides(string type, string side)
+    [InlineData("RegistrationCertificate", "Back")]
+    public async Task Upload_Should_Reject_Unknown_Or_Unneeded_Papers(string type, string side)
     {
         var (client, vehicleId) = await CustomerWithVehicleAsync();
 
@@ -181,10 +179,10 @@ public class VehicleDocumentsEndpointTests : IDisposable
     }
 
     [Fact]
-    public async Task Submit_Should_Need_Every_Side()
+    public async Task Submit_Should_Need_Every_Paper()
     {
         var (client, vehicleId) = await CustomerWithVehicleAsync();
-        await client.PostAsync($"{DocumentsUrl(vehicleId)}/RegistrationCertificate/Front", FileContent(Png(CertificateText)));
+        await client.PostAsync($"{DocumentsUrl(vehicleId)}/RegistrationCertificate/Front", FileContent(Png()));
 
         var response = await client.PostAsync($"{DocumentsUrl(vehicleId)}/submit", null);
 
@@ -193,72 +191,87 @@ public class VehicleDocumentsEndpointTests : IDisposable
     }
 
     [Fact]
-    public async Task Matching_Papers_Should_Be_AutoVerified()
+    public async Task New_Vehicle_Should_Have_No_Papers_Until_They_Are_Submitted()
     {
         var (client, vehicleId) = await CustomerWithVehicleAsync();
-        await UploadAllAsync(client, vehicleId, CertificateText, CardText);
 
-        await SubmitAsync(client, vehicleId);
-        var result = await LatestAsync(client, vehicleId);
+        (await VehicleAsync(client, vehicleId)).VerificationStatus.Should().BeNull();
+        (await LatestAsync(client, vehicleId)).Should().BeNull();
+    }
 
-        result.Status.Should().Be(VehicleVerificationStatus.AutoVerified);
-        result.Fields.Should().HaveCount(7).And.OnlyContain(f => f.Result == "Match");
-        result.Fields.Single(f => f.Field == "plate").Read.Should().Be("51K-992.88");
-        result.DecidedAt.Should().NotBeNull();
-        result.FilesDeleteAt.Should().BeCloseTo(result.DecidedAt!.Value.AddDays(30), TimeSpan.FromSeconds(1));
+    [Fact]
+    public async Task Submitted_Papers_Should_Wait_For_Staff_Who_Approve_The_Vehicle()
+    {
+        var (client, vehicleId) = await CustomerWithVehicleAsync();
+        await UploadAllAsync(client, vehicleId);
+        var verification = await SubmitAsync(client, vehicleId);
+
+        // No automatic reading: the check goes straight to the Staff queue
+        verification.Status.Should().Be(VehicleVerificationStatus.NeedsReview);
+        (await VehicleAsync(client, vehicleId)).VerificationStatus.Should().Be(VehicleVerificationStatus.NeedsReview);
+
+        // Customers cannot review; Staff see it in their queue with the account data to compare
+        (await client.GetAsync("/api/vehicle-verifications")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var staff = await _factory.CreateClientWithRoleAsync("Staff");
+        var queue = await ResponseHelper.GetApiResultAsync<VehicleVerificationReviewModel[]>(await staff.GetAsync("/api/vehicle-verifications"));
+        var item = queue.Result.Should().ContainSingle(v => v.VerificationId == verification.VerificationId).Subject;
+        item.CustomerCitizenId.Should().Be(OwnCitizenId);
+        item.Documents.Should().HaveCount(3);
+
+        // A rejection needs a reason; an approval decides the check
+        (await ReviewAsync(staff, verification.VerificationId, approve: false)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ReviewAsync(staff, verification.VerificationId, approve: true, "Papers match.")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var decided = await LatestAsync(client, vehicleId);
+        decided.Status.Should().Be(VehicleVerificationStatus.Approved);
+        decided.ReviewNote.Should().Be("Papers match.");
+        decided.FilesDeleteAt.Should().BeCloseTo(decided.DecidedAt!.Value.AddDays(30), TimeSpan.FromSeconds(1));
+        (await VehicleAsync(client, vehicleId)).VerificationStatus.Should().Be(VehicleVerificationStatus.Approved);
+
+        // An approved vehicle keeps its papers
+        var again = await client.PostAsync($"{DocumentsUrl(vehicleId)}/CitizenId/Front", FileContent(Png()));
+        again.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Rejected_Vehicle_Can_Send_New_Papers()
+    {
+        var (client, vehicleId) = await CustomerWithVehicleAsync();
+        await UploadAllAsync(client, vehicleId);
+        var first = await SubmitAsync(client, vehicleId);
+        var staff = await _factory.CreateClientWithRoleAsync("Staff");
+
+        (await ReviewAsync(staff, first.VerificationId, approve: false, "The certificate photo is blurry.")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var vehicle = await VehicleAsync(client, vehicleId);
+        vehicle.VerificationStatus.Should().Be(VehicleVerificationStatus.Rejected);
+        vehicle.VerificationNote.Should().Be("The certificate photo is blurry.");
+
+        // New photos start a new check, which goes back to the queue
+        await UploadAllAsync(client, vehicleId);
+        var second = await SubmitAsync(client, vehicleId);
+        second.VerificationId.Should().NotBe(first.VerificationId);
+        second.Status.Should().Be(VehicleVerificationStatus.NeedsReview);
     }
 
     [Fact]
     public async Task Replacing_A_Side_Should_Keep_One_File_Per_Side()
     {
         var (client, vehicleId) = await CustomerWithVehicleAsync();
-        await UploadAllAsync(client, vehicleId, "blurry", CardText);
-        await client.PostAsync($"{DocumentsUrl(vehicleId)}/RegistrationCertificate/Front", FileContent(Png(CertificateText)));
+        await UploadAllAsync(client, vehicleId);
+        await client.PostAsync($"{DocumentsUrl(vehicleId)}/RegistrationCertificate/Front", FileContent(Png("sharper")));
 
         var draft = await LatestAsync(client, vehicleId);
-        await SubmitAsync(client, vehicleId);
 
-        draft.Documents.Should().HaveCount(4);
-        (await LatestAsync(client, vehicleId)).Status.Should().Be(VehicleVerificationStatus.AutoVerified);
-    }
-
-    [Fact]
-    public async Task Mismatched_Papers_Should_Wait_For_Staff_Who_Can_Approve_Them()
-    {
-        var (client, vehicleId) = await CustomerWithVehicleAsync();
-        await UploadAllAsync(client, vehicleId, CertificateText.Replace("51K-992.88", "51K-992.89"), CardText);
-        var verification = await SubmitAsync(client, vehicleId);
-
-        var result = await LatestAsync(client, vehicleId);
-        result.Status.Should().Be(VehicleVerificationStatus.NeedsReview);
-        result.Fields.Single(f => f.Field == "plate").Result.Should().Be("Mismatch");
-
-        // Customers cannot review; Staff see it in their queue
-        (await client.GetAsync("/api/vehicle-verifications")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        var staff = await _factory.CreateClientWithRoleAsync("Staff");
-        var queue = await ResponseHelper.GetApiResultAsync<VehicleVerificationReviewModel[]>(await staff.GetAsync("/api/vehicle-verifications"));
-        queue.Result.Should().ContainSingle(v => v.VerificationId == verification.VerificationId)
-            .Which.CustomerCitizenId.Should().Be(OwnCitizenId);
-
-        // A rejection needs a reason; an approval decides the check
-        var noReason = await staff.PostAsync($"/api/vehicle-verifications/{verification.VerificationId}/review",
-            new JsonContent(new ReviewVehicleVerificationModel { Approve = false }));
-        noReason.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-
-        var approve = await staff.PostAsync($"/api/vehicle-verifications/{verification.VerificationId}/review",
-            new JsonContent(new ReviewVehicleVerificationModel { Approve = true, Note = "Plate photo checked by hand." }));
-        approve.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var decided = await LatestAsync(client, vehicleId);
-        decided.Status.Should().Be(VehicleVerificationStatus.Approved);
-        decided.ReviewNote.Should().Be("Plate photo checked by hand.");
+        draft.Documents.Should().HaveCount(3);
+        draft.MissingDocuments.Should().BeEmpty();
     }
 
     [Fact]
     public async Task Owner_And_Staff_Can_Download_A_Photo_But_Others_Cannot()
     {
         var (client, vehicleId) = await CustomerWithVehicleAsync();
-        await UploadAllAsync(client, vehicleId, CertificateText, CardText);
+        await UploadAllAsync(client, vehicleId);
         var document = (await LatestAsync(client, vehicleId)).Documents.First();
         var fileUrl = $"{DocumentsUrl(vehicleId)}/files/{document.DocumentId}";
 
@@ -275,18 +288,15 @@ public class VehicleDocumentsEndpointTests : IDisposable
     }
 
     [Fact]
-    public async Task Uploading_While_The_Check_Runs_Should_Be_Refused()
+    public async Task Uploading_While_Waiting_For_Staff_Should_Be_Refused()
     {
         var (client, vehicleId) = await CustomerWithVehicleAsync();
-        await UploadAllAsync(client, vehicleId, CertificateText, CardText);
-        var context = _factory.GetRequiredService<PmsDbContext>();
-        var draft = await context.VehicleVerifications.SingleAsync();
-        draft.Status = VehicleVerificationStatus.Processing;
-        await context.SaveChangesAsync();
+        await UploadAllAsync(client, vehicleId);
+        await SubmitAsync(client, vehicleId);
 
-        var response = await client.PostAsync($"{DocumentsUrl(vehicleId)}/CitizenId/Front", FileContent(Png(CardText)));
+        var response = await client.PostAsync($"{DocumentsUrl(vehicleId)}/CitizenId/Front", FileContent(Png()));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).Should().Contain("being checked");
+        (await response.Content.ReadAsStringAsync()).Should().Contain("waiting for Staff review");
     }
 }
