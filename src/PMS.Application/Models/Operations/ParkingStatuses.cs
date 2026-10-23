@@ -99,12 +99,14 @@ public static class PaymentPurpose
     public const string Deposit = "Deposit";
     public const string ParkingFee = "ParkingFee";
     public const string Refund = "Refund";
+    public const string WalletTopUp = "WalletTopUp";
 }
 
 public static class PaymentMethod
 {
     public const string Cash = "Cash";
     public const string Online = "Online";
+    public const string Wallet = "Wallet";
 }
 
 public static class PaymentChannel
@@ -121,6 +123,7 @@ public static class PaymentProviders
 {
     public const string VnPay = "VNPay";
     public const string MoMo = "MoMo";
+    public const string Wallet = "Wallet";
 }
 
 public static class PlateListType

@@ -88,3 +88,57 @@ public class PaymentCallbackResultModel
 
     public PaymentResponseModel Payment { get; set; }
 }
+
+/// <summary>Request to top up XXIV Wallet using VNPay or MoMo.</summary>
+public class TopUpWalletModel
+{
+    public decimal Amount { get; set; }
+
+    public string Provider { get; set; } = "VNPay";
+
+    public string ReturnUrl { get; set; }
+}
+
+/// <summary>Request to withdraw money from XXIV Wallet.</summary>
+public class WithdrawWalletModel
+{
+    public decimal Amount { get; set; }
+
+    public string Method { get; set; } = "bank";
+
+    public string BankName { get; set; }
+
+    public string BankAccount { get; set; }
+}
+
+public class WalletResponseModel
+{
+    public decimal Balance { get; set; }
+
+    public decimal HoldAmount { get; set; }
+
+    public string Currency { get; set; } = "VND";
+
+    public string Status { get; set; } = "Active";
+
+    public IReadOnlyList<WalletTransactionResponseModel> RecentTransactions { get; set; } = [];
+}
+
+public class WalletTransactionResponseModel
+{
+    public string Id { get; set; }
+
+    public string Title { get; set; }
+
+    public string Subtitle { get; set; }
+
+    public decimal Amount { get; set; }
+
+    public string Status { get; set; }
+
+    public string Type { get; set; }
+
+    public string Method { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+}

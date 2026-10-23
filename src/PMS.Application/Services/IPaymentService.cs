@@ -48,4 +48,13 @@ public interface IPaymentService
 
     /// <summary>Job: retries refunds the gateway did not accept yet.</summary>
     Task<int> RetryPendingRefundsAsync();
+
+    /// <summary>Starts an online top-up of the user's XXIV Wallet (VNPay / MoMo).</summary>
+    Task<PaymentResponseModel> CreateWalletTopUpPaymentAsync(string userId, TopUpWalletModel model, PaymentRequestContext context);
+
+    /// <summary>Gets the user's current wallet balance, hold amount, and recent transactions.</summary>
+    Task<WalletResponseModel> GetWalletAsync(string userId);
+
+    /// <summary>Withdraws funds from the user's wallet to a bank account or MoMo.</summary>
+    Task<WalletResponseModel> WithdrawWalletAsync(string userId, WithdrawWalletModel model);
 }

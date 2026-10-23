@@ -29,6 +29,7 @@ public static partial class AutomatedMigration
                 await EnsurePmsTablesAsync(pmsContext);
                 // Reservations, gate sessions and payments (AutomatedMigration.Operations.cs)
                 await EnsureOperationsTablesAsync(pmsContext);
+                await EnsureWalletTablesAsync(pmsContext);
                 await RemoveRejectedVehiclesAsync(pmsContext);
                 await EnsureGateRequestsTableAsync(pmsContext);
                 await EnsureNotificationsTableAsync(pmsContext);
@@ -504,6 +505,45 @@ public static partial class AutomatedMigration
                 WHERE v.[IsActive] = 1
                   AND NOT EXISTS (SELECT 1 FROM [dbo].[Vehicles] d WHERE d.[CustomerId] = v.[CustomerId] AND d.[IsActive] = 1 AND d.[IsDefault] = 1)
                   AND v.[Id] = (SELECT TOP 1 n.[Id] FROM [dbo].[Vehicles] n WHERE n.[CustomerId] = v.[CustomerId] AND n.[IsActive] = 1 ORDER BY n.[CreatedAt] DESC);
+            END");
+    }
+
+    private static async Task EnsureWalletTablesAsync(PmsDbContext pmsContext)
+    {
+        await pmsContext.Database.ExecuteSqlRawAsync(@"
+            IF OBJECT_ID('dbo.Wallets', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[Wallets](
+                    [Id] [int] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [CustomerId] [int] NOT NULL,
+                    [Balance] [decimal](18,2) NOT NULL DEFAULT 0,
+                    [Currency] [char](3) NOT NULL DEFAULT 'VND',
+                    [Status] [varchar](20) NOT NULL DEFAULT 'Active',
+                    [UpdatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [RowVersion] [rowversion] NOT NULL,
+                    CONSTRAINT [FK_Wallets_Customers] FOREIGN KEY([CustomerId]) REFERENCES [dbo].[Customers] ([Id])
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_Wallets_CustomerId] ON [dbo].[Wallets]([CustomerId] ASC);
+            END
+
+            IF OBJECT_ID('dbo.WalletTransactions', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[WalletTransactions](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [WalletId] [int] NOT NULL,
+                    [TxnType] [varchar](20) NOT NULL,
+                    [Amount] [decimal](18,2) NOT NULL,
+                    [BalanceBefore] [decimal](18,2) NOT NULL DEFAULT 0,
+                    [BalanceAfter] [decimal](18,2) NOT NULL DEFAULT 0,
+                    [PaymentId] [bigint] NULL,
+                    [ReferenceType] [varchar](30) NULL,
+                    [ReferenceId] [nvarchar](50) NULL,
+                    [Description] [nvarchar](300) NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [CreatedBy] [nvarchar](450) NULL,
+                    CONSTRAINT [FK_WalletTransactions_Wallets] FOREIGN KEY([WalletId]) REFERENCES [dbo].[Wallets] ([Id])
+                );
+                CREATE NONCLUSTERED INDEX [IX_WalletTransactions_WalletId] ON [dbo].[WalletTransactions]([WalletId] ASC, [CreatedAt] DESC);
             END");
     }
 }

@@ -34,12 +34,70 @@ public class PaymentService(
 
     public async Task<PaymentResponseModel> CreateDepositPaymentAsync(long reservationId, string userId, CreatePaymentModel model, PaymentRequestContext context)
     {
-        var gateway = Gateway(model?.Provider);
         var reservation = await pmsContext.Reservations.FirstOrDefaultAsync(r => r.Id == reservationId && r.UserId == userId)
                           ?? throw new NotFoundException("Reservation not found.");
 
         if (reservation.Status != ReservationStatus.PendingDeposit || reservation.DepositDueAt <= Now)
             throw new BadRequestException("This reservation is not waiting for a deposit.");
+
+        var isWallet = string.Equals(model?.Provider?.Trim(), PaymentProviders.Wallet, StringComparison.OrdinalIgnoreCase);
+
+        if (isWallet)
+        {
+            var customer = await GetOrCreateCustomerAsync(userId);
+            var wallet = await GetOrCreateWalletAsync(customer.Id);
+
+            if (wallet.Balance < reservation.DepositAmount)
+            {
+                throw new BadRequestException(
+                    $"Insufficient XXIV Wallet balance ({wallet.Balance:N0} VND). Deposit required: {reservation.DepositAmount:N0} VND. Please top up your XXIV Wallet.");
+            }
+
+            var before = wallet.Balance;
+            wallet.Balance -= reservation.DepositAmount;
+            wallet.UpdatedAt = Now;
+
+            var walletInvoice = NewInvoice(reservation.ParkingLotId, reservation.CustomerId, reservation.DepositAmount, Now);
+            walletInvoice.ReservationId = reservation.Id;
+            walletInvoice.Status = "Paid";
+            walletInvoice.PaidAt = Now;
+
+            var payment = NewPayment(walletInvoice, PaymentMethod.Wallet, PaymentProviders.Wallet, reservation.DepositAmount, PaymentPurpose.Deposit, PaymentChannel.App);
+            payment.ReservationId = reservation.Id;
+            payment.ParkingLotId = reservation.ParkingLotId;
+            payment.CustomerUserId = userId;
+            payment.Status = PaymentStatus.Succeeded;
+            payment.PaidAt = Now;
+            payment.PayUrl = null;
+
+            pmsContext.Invoices.Add(walletInvoice);
+            pmsContext.Payments.Add(payment);
+            await pmsContext.SaveChangesAsync();
+
+            pmsContext.WalletTransactions.Add(new WalletTransaction
+            {
+                WalletId = wallet.Id,
+                TxnType = "Payment",
+                Amount = -reservation.DepositAmount,
+                BalanceBefore = before,
+                BalanceAfter = wallet.Balance,
+                PaymentId = payment.Id,
+                ReferenceType = "Reservation",
+                ReferenceId = reservation.ReservationCode,
+                Description = $"Deposit for reservation {reservation.ReservationCode}",
+                CreatedAt = Now,
+                CreatedBy = userId
+            });
+            await pmsContext.SaveChangesAsync();
+
+            await ApplyDepositAsync(payment);
+            await pmsContext.SaveChangesAsync();
+            QueuePaymentPush(payment);
+            await inventory.FlushAsync();
+            return ToModel(payment);
+        }
+
+        var gateway = Gateway(model?.Provider);
 
         // One open link per provider: paying twice for the same deposit is what FR-PAY-09 refunds
         var open = await pmsContext.Payments
@@ -51,24 +109,86 @@ public class PaymentService(
             return ToModel(open);
 
         var expiresAt = Min(Now.AddMinutes(parkingOptions.Gate.PaymentLinkMinutes), reservation.DepositDueAt ?? Now.AddMinutes(10));
-        var invoice = NewInvoice(reservation.ParkingLotId, reservation.CustomerId, reservation.DepositAmount, expiresAt);
-        invoice.ReservationId = reservation.Id;
-        var payment = NewPayment(invoice, PaymentMethod.Online, gateway.Provider, reservation.DepositAmount, PaymentPurpose.Deposit, PaymentChannel.App);
-        payment.ReservationId = reservation.Id;
-        payment.ParkingLotId = reservation.ParkingLotId;
-        payment.CustomerUserId = userId;
-        payment.ExpiresAt = expiresAt;
+        var depositInvoice = NewInvoice(reservation.ParkingLotId, reservation.CustomerId, reservation.DepositAmount, expiresAt);
+        depositInvoice.ReservationId = reservation.Id;
+        var paymentOnline = NewPayment(depositInvoice, PaymentMethod.Online, gateway.Provider, reservation.DepositAmount, PaymentPurpose.Deposit, PaymentChannel.App);
+        paymentOnline.ReservationId = reservation.Id;
+        paymentOnline.ParkingLotId = reservation.ParkingLotId;
+        paymentOnline.CustomerUserId = userId;
+        paymentOnline.ExpiresAt = expiresAt;
 
-        await StartCheckoutAsync(gateway, payment, $"Coc dat cho {reservation.ReservationCode}", model.ReturnUrl, context);
-        return ToModel(payment);
+        await StartCheckoutAsync(gateway, paymentOnline, $"Coc dat cho {reservation.ReservationCode}", model.ReturnUrl, context);
+        return ToModel(paymentOnline);
     }
 
     public async Task<PaymentResponseModel> CreateSessionPaymentAsync(ParkingSession session, decimal amountDue, string provider, string channel,
         string returnUrl, string customerUserId, string staffUserId, PaymentRequestContext context)
     {
-        var gateway = Gateway(provider);
         if (amountDue <= 0)
             throw new BadRequestException("Nothing is due for this session.");
+
+        var isWallet = string.Equals(provider?.Trim(), PaymentProviders.Wallet, StringComparison.OrdinalIgnoreCase);
+
+        if (isWallet)
+        {
+            if (string.IsNullOrWhiteSpace(customerUserId))
+                throw new BadRequestException("This parking session is not linked to a registered customer wallet.");
+
+            var customer = await GetOrCreateCustomerAsync(customerUserId);
+            var wallet = await GetOrCreateWalletAsync(customer.Id);
+
+            if (wallet.Balance < amountDue)
+            {
+                throw new BadRequestException(
+                    $"Insufficient XXIV Wallet balance ({wallet.Balance:N0} VND). Parking fee required: {amountDue:N0} VND. Please top up your XXIV Wallet.");
+            }
+
+            var before = wallet.Balance;
+            wallet.Balance -= amountDue;
+            wallet.UpdatedAt = Now;
+
+            var walletSessionInvoice = NewInvoice(session.ParkingLotId, session.CustomerId, amountDue, Now);
+            walletSessionInvoice.SessionId = session.Id;
+            walletSessionInvoice.Status = "Paid";
+            walletSessionInvoice.PaidAt = Now;
+
+            var payment = NewPayment(walletSessionInvoice, PaymentMethod.Wallet, PaymentProviders.Wallet, amountDue, PaymentPurpose.ParkingFee, channel);
+            payment.SessionId = session.Id;
+            payment.ParkingLotId = session.ParkingLotId;
+            payment.CustomerUserId = customerUserId;
+            payment.CollectedByUserId = staffUserId;
+            payment.Status = PaymentStatus.Succeeded;
+            payment.PaidAt = Now;
+            payment.PayUrl = null;
+
+            pmsContext.Invoices.Add(walletSessionInvoice);
+            pmsContext.Payments.Add(payment);
+            await pmsContext.SaveChangesAsync();
+
+            pmsContext.WalletTransactions.Add(new WalletTransaction
+            {
+                WalletId = wallet.Id,
+                TxnType = "Payment",
+                Amount = -amountDue,
+                BalanceBefore = before,
+                BalanceAfter = wallet.Balance,
+                PaymentId = payment.Id,
+                ReferenceType = "ParkingSession",
+                ReferenceId = session.SessionCode,
+                Description = $"Parking fee for session {session.SessionCode} ({session.EntryPlateNumber})",
+                CreatedAt = Now,
+                CreatedBy = customerUserId
+            });
+            await pmsContext.SaveChangesAsync();
+
+            await ApplyFeeAsync(payment);
+            await pmsContext.SaveChangesAsync();
+            QueuePaymentPush(payment);
+            await inventory.FlushAsync();
+            return ToModel(payment, session);
+        }
+
+        var gateway = Gateway(provider);
 
         var open = await pmsContext.Payments
             .Where(p => p.SessionId == session.Id && p.Purpose == PaymentPurpose.ParkingFee && p.Status == PaymentStatus.Pending
@@ -79,17 +199,17 @@ public class PaymentService(
             return ToModel(open);
 
         var expiresAt = Now.AddMinutes(parkingOptions.Gate.PaymentLinkMinutes);
-        var invoice = NewInvoice(session.ParkingLotId, session.CustomerId, amountDue, expiresAt);
-        invoice.SessionId = session.Id;
-        var payment = NewPayment(invoice, PaymentMethod.Online, gateway.Provider, amountDue, PaymentPurpose.ParkingFee, channel);
-        payment.SessionId = session.Id;
-        payment.ParkingLotId = session.ParkingLotId;
-        payment.CustomerUserId = customerUserId;
-        payment.CollectedByUserId = staffUserId;
-        payment.ExpiresAt = expiresAt;
+        var invoiceOnline = NewInvoice(session.ParkingLotId, session.CustomerId, amountDue, expiresAt);
+        invoiceOnline.SessionId = session.Id;
+        var paymentOnline = NewPayment(invoiceOnline, PaymentMethod.Online, gateway.Provider, amountDue, PaymentPurpose.ParkingFee, channel);
+        paymentOnline.SessionId = session.Id;
+        paymentOnline.ParkingLotId = session.ParkingLotId;
+        paymentOnline.CustomerUserId = customerUserId;
+        paymentOnline.CollectedByUserId = staffUserId;
+        paymentOnline.ExpiresAt = expiresAt;
 
-        await StartCheckoutAsync(gateway, payment, $"Phi gui xe {session.SessionCode}", returnUrl, context);
-        return ToModel(payment);
+        await StartCheckoutAsync(gateway, paymentOnline, $"Phi gui xe {session.SessionCode}", returnUrl, context);
+        return ToModel(paymentOnline);
     }
 
     public async Task<PaymentResponseModel> RecordCashAsync(ParkingSession session, decimal amountDue, decimal received, bool prepaid, string staffUserId)
@@ -347,6 +467,7 @@ public class PaymentService(
             {
                 PaymentPurpose.Deposit => await ApplyDepositAsync(payment),
                 PaymentPurpose.ParkingFee => await ApplyFeeAsync(payment),
+                PaymentPurpose.WalletTopUp => await ApplyWalletTopUpAsync(payment),
                 _ => "Applied"
             };
 
@@ -479,6 +600,35 @@ public class PaymentService(
         {
             refund.Status = PaymentStatus.Refunded;
             refund.PaidAt = Now;
+        }
+        else if (original.PaymentMethod == PaymentMethod.Wallet)
+        {
+            refund.Status = PaymentStatus.Refunded;
+            refund.PaidAt = Now;
+
+            if (!string.IsNullOrWhiteSpace(original.CustomerUserId))
+            {
+                var customer = await GetOrCreateCustomerAsync(original.CustomerUserId);
+                var wallet = await GetOrCreateWalletAsync(customer.Id);
+                var before = wallet.Balance;
+                wallet.Balance += amount;
+                wallet.UpdatedAt = Now;
+
+                pmsContext.WalletTransactions.Add(new WalletTransaction
+                {
+                    WalletId = wallet.Id,
+                    TxnType = "Refund",
+                    Amount = amount,
+                    BalanceBefore = before,
+                    BalanceAfter = wallet.Balance,
+                    PaymentId = refund.Id,
+                    ReferenceType = original.Purpose ?? "Refund",
+                    ReferenceId = original.PaymentCode,
+                    Description = $"Refund: {reason}",
+                    CreatedAt = Now,
+                    CreatedBy = requestedBy ?? "System"
+                });
+            }
         }
         else
         {
@@ -684,4 +834,177 @@ public class PaymentService(
     }
 
     private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
+
+    public async Task<PaymentResponseModel> CreateWalletTopUpPaymentAsync(string userId, TopUpWalletModel model, PaymentRequestContext context)
+    {
+        if (model == null || model.Amount <= 0)
+            throw new BadRequestException("Please enter a valid top-up amount.");
+
+        if (model.Amount < 10_000)
+            throw new BadRequestException("Minimum top-up amount is 10,000 VND.");
+
+        var gateway = Gateway(model.Provider);
+        var customer = await GetOrCreateCustomerAsync(userId);
+        await GetOrCreateWalletAsync(customer.Id);
+
+        var lotId = await pmsContext.ParkingLots.Select(l => l.Id).FirstOrDefaultAsync();
+        var expiresAt = Now.AddMinutes(parkingOptions.Gate.PaymentLinkMinutes);
+        var invoice = NewInvoice(lotId, customer.Id, model.Amount, expiresAt);
+        var payment = NewPayment(invoice, PaymentMethod.Online, gateway.Provider, model.Amount, PaymentPurpose.WalletTopUp, PaymentChannel.App);
+        payment.CustomerUserId = userId;
+        payment.ParkingLotId = lotId;
+        payment.ExpiresAt = expiresAt;
+
+        var effectiveReturn = string.IsNullOrWhiteSpace(model.ReturnUrl)
+            ? $"{gatewayOptions.FrontendReturnUrl.TrimEnd('/')}/{gateway.Provider.ToLowerInvariant()}"
+            : model.ReturnUrl;
+
+        await StartCheckoutAsync(gateway, payment, $"Nap vi XXIV Wallet {payment.PaymentCode}", effectiveReturn, context);
+        return ToModel(payment);
+    }
+
+    private async Task<string> ApplyWalletTopUpAsync(Payment payment)
+    {
+        if (string.IsNullOrWhiteSpace(payment.CustomerUserId))
+            return "Applied";
+
+        var customer = await GetOrCreateCustomerAsync(payment.CustomerUserId);
+        var wallet = await GetOrCreateWalletAsync(customer.Id);
+
+        var before = wallet.Balance;
+        wallet.Balance += payment.Amount;
+        wallet.UpdatedAt = Now;
+
+        pmsContext.WalletTransactions.Add(new WalletTransaction
+        {
+            WalletId = wallet.Id,
+            TxnType = "Deposit",
+            Amount = payment.Amount,
+            BalanceBefore = before,
+            BalanceAfter = wallet.Balance,
+            PaymentId = payment.Id,
+            ReferenceType = "Payment",
+            ReferenceId = payment.PaymentCode,
+            Description = $"Wallet Top-up ({payment.GatewayProvider})",
+            CreatedAt = Now,
+            CreatedBy = payment.CustomerUserId
+        });
+
+        await pmsContext.SaveChangesAsync();
+        return "Applied";
+    }
+
+    public async Task<WalletResponseModel> GetWalletAsync(string userId)
+    {
+        var customer = await GetOrCreateCustomerAsync(userId);
+        var wallet = await GetOrCreateWalletAsync(customer.Id);
+
+        var holdAmount = await pmsContext.ParkingSessions
+            .Where(s => s.CustomerId == customer.Id && SessionStatus.Inside.Contains(s.Status))
+            .Select(s => (decimal?)s.FinalFee)
+            .SumAsync() ?? 0m;
+
+        var txs = await pmsContext.WalletTransactions
+            .Where(t => t.WalletId == wallet.Id)
+            .OrderByDescending(t => t.CreatedAt)
+            .Take(10)
+            .ToListAsync();
+
+        var recent = txs.Select(t => new WalletTransactionResponseModel
+        {
+            Id = t.ReferenceId ?? $"TX-{t.Id}",
+            Title = t.Description ?? (t.Amount >= 0 ? "Wallet Deposit" : "Wallet Withdrawal"),
+            Subtitle = $"{t.CreatedAt:MMM dd, HH:mm} • Ref: {t.ReferenceId ?? t.Id.ToString()}",
+            Amount = t.Amount,
+            Status = "Completed",
+            Type = t.Amount >= 0 ? "deposit" : "withdraw",
+            Method = t.ReferenceType ?? "Wallet",
+            CreatedAt = t.CreatedAt
+        }).ToList();
+
+        return new WalletResponseModel
+        {
+            Balance = wallet.Balance,
+            HoldAmount = holdAmount,
+            Currency = wallet.Currency ?? "VND",
+            Status = wallet.Status ?? "Active",
+            RecentTransactions = recent
+        };
+    }
+
+    public async Task<WalletResponseModel> WithdrawWalletAsync(string userId, WithdrawWalletModel model)
+    {
+        if (model == null || model.Amount <= 0)
+            throw new BadRequestException("Please enter a valid withdrawal amount.");
+
+        var customer = await GetOrCreateCustomerAsync(userId);
+        var wallet = await GetOrCreateWalletAsync(customer.Id);
+
+        if (wallet.Balance < model.Amount)
+            throw new BadRequestException("Available balance is insufficient for withdrawal.");
+
+        var before = wallet.Balance;
+        wallet.Balance -= model.Amount;
+        wallet.UpdatedAt = Now;
+
+        var methodLabel = string.Equals(model.Method, "momo", StringComparison.OrdinalIgnoreCase) ? "MoMo Wallet" : "Bank Account";
+        var dest = string.IsNullOrWhiteSpace(model.BankName) ? methodLabel : $"{model.BankName} ({model.BankAccount})";
+
+        pmsContext.WalletTransactions.Add(new WalletTransaction
+        {
+            WalletId = wallet.Id,
+            TxnType = "Withdraw",
+            Amount = -model.Amount,
+            BalanceBefore = before,
+            BalanceAfter = wallet.Balance,
+            ReferenceType = model.Method ?? "Bank",
+            ReferenceId = ParkingText.NewCode("WD", Now),
+            Description = $"Withdrawal to {dest}",
+            CreatedAt = Now,
+            CreatedBy = userId
+        });
+
+        await pmsContext.SaveChangesAsync();
+        return await GetWalletAsync(userId);
+    }
+
+    private async Task<Customer> GetOrCreateCustomerAsync(string userId)
+    {
+        var customer = await pmsContext.Customers.FirstOrDefaultAsync(c => c.UserId == userId);
+        if (customer != null)
+            return customer;
+
+        customer = new Customer
+        {
+            UserId = userId,
+            CustomerCode = $"CUS-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+            FullName = "Customer",
+            CustomerType = "Individual",
+            MembershipTier = "Standard",
+            IsActive = true,
+            CreatedAt = Now
+        };
+        pmsContext.Customers.Add(customer);
+        await pmsContext.SaveChangesAsync();
+        return customer;
+    }
+
+    private async Task<Wallet> GetOrCreateWalletAsync(int customerId)
+    {
+        var wallet = await pmsContext.Wallets.FirstOrDefaultAsync(w => w.CustomerId == customerId);
+        if (wallet != null)
+            return wallet;
+
+        wallet = new Wallet
+        {
+            CustomerId = customerId,
+            Balance = 0,
+            Currency = "VND",
+            Status = "Active",
+            UpdatedAt = Now
+        };
+        pmsContext.Wallets.Add(wallet);
+        await pmsContext.SaveChangesAsync();
+        return wallet;
+    }
 }
