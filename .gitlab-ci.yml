@@ -39,11 +39,7 @@ workflow:
   cache:
     key:
       files:
-        - src/PMS.API/PMS.API.csproj
-        - src/PMS.Application/PMS.Application.csproj
-        - src/PMS.DataAccess/PMS.DataAccess.csproj
-        - tests/PMS.Application.UnitTests/PMS.Application.UnitTests.csproj
-        - tests/PMS.Api.IntegrationTests/PMS.Api.IntegrationTests.csproj
+        - PMS.sln
       prefix: nuget
     paths:
       - .nuget/packages
