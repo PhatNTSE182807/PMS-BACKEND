@@ -168,6 +168,16 @@ public class PaymentService(
         return payment == null ? null : ToModel(payment);
     }
 
+    public async Task<PaymentResponseModel> GetPendingForSessionAsync(long sessionId)
+    {
+        var payment = await pmsContext.Payments.AsNoTracking()
+            .Where(p => p.SessionId == sessionId && p.Purpose == PaymentPurpose.ParkingFee && p.Status == PaymentStatus.Pending
+                        && p.ExpiresAt > Now && p.PayUrl != null)
+            .OrderByDescending(p => p.CreatedAt)
+            .FirstOrDefaultAsync();
+        return payment == null ? null : ToModel(payment);
+    }
+
     public async Task<decimal> DepositHeldAsync(long reservationId)
     {
         var paid = await pmsContext.Payments

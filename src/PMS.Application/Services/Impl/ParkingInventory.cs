@@ -22,7 +22,7 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
 
     /// <summary>
     /// Runs <paramref name="action"/> while no other request of this process works on the same slots.
-    /// Across processes the Slot RowVersion and the unique index IX_Reservations_SlotId_Active keep the
+    /// Across processes the Slot RowVersion and the unique index IX_Reservations_SlotId_Held keep the
     /// first holder the winner (NFR-15); losers get a <see cref="ConflictException"/>.
     /// </summary>
     public static async Task<T> WithSlotLockAsync<T>(IEnumerable<int> slotIds, Func<Task<T>> action)
@@ -39,7 +39,7 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
         {
             throw new ConflictException("This slot was just taken by someone else.");
         }
-        catch (DbUpdateException e) when (e.InnerException?.Message.Contains("IX_Reservations_SlotId_Active") == true)
+        catch (DbUpdateException e) when (e.InnerException?.Message.Contains("IX_Reservations_SlotId_Held") == true)
         {
             throw new ConflictException("This slot was just taken by someone else.");
         }

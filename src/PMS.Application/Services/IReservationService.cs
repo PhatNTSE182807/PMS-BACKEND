@@ -12,6 +12,9 @@ public interface IReservationService
 
     Task<ReservationResponseModel> GetAsync(string userId, long id);
 
+    /// <summary>The customer's next booking that has not started (soonest arrival), or null.</summary>
+    Task<ReservationResponseModel> GetUpcomingAsync(string userId);
+
     /// <summary>FR-RSV-03: new arrival time (within BR-01) and/or another free slot, before the change deadline.</summary>
     Task<ReservationResponseModel> UpdateAsync(string userId, long id, UpdateReservationModel model);
 

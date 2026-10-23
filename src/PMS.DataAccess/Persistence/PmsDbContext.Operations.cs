@@ -32,6 +32,9 @@ public partial class PmsDbContext
             entity.Property(e => e.ReminderSentAt).HasPrecision(3);
             entity.Property(e => e.HoldReminderSentAt).HasPrecision(3);
             entity.Property(e => e.UpdatedAt).HasPrecision(3);
+            entity.Property(e => e.BookingMode).HasMaxLength(20).IsUnicode(false);
+            entity.Property(e => e.DepartureTime).HasPrecision(3);
+            entity.Property(e => e.SlotHeldAt).HasPrecision(3);
         });
 
         modelBuilder.Entity<ParkingSession>(entity =>

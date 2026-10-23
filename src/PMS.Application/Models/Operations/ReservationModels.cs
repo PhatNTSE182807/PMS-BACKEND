@@ -9,14 +9,27 @@ public class CreateReservationModel
 
     public Guid VehicleId { get; set; }
 
-    /// <summary>Expected arrival; at most <see cref="ReservationRules.MaxLeadHours"/> ahead (BR-01). An offset is honoured; without one UTC is assumed.</summary>
+    /// <summary>Expected arrival: in the future and at most <see cref="ReservationRules.MaxLeadDays"/> days ahead. An offset is honoured; without one UTC is assumed.</summary>
     public DateTimeOffset ArrivalTime { get; set; }
+
+    /// <summary>"Scheduled" (with <see cref="DepartureTime"/>) or "PayAsYouGo" (default: leave whenever).</summary>
+    public string BookingMode { get; set; } = Operations.BookingMode.PayAsYouGo;
+
+    /// <summary>Planned departure of a Scheduled booking; ignored for pay-as-you-go.</summary>
+    public DateTimeOffset? DepartureTime { get; set; }
 }
 
 /// <summary>Change the arrival time and/or the slot before the change deadline (FR-RSV-03).</summary>
 public class UpdateReservationModel
 {
     public DateTimeOffset? ArrivalTime { get; set; }
+
+    /// <summary>Switch between "Scheduled" and "PayAsYouGo"; null keeps the current mode.</summary>
+    public string BookingMode { get; set; }
+
+    /// <summary>New planned departure (Scheduled only).</summary>
+    public DateTimeOffset? DepartureTime { get; set; }
+
 
     public int? SlotId { get; set; }
 }
@@ -38,6 +51,10 @@ public class ReservationResponseModel
 
     public string ParkingLotName { get; set; }
 
+    public string ParkingLotAddress { get; set; }
+
+    public string ParkingLotDistrict { get; set; }
+
     public int? ZoneId { get; set; }
 
     public string ZoneName { get; set; }
@@ -50,7 +67,19 @@ public class ReservationResponseModel
 
     public string PlateNumber { get; set; }
 
+    /// <summary>Brand and model of the booked vehicle, e.g. "Toyota Camry".</summary>
+    public string VehicleLabel { get; set; }
+
     public DateTime ArrivalTime { get; set; }
+
+    /// <summary>"Scheduled" or "PayAsYouGo".</summary>
+    public string BookingMode { get; set; }
+
+    /// <summary>Planned departure of a Scheduled booking (null for pay-as-you-go).</summary>
+    public DateTime? DepartureTime { get; set; }
+
+    /// <summary>The bay is marked Reserved for this booking now (it is locked shortly before arrival).</summary>
+    public bool IsSlotHeld { get; set; }
 
     /// <summary>BR-02: check-in window.</summary>
     public DateTime CheckInFrom { get; set; }

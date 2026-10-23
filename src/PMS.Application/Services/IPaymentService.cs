@@ -34,6 +34,9 @@ public interface IPaymentService
     /// <summary>Open payment (Pending, not expired) of a reservation, if any.</summary>
     Task<PaymentResponseModel> GetPendingForReservationAsync(long reservationId);
 
+    /// <summary>Open online payment (Pending, not expired, with a pay link) of a session's parking fee, if any.</summary>
+    Task<PaymentResponseModel> GetPendingForSessionAsync(long sessionId);
+
     /// <summary>Deposit money held for a reservation: paid minus refunded.</summary>
     Task<decimal> DepositHeldAsync(long reservationId);
 

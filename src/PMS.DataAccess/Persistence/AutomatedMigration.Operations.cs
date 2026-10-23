@@ -29,6 +29,9 @@ public static partial class AutomatedMigration
         ("Reservations", "ReminderSentAt", "[datetime2](3) NULL"),
         ("Reservations", "HoldReminderSentAt", "[datetime2](3) NULL"),
         ("Reservations", "UpdatedAt", "[datetime2](3) NULL"),
+        ("Reservations", "BookingMode", "[varchar](20) NULL"),
+        ("Reservations", "DepartureTime", "[datetime2](3) NULL"),
+        ("Reservations", "SlotHeldAt", "[datetime2](3) NULL"),
 
         ("ParkingSessions", "SessionType", "[varchar](20) NULL"),
         ("ParkingSessions", "VehicleTypeId", "[int] NULL"),
@@ -300,14 +303,24 @@ public static partial class AutomatedMigration
             columns.AppendLine($"IF COL_LENGTH('dbo.{table}', '{column}') IS NULL ALTER TABLE [dbo].[{table}] ADD [{column}] {type};");
         await pmsContext.Database.ExecuteSqlRawAsync(columns.ToString());
 
+        // Bookings made before date-time booking: pay-as-you-go, and the active ones already hold their bay.
+        // A bay can now carry several bookings at different times, so the old "one active booking per bay"
+        // index gives way to "one booking holding the bay" (IX_Reservations_SlotId_Held below).
+        await pmsContext.Database.ExecuteSqlRawAsync($@"
+            UPDATE [dbo].[Reservations] SET [BookingMode] = 'PayAsYouGo' WHERE [BookingMode] IS NULL;
+            UPDATE [dbo].[Reservations] SET [SlotHeldAt] = [CreatedAt]
+                WHERE [SlotHeldAt] IS NULL AND [SlotId] IS NOT NULL AND [Status] IN ({ActiveReservationStatuses});
+            IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Reservations_SlotId_Active')
+                DROP INDEX [IX_Reservations_SlotId_Active] ON [dbo].[Reservations];");
+
         // Separate batches: the filtered columns may have been added just above. Old rows that break a
         // unique index (e.g. duplicate open sessions from an earlier import) must not stop the API starting,
         // so each index is created in its own TRY block; the application checks the same rules anyway.
-        // NFR-15: never two active reservations on one slot. NFR-14: one open session per plate and lot.
+        // NFR-15: never two bookings holding one slot. NFR-14: one open session per plate and lot.
         string[] indexes =
         [
-            $@"CREATE UNIQUE NONCLUSTERED INDEX [IX_Reservations_SlotId_Active] ON [dbo].[Reservations]([SlotId] ASC)
-               WHERE [SlotId] IS NOT NULL AND [Status] IN ({ActiveReservationStatuses})",
+            $@"CREATE UNIQUE NONCLUSTERED INDEX [IX_Reservations_SlotId_Held] ON [dbo].[Reservations]([SlotId] ASC)
+               WHERE [SlotId] IS NOT NULL AND [SlotHeldAt] IS NOT NULL AND [Status] IN ({ActiveReservationStatuses})",
             "CREATE NONCLUSTERED INDEX [IX_Reservations_UserId_Status] ON [dbo].[Reservations]([UserId] ASC, [Status] ASC)",
             $@"CREATE UNIQUE NONCLUSTERED INDEX [IX_ParkingSessions_OpenPlate] ON [dbo].[ParkingSessions]([ParkingLotId] ASC, [EntryPlateNormalized] ASC)
                WHERE [HasPlate] = 1 AND [Status] IN ({OpenSessionStatuses})",

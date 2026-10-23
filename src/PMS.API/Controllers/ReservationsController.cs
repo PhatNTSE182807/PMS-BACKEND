@@ -15,7 +15,10 @@ public class ReservationsController(
     IPaymentService paymentService,
     IClaimService claimService) : ApiController
 {
-    /// <summary>Holds the slot (first holder wins: 409 when someone else got it) and starts the deposit deadline.</summary>
+    /// <summary>
+    /// Books a bay for a date and time (never in the past): "Scheduled" with a departure time, or
+    /// "PayAsYouGo" with an open departure. Overlapping bookings of the bay answer 409; the deposit deadline starts.
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> CreateAsync([FromBody] CreateReservationModel model)
     {
@@ -30,13 +33,18 @@ public class ReservationsController(
             await reservationService.GetMineAsync(claimService.GetUserId(), activeOnly)));
     }
 
+    /// <summary>The next booking that has not started yet (dashboard card); null when there is none.</summary>
+    [HttpGet("upcoming")]
+    public async Task<IActionResult> GetUpcomingAsync() =>
+        Ok(ApiResult<ReservationResponseModel>.Success(await reservationService.GetUpcomingAsync(claimService.GetUserId())));
+
     [HttpGet("{id:long}")]
     public async Task<IActionResult> GetAsync(long id)
     {
         return Ok(ApiResult<ReservationResponseModel>.Success(await reservationService.GetAsync(claimService.GetUserId(), id)));
     }
 
-    /// <summary>Change the arrival time and/or the slot before the change deadline (FR-RSV-03).</summary>
+    /// <summary>Change the arrival, the departure / booking mode and/or the bay before the change deadline (FR-RSV-03).</summary>
     [HttpPut("{id:long}")]
     public async Task<IActionResult> UpdateAsync(long id, [FromBody] UpdateReservationModel model)
     {

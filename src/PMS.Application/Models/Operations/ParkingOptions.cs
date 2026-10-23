@@ -43,8 +43,17 @@ public class ParkingOptions
 /// <summary>Reservation policy (FR-RSV-06): BR-01 to BR-07.</summary>
 public class ReservationRules
 {
-    /// <summary>BR-01: the arrival time is at most this many hours after booking.</summary>
-    public int MaxLeadHours { get; set; } = 2;
+    /// <summary>BR-01 (changed): the arrival can be picked up to this many days ahead, never in the past.</summary>
+    public int MaxLeadDays { get; set; } = 30;
+
+    /// <summary>The bay turns Reserved (and leaves the free count) this many minutes before arrival; earlier it stays free.</summary>
+    public int HoldAheadMinutes { get; set; } = 120;
+
+    /// <summary>Shortest window of a Scheduled booking.</summary>
+    public int MinStayMinutes { get; set; } = 30;
+
+    /// <summary>Longest window of a Scheduled booking.</summary>
+    public int MaxStayHours { get; set; } = 24;
 
     /// <summary>BR-06: the deposit must be paid within this many minutes of picking the slot.</summary>
     public int DepositMinutes { get; set; } = 10;

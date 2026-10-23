@@ -41,4 +41,20 @@ public partial class Reservation
     public DateTime? HoldReminderSentAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// "Scheduled": arrival and departure picked, the bay is booked for that window only.
+    /// "PayAsYouGo": arrival picked, leave whenever; the bay stays booked until the vehicle leaves.
+    /// The fee is the real parking time either way.
+    /// </summary>
+    public string BookingMode { get; set; }
+
+    /// <summary>Planned departure of a Scheduled booking (null for pay-as-you-go).</summary>
+    public DateTime? DepartureTime { get; set; }
+
+    /// <summary>
+    /// When the bay was marked Reserved for this booking. A booking far ahead does not lock the bay
+    /// until shortly before arrival; null means this booking does not hold the bay right now.
+    /// </summary>
+    public DateTime? SlotHeldAt { get; set; }
 }

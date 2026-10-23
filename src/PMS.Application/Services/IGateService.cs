@@ -60,4 +60,10 @@ public interface IGateService
 
     /// <summary>Prepay through the app (FR-PAY-07): an Exit Window starts once paid.</summary>
     Task<PaymentResponseModel> PayMySessionAsync(string userId, long sessionId, CreatePaymentModel model, PaymentRequestContext context);
+
+    /// <summary>The customer's vehicles inside a lot now, newest entry first, with the running fee and the exit pass.</summary>
+    Task<IReadOnlyList<CurrentSessionModel>> GetMyCurrentSessionsAsync(string userId);
+
+    /// <summary>Exit pass of one of the customer's parked vehicles (every checked-in session has one).</summary>
+    Task<ExitPassModel> GetMyExitPassAsync(string userId, long sessionId);
 }

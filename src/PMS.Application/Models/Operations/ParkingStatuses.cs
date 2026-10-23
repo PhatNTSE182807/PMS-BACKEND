@@ -1,5 +1,16 @@
 namespace PMS.Application.Models.Operations;
 
+/// <summary>How a booking ends: at a planned time, or whenever the driver leaves.</summary>
+public static class BookingMode
+{
+    /// <summary>Arrival and departure picked; the bay is booked for that window.</summary>
+    public const string Scheduled = "Scheduled";
+    /// <summary>Arrival picked, departure open; the fee is counted until the vehicle leaves.</summary>
+    public const string PayAsYouGo = "PayAsYouGo";
+
+    public static readonly string[] All = [Scheduled, PayAsYouGo];
+}
+
 /// <summary>Reservation states (SRS 4.3.3).</summary>
 public static class ReservationStatus
 {

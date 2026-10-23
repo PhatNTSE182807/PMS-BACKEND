@@ -67,9 +67,13 @@ public class GateService(
 
         if (!string.IsNullOrWhiteSpace(ticket))
         {
-            // Signed ticket from the entry (works even when the QR was printed while the gate was offline)
+            // Signed ticket from the entry (works even when the QR was printed while the gate was offline),
+            // or the exit pass the customer shows in the app
             var claims = signer.Verify(ticket, ParkingTokenSigner.TicketKind)
+                         ?? signer.Verify(ticket, ParkingTokenSigner.ExitPassKind)
                          ?? throw new BadRequestException("The ticket QR is not genuine.");
+            if (claims.GetValueOrDefault("lot") != lotId.ToString())
+                throw new BadRequestException("This ticket is for another parking lot.");
             code = claims.GetValueOrDefault("sc");
         }
 
@@ -607,6 +611,108 @@ public class GateService(
 
         return await paymentService.CreateSessionPaymentAsync(session, quote.AmountDue, model.Provider, PaymentChannel.App,
             model.ReturnUrl, userId, null, context);
+    }
+
+    public async Task<IReadOnlyList<CurrentSessionModel>> GetMyCurrentSessionsAsync(string userId)
+    {
+        // No customer profile yet means nothing parked
+        var customerId = await pmsContext.Customers.Where(c => c.UserId == userId).Select(c => (int?)c.Id).FirstOrDefaultAsync();
+        if (customerId == null)
+            return [];
+
+        // Only confirmed entries: a vehicle still at the barrier (PendingEntry) is not parked yet
+        var sessions = await pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => s.CustomerId == customerId && SessionStatus.Inside.Contains(s.Status))
+            .OrderByDescending(s => s.EntryTime)
+            .ToListAsync();
+        if (sessions.Count == 0)
+            return [];
+
+        var lotIds = sessions.Select(s => s.ParkingLotId).Distinct().ToList();
+        var gateIds = sessions.Select(s => s.EntryGateId).Distinct().ToList();
+        var vehicleIds = sessions.Where(s => s.VehicleId != null).Select(s => s.VehicleId!.Value).Distinct().ToList();
+        var reservationIds = sessions.Where(s => s.ReservationId != null).Select(s => s.ReservationId!.Value).Distinct().ToList();
+        var lots = await pmsContext.ParkingLots.AsNoTracking().Where(l => lotIds.Contains(l.Id)).ToDictionaryAsync(l => l.Id);
+        var gateNames = await pmsContext.Gates.AsNoTracking().Where(g => gateIds.Contains(g.Id)).ToDictionaryAsync(g => g.Id, g => g.Name);
+        var vehicles = await pmsContext.Vehicles.AsNoTracking().Where(v => vehicleIds.Contains(v.Id)).ToDictionaryAsync(v => v.Id);
+        var bookings = await pmsContext.Reservations.AsNoTracking().Where(r => reservationIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id);
+        var models = await ToModelsAsync(sessions);
+
+        var result = new List<CurrentSessionModel>();
+        foreach (var (session, model) in sessions.Zip(models))
+        {
+            // A read-only quote: looking at the fee never changes the session
+            var quote = await QuoteAsync(session, null, null, mutate: false);
+            var tariff = await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
+            var lot = lots.GetValueOrDefault(session.ParkingLotId);
+            var vehicle = session.VehicleId != null ? vehicles.GetValueOrDefault(session.VehicleId.Value) : null;
+            var booking = session.ReservationId != null ? bookings.GetValueOrDefault(session.ReservationId.Value) : null;
+
+            result.Add(new CurrentSessionModel
+            {
+                Session = model,
+                LotName = lot?.Name,
+                LotAddress = lot?.Address,
+                LotDistrict = lot?.District,
+                EntryGateName = gateNames.GetValueOrDefault(session.EntryGateId),
+                EntryMethod = session.ReservationId != null ? "Reservation" : session.IsManualEntry ? "Manual" : "Plate",
+                VehicleLabel = vehicle == null ? null : string.Join(' ', new[] { vehicle.Brand, vehicle.Model }.Where(s => !string.IsNullOrWhiteSpace(s))),
+                BookingMode = booking?.BookingMode,
+                PlannedDeparture = booking?.DepartureTime is { } departure ? Utc(departure) : null,
+                ElapsedMinutes = Math.Max(0, (int)Math.Floor((Now - session.EntryTime).TotalMinutes)),
+                FeeSoFar = quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee,
+                DepositApplied = quote.DepositApplied,
+                AlreadyPaid = quote.AlreadyPaid,
+                AmountDue = quote.AmountDue,
+                Tariff = new CurrentTariffModel
+                {
+                    GraceMinutes = tariff.GraceMinutes,
+                    BlockMinutes = tariff.BlockMinutes,
+                    BlockPrice = tariff.BlockPrice,
+                    MaxDailyFee = tariff.MaxDailyFee
+                },
+                PendingPayment = await paymentService.GetPendingForSessionAsync(session.Id),
+                ExitPass = ExitPassFor(session, quote.AmountDue)
+            });
+        }
+
+        return result;
+    }
+
+    public async Task<ExitPassModel> GetMyExitPassAsync(string userId, long sessionId)
+    {
+        var session = await OwnSessionAsync(userId, sessionId, tracked: false);
+        if (!SessionStatus.Inside.Contains(session.Status))
+            throw new BadRequestException("The exit pass is available while the vehicle is inside the lot.");
+        var quote = await QuoteAsync(session, null, null, mutate: false);
+        return ExitPassFor(session, quote.AmountDue);
+    }
+
+    /// <summary>
+    /// Every parked vehicle has an exit pass from check-in on. It carries the session code (the exit lane
+    /// finds the session from it and charges what is due); after a prepayment it also carries the end of
+    /// the Exit Window, so an offline gate can open the barrier on it alone (FR-PAY-07).
+    /// </summary>
+    private ExitPassModel ExitPassFor(ParkingSession session, decimal amountDue)
+    {
+        var prepaid = session.Status == SessionStatus.Paid && session.ExitWindowEndsAt is { } until && until > Now;
+        var claims = new Dictionary<string, string>
+        {
+            ["sc"] = session.SessionCode,
+            ["in"] = Utc(session.EntryTime).ToString("O")
+        };
+        if (prepaid)
+            claims["until"] = Utc(session.ExitWindowEndsAt!.Value).ToString("O");
+
+        return new ExitPassModel
+        {
+            SessionId = session.Id,
+            SessionCode = session.SessionCode,
+            Token = signer.Sign(ParkingTokenSigner.ExitPassKind, session.ParkingLotId, claims),
+            Prepaid = prepaid,
+            ValidUntil = prepaid ? Utc(session.ExitWindowEndsAt!.Value) : null,
+            AmountDue = prepaid ? 0 : amountDue
+        };
     }
 
     // ---- fee --------------------------------------------------------------------------------------

@@ -35,6 +35,8 @@ public class ParkingJobs(
     {
         var expired = await ExpireUnpaidReservationsAsync();
         var noShows = await MarkNoShowsAsync();
+        // Bookings made ahead lock their bay shortly before arrival
+        await reservations.ActivateDueHoldsAsync();
         var reminders = await SendRemindersAsync();
         var cancelled = await CancelUnconfirmedEntriesAsync();
         var released = await ReleaseStalePaymentRequestsAsync();

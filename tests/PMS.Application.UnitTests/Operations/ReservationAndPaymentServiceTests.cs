@@ -63,7 +63,8 @@ public class ReservationAndPaymentServiceTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(121)]
+    [InlineData(-5)]
+    [InlineData(31 * 24 * 60)]
     public async Task Arrival_Must_Be_Within_The_Lead_Time(int minutesAhead)
     {
         var t = await new OperationsTestContext().SeedAsync();
