@@ -18,14 +18,13 @@ public static class VehicleDocumentKinds
     public static readonly string[] Sides = [Front, Back];
 
     /// <summary>
-    /// Every file a check needs before it can be submitted: the front of the registration certificate
-    /// and both sides of the Citizen ID card. The back of the certificate is not asked for.
+    /// Every file a check needs before it can be submitted: one photo of the registration certificate
+    /// and one photo of the Citizen ID card, each stored as the "Front" side. Backs are not asked for.
     /// </summary>
     public static readonly (string Type, string Side)[] Required =
     [
         (RegistrationCertificate, Front),
-        (CitizenId, Front),
-        (CitizenId, Back)
+        (CitizenId, Front)
     ];
 
     public static bool IsRequired(string type, string side) => Required.Any(r => r.Type == type && r.Side == side);
@@ -82,7 +81,7 @@ public class VehicleVerificationModel
     public string Status { get; set; }
     public string StatusReason { get; set; }
     public List<VehicleDocumentFileModel> Documents { get; set; } = [];
-    /// <summary>"CitizenId/Back"-style entries still needed before the check can be submitted.</summary>
+    /// <summary>"CitizenId/Front"-style entries still needed before the check can be submitted.</summary>
     public List<string> MissingDocuments { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime? SubmittedAt { get; set; }
@@ -118,3 +117,16 @@ public class ReviewVehicleVerificationModel
 
 /// <summary>A stored file opened for download.</summary>
 public record VehicleDocumentContent(System.IO.Stream Content, string ContentType, string FileName);
+
+/// <summary>A registration Staff rejected: the vehicle left the customer's fleet; the note says why.</summary>
+public class RejectedVehicleModel
+{
+    public Guid VerificationId { get; set; }
+    public Guid VehicleId { get; set; }
+    public string LicensePlate { get; set; }
+    public string Brand { get; set; }
+    public string Model { get; set; }
+    /// <summary>Staff's reason for the customer.</summary>
+    public string ReviewNote { get; set; }
+    public DateTime? DecidedAt { get; set; }
+}

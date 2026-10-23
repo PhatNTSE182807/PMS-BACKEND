@@ -8,8 +8,8 @@ using PMS.Shared.Services;
 namespace PMS.API.Controllers;
 
 /// <summary>
-/// The signed-in owner's vehicle papers: upload the front of the registration certificate (cà vẹt) and both
-/// sides of the Citizen ID card (CCCD) (JPEG, PNG or PDF up to 10 MB each), submit them to Staff for review,
+/// The signed-in owner's vehicle papers: upload one photo of the registration certificate (cà vẹt) and one
+/// of the Citizen ID card (CCCD) (JPEG, PNG or PDF up to 10 MB each), submit them to Staff for review,
 /// and follow the decision. Only the vehicle's owner can reach these endpoints; another user's vehicle answers 404.
 /// </summary>
 [Route("api/users/profile/vehicles/{vehicleId:guid}/documents")]
@@ -22,6 +22,17 @@ public class VehicleDocumentsController(
     /// <summary>A little above 10 MB so the service, not the server, reports a too-large file clearly.</summary>
     private const long UploadRequestLimit = 11 * 1024 * 1024;
 
+    /// <summary>
+    /// Registrations Staff rejected in the last 30 days: the vehicle was removed from the fleet, and the note
+    /// tells the customer why. An entry disappears once its plate is registered again.
+    /// </summary>
+    [HttpGet("~/api/users/profile/rejected-vehicles")]
+    public async Task<IActionResult> GetRecentlyRejectedAsync()
+    {
+        return Ok(ApiResult<List<RejectedVehicleModel>>.Success(
+            await vehicleDocumentService.GetRecentlyRejectedAsync(claimService.GetUserId())));
+    }
+
     /// <summary>The vehicle's latest check (null when no papers were uploaded yet).</summary>
     [HttpGet]
     public async Task<IActionResult> GetLatestAsync(Guid vehicleId)
@@ -30,7 +41,7 @@ public class VehicleDocumentsController(
             await vehicleDocumentService.GetLatestAsync(claimService.GetUserId(), vehicleId)));
     }
 
-    /// <summary>Uploads or replaces one file: RegistrationCertificate/Front, CitizenId/Front or CitizenId/Back.</summary>
+    /// <summary>Uploads or replaces one photo: RegistrationCertificate/Front or CitizenId/Front.</summary>
     [HttpPost("{documentType}/{side}")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(UploadRequestLimit)]

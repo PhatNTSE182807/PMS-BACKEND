@@ -7,7 +7,7 @@ using PMS.Application.Models.VehicleDocuments;
 namespace PMS.Application.Services;
 
 /// <summary>
-/// Papers of a new vehicle (registration certificate front, Citizen ID front and back) and the Staff
+/// Papers of a new vehicle (one photo of the registration certificate, one of the Citizen ID card) and the Staff
 /// review that approves or rejects the vehicle (SRS FR-VER-01..04, BR-26). Staff compare the papers
 /// by eye; nothing is read automatically.
 /// </summary>
@@ -33,8 +33,11 @@ public interface IVehicleDocumentService
 
     Task<VehicleDocumentContent> OpenFileForReviewAsync(Guid verificationId, Guid documentId);
 
-    /// <summary>Approves or rejects a check waiting for review.</summary>
+    /// <summary>Approves or rejects a check waiting for review; a rejection removes the vehicle from the customer's fleet.</summary>
     Task<VehicleVerificationReviewModel> ReviewAsync(string staffUserId, Guid verificationId, ReviewVehicleVerificationModel model);
+
+    /// <summary>The customer's recently rejected registrations (vehicle removed, plate not registered again), newest first.</summary>
+    Task<List<RejectedVehicleModel>> GetRecentlyRejectedAsync(string userId);
 }
 
 /// <summary>Pushes check status changes to the uploader and the Staff review queue (SignalR in the API).</summary>

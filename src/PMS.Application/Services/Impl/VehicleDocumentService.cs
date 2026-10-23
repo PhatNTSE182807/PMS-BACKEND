@@ -12,8 +12,8 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// Vehicle paper checks: the owner uploads the registration certificate (front) and Citizen ID card
-/// (front and back), submits them, and Staff compare them with the vehicle and the account by eye
+/// Vehicle paper checks: the owner uploads one photo of the registration certificate and one of the Citizen ID card,
+/// submits them, and Staff compare them with the vehicle and the account by eye
 /// before approving or rejecting the vehicle. There is no automatic reading (OCR).
 /// </summary>
 public class VehicleDocumentService(
@@ -30,7 +30,7 @@ public class VehicleDocumentService(
         side = VehicleDocumentKinds.Sides.FirstOrDefault(s => s.Equals(side, StringComparison.OrdinalIgnoreCase))
                ?? throw new BadRequestException("Side must be Front or Back.");
         if (!VehicleDocumentKinds.IsRequired(documentType, side))
-            throw new BadRequestException("Only the front of the registration certificate is needed.");
+            throw new BadRequestException("One photo of each paper is enough: upload RegistrationCertificate/Front and CitizenId/Front.");
 
         if (content == null || length <= 0)
             throw new BadRequestException("Choose a file to upload.");
@@ -185,16 +185,94 @@ public class VehicleDocumentService(
         verification.Status = model.Approve ? VehicleVerificationStatus.Approved : VehicleVerificationStatus.Rejected;
         verification.StatusReason = model.Approve
             ? "Papers checked by Staff. The vehicle can be booked and is recognised at the gates."
-            : "Staff could not approve these papers. Upload new photos to try again.";
+            : "Staff rejected these papers, so the vehicle was removed from your account. Register it again with new photos.";
         verification.ReviewedBy = staffUserId;
         verification.ReviewNote = model.Note?.Trim();
         verification.DecidedAt = DateTime.UtcNow;
+        if (!model.Approve)
+            await RemoveRejectedVehicleAsync(verification.Vehicle);
         await pmsContext.SaveChangesAsync();
 
         if (notifier != null)
             await notifier.VerificationChangedAsync(verification.UserId, verification.Id, verification.VehicleId, verification.Status);
 
         return ToReviewModel(verification, storageOptions);
+    }
+
+    /// <summary>
+    /// Rejected registrations whose vehicle was removed in the last <see cref="RejectedNoticeDays"/> days and
+    /// not registered again since, newest first, so the customer can read Staff's reason.
+    /// </summary>
+    public async Task<List<RejectedVehicleModel>> GetRecentlyRejectedAsync(string userId)
+    {
+        var customer = await pmsContext.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.UserId == userId);
+        if (customer == null)
+            return [];
+
+        var since = DateTime.UtcNow.AddDays(-RejectedNoticeDays);
+        var rejected = await pmsContext.VehicleVerifications
+            .AsNoTracking()
+            .Include(v => v.Vehicle)
+            .Where(v => v.CustomerId == customer.Id
+                        && v.Status == VehicleVerificationStatus.Rejected
+                        && v.DecidedAt >= since
+                        && !v.Vehicle.IsActive)
+            .OrderByDescending(v => v.DecidedAt)
+            .Take(20)
+            .ToListAsync();
+
+        // A plate registered again (an active vehicle with the same plate) no longer needs the notice
+        var activePlates = await pmsContext.Vehicles
+            .Where(v => v.CustomerId == customer.Id && v.IsActive)
+            .Select(v => v.PlateNormalized)
+            .ToListAsync();
+
+        return rejected
+            .Where(v => !activePlates.Contains(v.Vehicle.PlateNormalized))
+            .GroupBy(v => v.Vehicle.PlateNormalized)
+            .Select(g => g.First())
+            .Select(v => new RejectedVehicleModel
+            {
+                VerificationId = v.Id,
+                VehicleId = v.VehicleId,
+                LicensePlate = v.Vehicle.PlateNumber,
+                Brand = v.Vehicle.Brand,
+                Model = v.Vehicle.Model,
+                ReviewNote = v.ReviewNote,
+                DecidedAt = v.DecidedAt
+            })
+            .ToList();
+    }
+
+    /// <summary>How long a rejected registration stays visible to the customer.</summary>
+    public const int RejectedNoticeDays = 30;
+
+    /// <summary>
+    /// A rejected vehicle is not registered: it leaves the customer's fleet (like a removed vehicle), cannot be
+    /// booked, and its plate can be registered again. Another vehicle becomes the default if it was the default.
+    /// </summary>
+    private async Task RemoveRejectedVehicleAsync(Vehicle vehicle)
+    {
+        if (vehicle is not { IsActive: true })
+            return;
+
+        var wasDefault = vehicle.IsDefault;
+        vehicle.IsActive = false;
+        vehicle.IsDefault = false;
+        vehicle.UpdatedAt = DateTime.UtcNow;
+
+        if (!wasDefault)
+            return;
+
+        var nextDefault = await pmsContext.Vehicles
+            .Where(v => v.CustomerId == vehicle.CustomerId && v.Id != vehicle.Id && v.IsActive)
+            .OrderByDescending(v => v.CreatedAt)
+            .FirstOrDefaultAsync();
+        if (nextDefault != null)
+        {
+            nextDefault.IsDefault = true;
+            nextDefault.UpdatedAt = DateTime.UtcNow;
+        }
     }
 
     /// <summary>JPEG, PNG or PDF by magic number; null for anything else.</summary>

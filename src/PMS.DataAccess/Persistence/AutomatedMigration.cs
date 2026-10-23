@@ -29,6 +29,7 @@ public static partial class AutomatedMigration
                 await EnsurePmsTablesAsync(pmsContext);
                 // Reservations, gate sessions and payments (AutomatedMigration.Operations.cs)
                 await EnsureOperationsTablesAsync(pmsContext);
+                await RemoveRejectedVehiclesAsync(pmsContext);
             }
 
             var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
@@ -424,5 +425,30 @@ public static partial class AutomatedMigration
         ";
 
         await pmsContext.Database.ExecuteSqlRawAsync(sql);
+    }
+
+    /// <summary>
+    /// A rejected registration means the vehicle is not registered. Staff rejections now remove the vehicle
+    /// from the fleet; this applies the same rule to vehicles rejected before that (latest check Rejected).
+    /// Idempotent: once removed, a vehicle is no longer active.
+    /// </summary>
+    private static async Task RemoveRejectedVehiclesAsync(PmsDbContext pmsContext)
+    {
+        await pmsContext.Database.ExecuteSqlRawAsync(@"
+            IF OBJECT_ID(N'[dbo].[VehicleVerifications]', N'U') IS NOT NULL
+            BEGIN
+                UPDATE v SET v.[IsActive] = 0, v.[IsDefault] = 0, v.[UpdatedAt] = SYSUTCDATETIME()
+                FROM [dbo].[Vehicles] v
+                CROSS APPLY (SELECT TOP 1 vv.[Status] FROM [dbo].[VehicleVerifications] vv
+                             WHERE vv.[VehicleId] = v.[Id] ORDER BY vv.[CreatedAt] DESC) latest
+                WHERE v.[IsActive] = 1 AND latest.[Status] = 'Rejected';
+
+                -- Customers left without a primary vehicle get their newest one
+                UPDATE v SET v.[IsDefault] = 1
+                FROM [dbo].[Vehicles] v
+                WHERE v.[IsActive] = 1
+                  AND NOT EXISTS (SELECT 1 FROM [dbo].[Vehicles] d WHERE d.[CustomerId] = v.[CustomerId] AND d.[IsActive] = 1 AND d.[IsDefault] = 1)
+                  AND v.[Id] = (SELECT TOP 1 n.[Id] FROM [dbo].[Vehicles] n WHERE n.[CustomerId] = v.[CustomerId] AND n.[IsActive] = 1 ORDER BY n.[CreatedAt] DESC);
+            END");
     }
 }

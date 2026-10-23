@@ -39,7 +39,7 @@ public class VehicleDocumentJobsTests : IDisposable
             Directory.Delete(_storageRoot, true);
     }
 
-    /// <summary>A check with the three required photos stored on disk.</summary>
+    /// <summary>A check with the required photos stored on disk.</summary>
     private async Task<VehicleVerification> SeedAsync(string status, DateTime createdAt)
     {
         var customer = new Customer { UserId = "user-1", CustomerCode = "C1", FullName = "Nguyễn Tấn Phát", CitizenId = "079204006789", IsActive = true };
@@ -75,7 +75,7 @@ public class VehicleDocumentJobsTests : IDisposable
 
         var deleted = await _sut.PurgeExpiredDocumentsAsync();
 
-        deleted.Should().Be(3);
+        deleted.Should().Be(VehicleDocumentKinds.Required.Length);
         old.FilesDeletedAt.Should().NotBeNull();
         old.Documents.Should().OnlyContain(d => d.StoragePath == null);
         oldPaths.Should().OnlyContain(p => _storage.OpenRead(p) == null);
@@ -99,7 +99,7 @@ public class VehicleDocumentJobsTests : IDisposable
     {
         await SeedAsync(VehicleVerificationStatus.Draft, DateTime.UtcNow.AddDays(-31));
 
-        (await _sut.PurgeExpiredDocumentsAsync()).Should().Be(3);
+        (await _sut.PurgeExpiredDocumentsAsync()).Should().Be(VehicleDocumentKinds.Required.Length);
         (await _context.VehicleVerifications.CountAsync()).Should().Be(0);
     }
 }
