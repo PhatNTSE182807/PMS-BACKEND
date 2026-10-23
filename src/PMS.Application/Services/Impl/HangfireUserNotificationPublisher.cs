@@ -1,0 +1,21 @@
+using System;
+using Hangfire;
+using PMS.Application.Jobs;
+
+namespace PMS.Application.Services.Impl;
+
+/// <summary>
+/// Enqueues the notification work on Hangfire so a slow database or SignalR push never delays the
+/// Staff action, and a failure is retried by Hangfire instead of being lost.
+/// </summary>
+public class HangfireUserNotificationPublisher(IBackgroundJobClient jobs) : IUserNotificationPublisher
+{
+    public void VehicleReviewed(Guid verificationId) =>
+        jobs.Enqueue<NotificationJobs>(j => j.VehicleReviewedAsync(verificationId));
+
+    public void SessionCheckedIn(long sessionId) =>
+        jobs.Enqueue<NotificationJobs>(j => j.SessionCheckedInAsync(sessionId));
+
+    public void SessionCheckedOut(long sessionId) =>
+        jobs.Enqueue<NotificationJobs>(j => j.SessionCheckedOutAsync(sessionId));
+}

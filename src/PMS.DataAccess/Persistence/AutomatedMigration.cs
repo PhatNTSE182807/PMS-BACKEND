@@ -31,6 +31,7 @@ public static partial class AutomatedMigration
                 await EnsureOperationsTablesAsync(pmsContext);
                 await RemoveRejectedVehiclesAsync(pmsContext);
                 await EnsureGateRequestsTableAsync(pmsContext);
+                await EnsureNotificationsTableAsync(pmsContext);
             }
 
             var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
@@ -453,6 +454,31 @@ public static partial class AutomatedMigration
                 );
                 CREATE NONCLUSTERED INDEX [IX_GateRequests_Queue] ON [dbo].[GateRequests]([ParkingLotId] ASC, [Kind] ASC, [Status] ASC, [CreatedAt] ASC);
                 CREATE NONCLUSTERED INDEX [IX_GateRequests_UserId] ON [dbo].[GateRequests]([UserId] ASC, [CreatedAt] ASC);
+            END");
+    }
+
+    /// <summary>Customer notifications shown in the dashboard bell (dbo.UserNotifications). Idempotent.</summary>
+    private static async Task EnsureNotificationsTableAsync(PmsDbContext pmsContext)
+    {
+        await pmsContext.Database.ExecuteSqlRawAsync(@"
+            IF OBJECT_ID(N'[dbo].[UserNotifications]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[UserNotifications](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL,
+                    [UserId] [nvarchar](450) NOT NULL,
+                    [Type] [varchar](30) NOT NULL,
+                    [Title] [nvarchar](200) NOT NULL,
+                    [Message] [nvarchar](1000) NOT NULL,
+                    [RefType] [varchar](30) NULL,
+                    [RefId] [nvarchar](100) NULL,
+                    [EventAt] [datetime2](3) NULL,
+                    [DataJson] [nvarchar](max) NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [ReadAt] [datetime2](3) NULL,
+                    CONSTRAINT [PK_UserNotifications] PRIMARY KEY CLUSTERED ([Id] ASC)
+                );
+                CREATE NONCLUSTERED INDEX [IX_UserNotifications_UserId_CreatedAt] ON [dbo].[UserNotifications]([UserId] ASC, [CreatedAt] DESC);
+                CREATE NONCLUSTERED INDEX [IX_UserNotifications_Type_RefId] ON [dbo].[UserNotifications]([Type] ASC, [RefId] ASC);
             END");
     }
 

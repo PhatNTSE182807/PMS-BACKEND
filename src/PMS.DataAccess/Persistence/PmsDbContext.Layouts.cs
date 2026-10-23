@@ -21,6 +21,9 @@ public partial class PmsDbContext
         // Check-in / check-out requests from the customer app live in PmsDbContext.GateRequests.cs
         ConfigureGateRequests(modelBuilder);
 
+        // Customer notifications (vehicle approved / rejected, check-in, check-out) live in PmsDbContext.Notifications.cs
+        ConfigureNotifications(modelBuilder);
+
         modelBuilder.Entity<ParkingLot>()
             .Property(e => e.LayoutTemplate)
             .HasMaxLength(30)

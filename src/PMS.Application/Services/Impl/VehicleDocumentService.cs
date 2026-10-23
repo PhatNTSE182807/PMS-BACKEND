@@ -20,7 +20,8 @@ public class VehicleDocumentService(
     PmsDbContext pmsContext,
     IVehicleDocumentStorage storage,
     VehicleDocumentStorageOptions storageOptions,
-    IVehicleVerificationNotifier notifier = null) : IVehicleDocumentService
+    IVehicleVerificationNotifier notifier = null,
+    IUserNotificationPublisher notifications = null) : IVehicleDocumentService
 {
     public async Task<VehicleVerificationModel> UploadAsync(string userId, Guid vehicleId, string documentType, string side,
         Stream content, string fileName, long length)
@@ -195,6 +196,9 @@ public class VehicleDocumentService(
 
         if (notifier != null)
             await notifier.VerificationChangedAsync(verification.UserId, verification.Id, verification.VehicleId, verification.Status);
+
+        // Bell notification for the owner: approved, or rejected with Staff's reason
+        notifications?.VehicleReviewed(verification.Id);
 
         return ToReviewModel(verification, storageOptions);
     }

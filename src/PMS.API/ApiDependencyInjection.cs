@@ -9,6 +9,7 @@ using PMS.API.Filters;
 using PMS.API.Hubs;
 using PMS.Application.Jobs;
 using PMS.Application.Services;
+using PMS.Application.Services.Impl;
 using PMS.DataAccess;
 
 namespace PMS.API;
@@ -47,6 +48,11 @@ public static class ApiDependencyInjection
         services.AddScoped<IVehicleVerificationNotifier, SignalRVehicleVerificationNotifier>();
         services.AddScoped<IParkingRealtimeNotifier, SignalRParkingRealtimeNotifier>();
 
+        // Customer notification bell
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IUserNotificationPublisher, HangfireUserNotificationPublisher>();
+        services.AddScoped<IUserNotificationNotifier, SignalRUserNotificationNotifier>();
+
         var database = configuration.GetSection("Database").Get<DatabaseConfiguration>();
         services.AddHangfire(config =>
         {
@@ -77,6 +83,8 @@ public static class ApiDependencyInjection
         jobs.AddOrUpdate<ParkingJobs>(ParkingJobs.MinutelyJobId, j => j.RunMinutelyAsync(), Cron.Minutely());
         // BR-20: overdue and abandoned vehicles
         jobs.AddOrUpdate<ParkingJobs>(ParkingJobs.OverdueJobId, j => j.FlagOverdueSessionsAsync(), "*/15 * * * *");
+        // Customer notifications: daily purge of old read/unread items
+        jobs.AddOrUpdate<NotificationJobs>(NotificationJobs.PurgeJobId, j => j.PurgeOldNotificationsAsync(), Cron.Daily(4));
     }
 
     public static void AddJwt(this IServiceCollection services, IConfiguration configuration)

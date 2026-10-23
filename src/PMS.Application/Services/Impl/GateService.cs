@@ -19,7 +19,8 @@ public class GateService(
     ParkingTokenSigner signer,
     LotScopeService lotScope,
     TimeProvider clock,
-    IParkingRealtimeNotifier notifier = null) : IGateService
+    IParkingRealtimeNotifier notifier = null,
+    IUserNotificationPublisher notifications = null) : IGateService
 {
     /// <summary>Two lanes never open two sessions for one plate at the same time (NFR-14) inside this process.</summary>
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlateGates = new();
@@ -327,6 +328,9 @@ public class GateService(
         await pmsContext.SaveChangesAsync();
         QueueSessionPush(session);
         await inventory.FlushAsync();
+        // Bell notification with the check-in time for a registered customer's vehicle
+        if (session.CustomerId != null)
+            notifications?.SessionCheckedIn(session.Id);
         return await ToModelAsync(session);
     }
 
@@ -477,6 +481,9 @@ public class GateService(
         await pmsContext.SaveChangesAsync();
         QueueSessionPush(session);
         await inventory.FlushAsync();
+        // Bell notification with the check-out time, duration and fee
+        if (session.CustomerId != null)
+            notifications?.SessionCheckedOut(session.Id);
         return new CheckoutResultModel { Session = await ToModelAsync(session), BarrierOpen = true, DepositRefund = refunded };
     }
 
@@ -577,6 +584,8 @@ public class GateService(
         await pmsContext.SaveChangesAsync();
         QueueSessionPush(session);
         await inventory.FlushAsync();
+        if (session.CustomerId != null)
+            notifications?.SessionCheckedOut(session.Id);
         return await ToModelAsync(session);
     }
 
