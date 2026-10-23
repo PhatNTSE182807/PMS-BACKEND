@@ -357,4 +357,53 @@ public class PricingRuleServiceTests
         result.Errors.Should().Contain(e => e.PropertyName == "GraceMinutes");
         result.Errors.Should().Contain(e => e.PropertyName == "BlockMinutes");
     }
+
+    [Fact]
+    public async Task CreatePricingRuleAsync_WhenCalledInRapidSuccession_ReturnsSameRuleWithoutDuplicates()
+    {
+        var (t, service) = await CreateTestSetupAsync();
+        var carType = await t.Db.VehicleTypes.FirstAsync(v => v.Code == "CAR_4");
+
+        var model = new CreatePricingRuleModel
+        {
+            Name = "Double Submit Guard Test",
+            VehicleTypeId = carType.Id,
+            ChargeModel = "Block",
+            BlockMinutes = 60,
+            BlockPrice = 25_000,
+            Status = "Draft"
+        };
+
+        var first = await service.CreatePricingRuleAsync(t.Lot.Id, model);
+        var second = await service.CreatePricingRuleAsync(t.Lot.Id, model);
+
+        first.Id.Should().Be(second.Id);
+        first.Code.Should().Be(second.Code);
+
+        var count = await t.Db.PricingRules
+            .CountAsync(r => r.ParkingLotId == t.Lot.Id && r.Name == "Double Submit Guard Test");
+        count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task DeletePricingRuleAsync_ArchivesRule_AndExcludesFromDefaultList()
+    {
+        var (t, service) = await CreateTestSetupAsync();
+        var carType = await t.Db.VehicleTypes.FirstAsync(v => v.Code == "CAR_4");
+
+        var rule = BuildRule(t.Lot.Id, carType.Id, "ARCHIVE-TEST", "To Archive Rule", status: "Active", effectiveFrom: t.Now);
+        t.Db.PricingRules.Add(rule);
+        await t.Db.SaveChangesAsync();
+
+        await service.DeletePricingRuleAsync(t.Lot.Id, rule.Id);
+
+        var inDb = await t.Db.PricingRules.FindAsync(rule.Id);
+        inDb.Status.Should().Be("Archived");
+
+        var defaultList = await service.GetPricingRulesAsync(t.Lot.Id);
+        defaultList.Should().NotContain(r => r.Id == rule.Id);
+
+        var archivedList = await service.GetPricingRulesAsync(t.Lot.Id, "Archived");
+        archivedList.Should().Contain(r => r.Id == rule.Id);
+    }
 }

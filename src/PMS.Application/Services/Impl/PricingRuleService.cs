@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers.Parking;
 using PMS.Application.Models.Operations;
@@ -22,9 +23,36 @@ public class PricingRuleService(
     LotScopeService lotScopeService,
     TariffProvider tariffProvider,
     ParkingOptions parkingOptions,
-    TimeProvider clock) : IPricingRuleService
+    TimeProvider clock,
+    ILogger<PricingRuleService> logger = null) : IPricingRuleService
 {
     private static readonly string[] ValidStatuses = ["Draft", "Active", "Inactive", "Archived"];
+
+    private async Task TryRecordHistoryAsync(int ruleId, string changeType, string oldJson, string newJson, string reason, DateTime now)
+    {
+        try
+        {
+            pmsContext.PricingRuleHistories.Add(new PricingRuleHistory
+            {
+                PricingRuleId = ruleId,
+                ChangeType = changeType,
+                OldValuesJson = oldJson,
+                NewValuesJson = newJson,
+                ChangedBy = lotScopeService.UserId,
+                ChangedAt = now,
+                Reason = reason
+            });
+            await pmsContext.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Failed to record PricingRuleHistory for rule {RuleId} ({ChangeType})", ruleId, changeType);
+            foreach (var entry in pmsContext.ChangeTracker.Entries<PricingRuleHistory>().ToList())
+            {
+                entry.State = EntityState.Detached;
+            }
+        }
+    }
 
     public async Task<IReadOnlyList<PricingRuleModel>> GetPricingRulesAsync(int lotId, string status = null)
     {
@@ -33,8 +61,10 @@ public class PricingRuleService(
         var query = pmsContext.PricingRules.AsNoTracking()
             .Where(r => r.ParkingLotId == lotId || r.ParkingLotId == null);
 
-        if (!string.IsNullOrWhiteSpace(status))
+        if (!string.IsNullOrWhiteSpace(status) && !string.Equals(status, "ALL", StringComparison.OrdinalIgnoreCase))
             query = query.Where(r => r.Status == status);
+        else
+            query = query.Where(r => r.Status != "Archived");
 
         var rules = await query
             .OrderByDescending(r => r.Priority)
@@ -80,6 +110,22 @@ public class PricingRuleService(
         }
 
         var now = clock.GetUtcNow().UtcDateTime;
+
+        var duplicateThreshold = now.AddSeconds(-15);
+        var recentDuplicate = await pmsContext.PricingRules.AsNoTracking()
+            .Where(r => r.ParkingLotId == lotId
+                     && r.VehicleTypeId == model.VehicleTypeId
+                     && r.Name == model.Name.Trim()
+                     && r.CreatedBy == lotScopeService.UserId
+                     && r.CreatedAt >= duplicateThreshold)
+            .OrderByDescending(r => r.Id)
+            .FirstOrDefaultAsync();
+
+        if (recentDuplicate != null)
+        {
+            return ToModel(recentDuplicate, vehicleType.Code, vehicleType.Name);
+        }
+
         var code = !string.IsNullOrWhiteSpace(model.Code)
             ? model.Code.Trim().ToUpperInvariant()
             : $"RULE-{lotId}-{vehicleType.Code}-{now:yyyyMMddHHmmss}";
@@ -138,16 +184,7 @@ public class PricingRuleService(
 
         var resultModel = ToModel(rule, vehicleType.Code, vehicleType.Name);
 
-        pmsContext.PricingRuleHistories.Add(new PricingRuleHistory
-        {
-            PricingRuleId = rule.Id,
-            ChangeType = "Create",
-            NewValuesJson = JsonSerializer.Serialize(resultModel),
-            ChangedBy = lotScopeService.UserId,
-            ChangedAt = now,
-            Reason = "Created initial pricing rule"
-        });
-        await pmsContext.SaveChangesAsync();
+        await TryRecordHistoryAsync(rule.Id, "Create", null, JsonSerializer.Serialize(resultModel), "Created initial pricing rule", now);
 
         return resultModel;
     }
@@ -208,20 +245,12 @@ public class PricingRuleService(
         rule.VersionNo += 1;
         rule.UpdatedAt = now;
 
+        await pmsContext.SaveChangesAsync();
+
         var newModel = ToModel(rule, vehicleType.Code, vehicleType.Name);
 
-        pmsContext.PricingRuleHistories.Add(new PricingRuleHistory
-        {
-            PricingRuleId = rule.Id,
-            ChangeType = "Update",
-            OldValuesJson = JsonSerializer.Serialize(oldModel),
-            NewValuesJson = JsonSerializer.Serialize(newModel),
-            ChangedBy = lotScopeService.UserId,
-            ChangedAt = now,
-            Reason = model.Reason ?? "Updated pricing rule parameters"
-        });
+        await TryRecordHistoryAsync(rule.Id, "Update", JsonSerializer.Serialize(oldModel), JsonSerializer.Serialize(newModel), model.Reason ?? "Updated pricing rule parameters", now);
 
-        await pmsContext.SaveChangesAsync();
         return newModel;
     }
 
@@ -249,18 +278,9 @@ public class PricingRuleService(
             rule.ApprovedAt = now;
         }
 
-        pmsContext.PricingRuleHistories.Add(new PricingRuleHistory
-        {
-            PricingRuleId = rule.Id,
-            ChangeType = "StatusChange",
-            OldValuesJson = JsonSerializer.Serialize(new { Status = oldStatus }),
-            NewValuesJson = JsonSerializer.Serialize(new { Status = model.Status }),
-            ChangedBy = lotScopeService.UserId,
-            ChangedAt = now,
-            Reason = model.Reason ?? $"Status changed from {oldStatus} to {model.Status}"
-        });
-
         await pmsContext.SaveChangesAsync();
+
+        await TryRecordHistoryAsync(rule.Id, "StatusChange", JsonSerializer.Serialize(new { Status = oldStatus }), JsonSerializer.Serialize(new { Status = model.Status }), model.Reason ?? $"Status changed from {oldStatus} to {model.Status}", now);
 
         var vehicleType = await pmsContext.VehicleTypes.AsNoTracking()
             .FirstOrDefaultAsync(v => v.Id == rule.VehicleTypeId);
@@ -282,18 +302,9 @@ public class PricingRuleService(
         rule.Status = "Archived";
         rule.UpdatedAt = now;
 
-        pmsContext.PricingRuleHistories.Add(new PricingRuleHistory
-        {
-            PricingRuleId = rule.Id,
-            ChangeType = "Delete",
-            OldValuesJson = JsonSerializer.Serialize(new { Status = oldStatus }),
-            NewValuesJson = JsonSerializer.Serialize(new { Status = "Archived" }),
-            ChangedBy = lotScopeService.UserId,
-            ChangedAt = now,
-            Reason = "Pricing rule archived"
-        });
-
         await pmsContext.SaveChangesAsync();
+
+        await TryRecordHistoryAsync(rule.Id, "Delete", JsonSerializer.Serialize(new { Status = oldStatus }), JsonSerializer.Serialize(new { Status = "Archived" }), "Pricing rule archived", now);
     }
 
     public async Task<PricingSimulationResultModel> SimulatePricingAsync(int lotId, PricingSimulationRequestModel model)
