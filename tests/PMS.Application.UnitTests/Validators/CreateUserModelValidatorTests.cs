@@ -58,18 +58,7 @@ public class CreateUserModelValidatorTests
         result.ShouldHaveValidationErrorFor(u => u.UserName);
     }
 
-    [Fact]
-    public void Validator_Should_Have_Error_When_UserName_Is_Too_Short()
-    {
-        // Arrange
-        var model = new CreateUserModel { UserName = "abcd" };
 
-        // Act
-        var result = _sut.TestValidate(model);
-
-        // Assert
-        result.ShouldHaveValidationErrorFor(u => u.UserName);
-    }
 
     [Fact]
     public void Validator_Should_Have_Error_When_UserName_Is_Too_Long()

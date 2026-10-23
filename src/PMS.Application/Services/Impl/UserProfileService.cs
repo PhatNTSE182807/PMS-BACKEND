@@ -85,13 +85,8 @@ public class UserProfileService : IUserProfileService
             customer.FullName = model.FullName.Trim();
         }
 
-        if (!string.IsNullOrWhiteSpace(model.Email))
-        {
-            var trimmedEmail = model.Email.Trim();
-            customer.Email = trimmedEmail;
-            user.Email = trimmedEmail;
-            user.NormalizedEmail = trimmedEmail.ToUpperInvariant();
-        }
+        // Primary email cannot be changed through profile update
+
 
         if (!string.IsNullOrWhiteSpace(model.PhoneNumber))
         {
@@ -171,10 +166,12 @@ public class UserProfileService : IUserProfileService
         var hasExistingVehicles = await _pmsContext.Vehicles
             .AnyAsync(v => v.CustomerId == customer.Id && v.IsActive);
 
-        // The registered owner's Citizen ID; a vehicle in the user's own name uses theirs
-        var citizenId = !string.IsNullOrWhiteSpace(model.CitizenId) ? model.CitizenId.Trim() : customer.CitizenId;
-        if (string.IsNullOrEmpty(citizenId))
-            throw new BadRequestException("Citizen ID of the vehicle owner is required.");
+        // Citizen ID must be saved in user profile before registering a vehicle
+        if (string.IsNullOrWhiteSpace(customer.CitizenId))
+            throw new BadRequestException("Citizen ID (CCCD) must be saved in your profile before registering a vehicle.");
+
+        // Automatically use the Citizen ID from the user's profile
+        var citizenId = customer.CitizenId.Trim();
 
         var isDefault = model.IsDefault || !hasExistingVehicles;
 

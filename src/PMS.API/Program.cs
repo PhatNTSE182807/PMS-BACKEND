@@ -40,6 +40,9 @@ using var scope = app.Services.CreateScope();
 
 await AutomatedMigration.MigrateAsync(scope.ServiceProvider);
 
+var pmsContext = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
+await PMS.Application.Helpers.ParkingLotDataSeed.SeedParkingLotsAsync(pmsContext);
+
 app.UseSwagger();
 app.UseSwaggerUI(c => { c.SwaggerEndpoint("/swagger/v1/swagger.json", "XXIV Parking V1"); });
 

@@ -125,13 +125,13 @@ public class CitizenIdTests : BaseServiceTestConfiguration
     }
 
     [Fact]
-    public async Task AddVehicleAsync_Should_Keep_The_Owner_Citizen_Id_When_Given()
+    public async Task AddVehicleAsync_Should_Always_Use_The_Account_Citizen_Id_From_Profile()
     {
         var userId = await AddUserAsync(CitizenId);
 
         var result = await _profileService.AddVehicleAsync(userId, Vehicle(citizenId: "001200000001"));
 
-        result.CitizenId.Should().Be("001200000001");
+        result.CitizenId.Should().Be(CitizenId);
     }
 
     [Fact]

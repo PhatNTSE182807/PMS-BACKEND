@@ -79,8 +79,8 @@ public class CreateStaffAccountModelValidator : AbstractValidator<CreateStaffAcc
         When(u => !string.IsNullOrWhiteSpace(u.UserName), () =>
         {
             RuleFor(u => u.UserName)
-                .Length(UserValidatorConfiguration.MinimumUsernameLength, UserValidatorConfiguration.MaximumUsernameLength)
-                .WithMessage($"Username should have between {UserValidatorConfiguration.MinimumUsernameLength} and {UserValidatorConfiguration.MaximumUsernameLength} characters");
+                .MaximumLength(UserValidatorConfiguration.MaximumUsernameLength)
+                .WithMessage($"Username should have maximum {UserValidatorConfiguration.MaximumUsernameLength} characters");
         });
 
         RuleFor(u => u.ParkingLotId)

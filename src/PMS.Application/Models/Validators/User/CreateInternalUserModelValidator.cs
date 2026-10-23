@@ -17,8 +17,6 @@ public class CreateInternalUserModelValidator : AbstractValidator<CreateInternal
         RuleFor(u => u.UserName)
             .NotEmpty()
             .WithMessage("Username is required")
-            .MinimumLength(UserValidatorConfiguration.MinimumUsernameLength)
-            .WithMessage($"Username should have minimum {UserValidatorConfiguration.MinimumUsernameLength} characters")
             .MaximumLength(UserValidatorConfiguration.MaximumUsernameLength)
             .WithMessage($"Username should have maximum {UserValidatorConfiguration.MaximumUsernameLength} characters")
             .Must(UsernameIsUnique)

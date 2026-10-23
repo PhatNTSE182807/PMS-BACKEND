@@ -71,7 +71,6 @@ public class CreateInternalUserModelValidatorTests
     [InlineData("")]
     [InlineData(" ")]
     [InlineData(null)]
-    [InlineData("ab")]
     public void Validator_Should_Fail_For_Invalid_UserName(string username)
     {
         // Arrange

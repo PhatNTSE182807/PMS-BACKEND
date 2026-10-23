@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity;
 using PMS.DataAccess.Identity;
 using PMS.DataAccess.Persistence.Entities;
 

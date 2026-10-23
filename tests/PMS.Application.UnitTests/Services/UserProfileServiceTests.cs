@@ -202,7 +202,7 @@ public class UserProfileServiceTests : IDisposable
 
         // Assert
         result.FullName.Should().Be("Jane Updated");
-        result.Email.Should().Be("new@example.com");
+        result.Email.Should().Be("old@example.com");
         result.PhoneNumber.Should().Be("0911111111");
         result.AvatarUrl.Should().Be("https://example.com/new-avatar.png");
     }
@@ -223,6 +223,17 @@ public class UserProfileServiceTests : IDisposable
             IsActive = true
         };
         _pmsContext.VehicleTypes.Add(vehicleType);
+
+        var customer = new Customer
+        {
+            UserId = userId,
+            CustomerCode = "CUS-CAROWNER",
+            FullName = "Car Owner",
+            CitizenId = "079123456789",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Customers.Add(customer);
         await _pmsContext.SaveChangesAsync();
 
         var createModel = new CreateVehicleModel

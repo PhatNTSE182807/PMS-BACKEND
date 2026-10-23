@@ -40,7 +40,6 @@ public class CreateEmployeeAccountModelValidatorTests
 
     [Theory]
     [InlineData("")]
-    [InlineData("usr")]
     [InlineData("a_very_long_username_exceeding_twenty_chars")]
     public async Task Validate_WhenUsernameIsInvalid_ShouldFail(string username)
     {
