@@ -37,14 +37,7 @@ workflow:
 .dotnet:
   image: $DOTNET_IMAGE
   cache:
-    key:
-      files:
-        - src/PMS.API/PMS.API.csproj
-        - src/PMS.Application/PMS.Application.csproj
-        - src/PMS.DataAccess/PMS.DataAccess.csproj
-        - tests/PMS.Application.UnitTests/PMS.Application.UnitTests.csproj
-        - tests/PMS.Api.IntegrationTests/PMS.Api.IntegrationTests.csproj
-      prefix: nuget
+    key: "nuget-$CI_COMMIT_REF_SLUG"
     paths:
       - .nuget/packages
     policy: pull
