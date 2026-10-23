@@ -53,7 +53,8 @@ public static class ApiDependencyInjection
         services.AddScoped<IUserNotificationPublisher, HangfireUserNotificationPublisher>();
         services.AddScoped<IUserNotificationNotifier, SignalRUserNotificationNotifier>();
 
-        var database = configuration.GetSection("Database").Get<DatabaseConfiguration>();
+        var database = configuration.GetSection("Database").Get<DatabaseConfiguration>() ?? new DatabaseConfiguration();
+        var hangfireConn = database.GetResolvedConnectionString();
         services.AddHangfire(config =>
         {
             config.SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
@@ -62,7 +63,7 @@ public static class ApiDependencyInjection
             if (database.UseInMemoryDatabase)
                 config.UseInMemoryStorage();
             else
-                config.UseSqlServerStorage(database.ConnectionString);
+                config.UseSqlServerStorage(hangfireConn);
         });
         services.AddHangfireServer();
     }

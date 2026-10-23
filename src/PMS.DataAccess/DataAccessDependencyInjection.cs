@@ -30,7 +30,14 @@ public static class DataAccessDependencyInjection
 
     private static void AddDatabase(this IServiceCollection services, IConfiguration configuration)
     {
-        var databaseConfig = configuration.GetSection("Database").Get<DatabaseConfiguration>();
+        var databaseConfig = configuration.GetSection("Database").Get<DatabaseConfiguration>() ?? new DatabaseConfiguration();
+        var connectionString = databaseConfig.GetResolvedConnectionString();
+
+        // Propagate resolved connection string back to configuration for downstream consumers (e.g. Hangfire)
+        if (!string.IsNullOrEmpty(connectionString))
+        {
+            configuration["Database:ConnectionString"] = connectionString;
+        }
 
         if (databaseConfig.UseInMemoryDatabase)
         {
@@ -50,13 +57,13 @@ public static class DataAccessDependencyInjection
         {
             services.AddDbContext<DatabaseContext>(options =>
             {
-                options.UseSqlServer(databaseConfig.ConnectionString,
+                options.UseSqlServer(connectionString,
                     opt => opt.MigrationsAssembly(typeof(DatabaseContext).Assembly.FullName));
                 options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
             });
 
             services.AddDbContext<PmsDbContext>(options =>
-                options.UseSqlServer(databaseConfig.ConnectionString));
+                options.UseSqlServer(connectionString));
         }
     }
 
@@ -86,10 +93,28 @@ public static class DataAccessDependencyInjection
     }
 }
 
-// TODO move outside?
 public class DatabaseConfiguration
 {
     public bool UseInMemoryDatabase { get; set; }
 
+    /// <summary>
+    /// When true (default), appends the developer's sanitized Windows/OS username
+    /// (e.g. parking_management_system_{UserName}) so each developer automatically
+    /// works on their own isolated database without colliding or editing config.
+    /// </summary>
+    public bool UsePerUserDatabase { get; set; } = true;
+
+    /// <summary>
+    /// When true (default), tests connectivity and automatically discovers local SQL Server
+    /// instances ((localdb)\mssqllocaldb, ., localhost, .\SQLEXPRESS, (local)) if the configured
+    /// server is not reachable.
+    /// </summary>
+    public bool AutoDetectLocalServer { get; set; } = true;
+
     public string ConnectionString { get; set; }
+
+    /// <summary>
+    /// Returns the resolved connection string (with per-user DB and auto-server detection).
+    /// </summary>
+    public string GetResolvedConnectionString() => DatabaseConnectionStringResolver.Resolve(this);
 }
