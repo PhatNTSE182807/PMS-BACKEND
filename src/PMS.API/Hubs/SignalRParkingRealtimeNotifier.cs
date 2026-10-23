@@ -39,6 +39,14 @@ public class SignalRParkingRealtimeNotifier(IHubContext<ParkingOpsHub> opsHub, I
     public Task OpsAlertAsync(int lotId, string code, string message, long? sessionId) =>
         opsHub.Clients.Group(ParkingOpsHub.OpsGroup(lotId)).SendAsync("OpsAlert", new { lotId, code, message, sessionId });
 
+    public Task GateRequestChangedAsync(int lotId, string userId, long requestId, string kind, string status)
+    {
+        var payload = new { lotId, requestId, kind, status };
+        return Task.WhenAll(
+            ToUser(userId, "GateRequestChanged", payload),
+            opsHub.Clients.Group(ParkingOpsHub.OpsGroup(lotId)).SendAsync("GateRequestChanged", payload));
+    }
+
     private Task ToUser(string userId, string method, object payload) =>
         string.IsNullOrEmpty(userId) ? Task.CompletedTask : opsHub.Clients.User(userId).SendAsync(method, payload);
 }

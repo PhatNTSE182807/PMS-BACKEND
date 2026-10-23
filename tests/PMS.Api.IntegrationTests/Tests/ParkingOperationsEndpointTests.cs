@@ -135,6 +135,84 @@ public class ParkingOperationsEndpointTests : IDisposable
     }
 
     [Fact]
+    public async Task App_Check_In_And_Check_Out_Requests_Wait_For_The_Staff_To_Open_The_Barrier()
+    {
+        var world = await SeedAsync();
+        var created = await Body(await world.Customer.PostAsync("/api/reservations", Json(new { parkingLotId = world.LotId, slotId = world.FreeCarSlotId(), vehicleId = world.CarId, arrivalTime = _clock.GetUtcNow().AddMinutes(30) })));
+        var reservationId = created["result"]!["id"]!.Value<long>();
+        var pay = await Body(await world.Customer.PostAsync($"/api/reservations/{reservationId}/payments", Json(new { provider = "VNPay" })));
+        await _factory.CreateClient().GetAsync($"/api/payments/vnpay/ipn?{SignedVnPay(pay["result"]!["code"]!.Value<string>(), 30_000, "00")}");
+
+        // Too early: the app refuses before anything reaches the lane
+        (await world.Customer.PostAsync($"/api/reservations/{reservationId}/check-in-request", null)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // In the window: the request waits in the lot's check-in queue; pressing twice keeps one place
+        _clock.Advance(TimeSpan.FromMinutes(20));
+        var asked = (await Body(await world.Customer.PostAsync($"/api/reservations/{reservationId}/check-in-request", null)))["result"]!;
+        asked["status"]!.Value<string>().Should().Be(GateRequestStatus.Waiting);
+        var again = (await Body(await world.Customer.PostAsync($"/api/reservations/{reservationId}/check-in-request", null)))["result"]!;
+        again["id"]!.Value<long>().Should().Be(asked["id"]!.Value<long>());
+
+        var queue = (await Body(await world.Staff.GetAsync($"/api/staff/lots/{world.LotId}/gate-requests?kind=CheckIn")))["result"]!;
+        var waiting = queue.Should().ContainSingle().Subject;
+        waiting["plateNumber"]!.Value<string>().Should().Be("51A-123.45");
+        waiting["problem"]!.Type.Should().Be(JTokenType.Null);
+
+        // Staff open the barrier: the normal check-in runs, the request is done, the sensor confirms the entry
+        var opened = (await Body(await world.Staff.PostAsync($"/api/staff/gate-requests/{asked["id"]}/approve", Json(new { }))))["result"]!;
+        opened["barrierOpen"]!.Value<bool>().Should().BeTrue();
+        opened["request"]!["status"]!.Value<string>().Should().Be(GateRequestStatus.Completed);
+        var sessionId = opened["checkIn"]!["session"]!["id"]!.Value<long>();
+        await world.Staff.PostAsync($"/api/staff/sessions/{sessionId}/entry-confirm", Json(new { }));
+        (await Body(await world.Staff.GetAsync($"/api/staff/lots/{world.LotId}/gate-requests?kind=CheckIn")))["result"]!.Should().BeEmpty();
+
+        // Leaving: a refusal needs a reason; the deposit covers the fee, so the exit barrier opens
+        _clock.Advance(TimeSpan.FromMinutes(40));
+        var leave = (await Body(await world.Customer.PostAsync($"/api/parking-sessions/{sessionId}/check-out-request", null)))["result"]!;
+        leave["kind"]!.Value<string>().Should().Be(GateRequestKind.CheckOut);
+        (await world.Staff.PostAsync($"/api/staff/gate-requests/{leave["id"]}/refuse", Json(new { reason = "" }))).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var exit = (await Body(await world.Staff.PostAsync($"/api/staff/gate-requests/{leave["id"]}/approve", Json(new { }))))["result"]!;
+        exit["barrierOpen"]!.Value<bool>().Should().BeTrue();
+        exit["checkOut"]!["session"]!["status"]!.Value<string>().Should().Be(SessionStatus.Completed);
+
+        var mine = (await Body(await world.Customer.GetAsync("/api/gate-requests/mine")))["result"]!;
+        mine.Select(r => r["status"]!.Value<string>()).Should().AllBe(GateRequestStatus.Completed).And.HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Staff_Can_Refuse_A_Check_Out_Request_And_The_Customer_Sees_Why()
+    {
+        var world = await SeedAsync();
+        var entry = await CheckInAsync(world, new { plateNumber = "51A-123.45", vehicleTypeId = world.CarTypeId });
+        var sessionId = entry["session"]!["id"]!.Value<long>();
+        await world.Staff.PostAsync($"/api/staff/sessions/{sessionId}/entry-confirm", Json(new { }));
+        using (var scope = _factory.Services.CreateScope())
+        {
+            // A walk-in recognised as the customer's own car (as the lane does for account plates)
+            var db = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
+            var session = await db.ParkingSessions.SingleAsync(s => s.Id == sessionId);
+            var car = await db.Vehicles.SingleAsync(v => v.Id == world.CarId);
+            session.CustomerId = car.CustomerId;
+            session.VehicleId = car.Id;
+            await db.SaveChangesAsync();
+        }
+        _clock.Advance(TimeSpan.FromMinutes(90));
+
+        var leave = (await Body(await world.Customer.PostAsync($"/api/parking-sessions/{sessionId}/check-out-request", null)))["result"]!;
+        var queue = (await Body(await world.Staff.GetAsync($"/api/staff/lots/{world.LotId}/gate-requests?kind=CheckOut")))["result"]!;
+        queue.Single()["problem"]!.Value<string>().Should().StartWith("Not paid yet");
+
+        // Unpaid: opening the barrier is refused by the gate rules; the request keeps waiting
+        (await world.Staff.PostAsync($"/api/staff/gate-requests/{leave["id"]}/approve", Json(new { }))).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var refused = (await Body(await world.Staff.PostAsync($"/api/staff/gate-requests/{leave["id"]}/refuse", Json(new { reason = "Please pay the fee in the app first." }))))["result"]!;
+        refused["status"]!.Value<string>().Should().Be(GateRequestStatus.Refused);
+        var mine = (await Body(await world.Customer.GetAsync("/api/gate-requests/mine")))["result"]!.Single();
+        mine["note"]!.Value<string>().Should().Be("Please pay the fee in the app first.");
+    }
+
+    [Fact]
     public async Task Walk_In_Pays_Cash_And_The_Zone_Counter_Comes_Back()
     {
         var world = await SeedAsync();

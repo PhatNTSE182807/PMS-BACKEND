@@ -21,4 +21,7 @@ public interface IParkingRealtimeNotifier
 
     /// <summary>An alert for the lot's Staff/Managers (overdue vehicle, failed refund, blocked gate...).</summary>
     Task OpsAlertAsync(int lotId, string code, string message, long? sessionId);
+
+    /// <summary>A check-in / check-out request from the app was created or handled: to the lot's Staff and to the customer.</summary>
+    Task GateRequestChangedAsync(int lotId, string userId, long requestId, string kind, string status);
 }

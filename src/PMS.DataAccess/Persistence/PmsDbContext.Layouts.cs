@@ -18,6 +18,9 @@ public partial class PmsDbContext
         // Reservations, gate sessions and payments live in PmsDbContext.Operations.cs
         ConfigureOperations(modelBuilder);
 
+        // Check-in / check-out requests from the customer app live in PmsDbContext.GateRequests.cs
+        ConfigureGateRequests(modelBuilder);
+
         modelBuilder.Entity<ParkingLot>()
             .Property(e => e.LayoutTemplate)
             .HasMaxLength(30)

@@ -30,6 +30,7 @@ public static partial class AutomatedMigration
                 // Reservations, gate sessions and payments (AutomatedMigration.Operations.cs)
                 await EnsureOperationsTablesAsync(pmsContext);
                 await RemoveRejectedVehiclesAsync(pmsContext);
+                await EnsureGateRequestsTableAsync(pmsContext);
             }
 
             var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
@@ -425,6 +426,34 @@ public static partial class AutomatedMigration
         ";
 
         await pmsContext.Database.ExecuteSqlRawAsync(sql);
+    }
+
+    /// <summary>Check-in / check-out requests from the customer app (dbo.GateRequests). Idempotent.</summary>
+    private static async Task EnsureGateRequestsTableAsync(PmsDbContext pmsContext)
+    {
+        await pmsContext.Database.ExecuteSqlRawAsync(@"
+            IF OBJECT_ID(N'[dbo].[GateRequests]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[GateRequests](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL,
+                    [ParkingLotId] [int] NOT NULL,
+                    [Kind] [varchar](20) NOT NULL,
+                    [Status] [varchar](20) NOT NULL,
+                    [UserId] [nvarchar](450) NULL,
+                    [CustomerId] [int] NULL,
+                    [ReservationId] [bigint] NULL,
+                    [SessionId] [bigint] NULL,
+                    [VehicleId] [uniqueidentifier] NULL,
+                    [PlateNumber] [nvarchar](20) NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL,
+                    [HandledAt] [datetime2](3) NULL,
+                    [HandledBy] [nvarchar](450) NULL,
+                    [Note] [nvarchar](500) NULL,
+                    CONSTRAINT [PK_GateRequests] PRIMARY KEY CLUSTERED ([Id] ASC)
+                );
+                CREATE NONCLUSTERED INDEX [IX_GateRequests_Queue] ON [dbo].[GateRequests]([ParkingLotId] ASC, [Kind] ASC, [Status] ASC, [CreatedAt] ASC);
+                CREATE NONCLUSTERED INDEX [IX_GateRequests_UserId] ON [dbo].[GateRequests]([UserId] ASC, [CreatedAt] ASC);
+            END");
     }
 
     /// <summary>

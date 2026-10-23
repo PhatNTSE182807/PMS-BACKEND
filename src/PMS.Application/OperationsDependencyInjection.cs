@@ -36,6 +36,7 @@ public static class OperationsDependencyInjection
         services.AddScoped<GateService>();
         services.AddScoped<IGateService>(sp => sp.GetRequiredService<GateService>());
         services.AddScoped<IParkingHistoryService, ParkingHistoryService>();
+        services.AddScoped<IGateRequestService, GateRequestService>();
         services.AddScoped<ParkingJobs>();
 
         return services;
