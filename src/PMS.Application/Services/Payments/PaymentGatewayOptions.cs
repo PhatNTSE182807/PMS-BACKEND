@@ -24,6 +24,13 @@ public class PaymentGatewayOptions
     /// </summary>
     public string PublicApiBaseUrl { get; set; }
 
+    /// <summary>
+    /// Development and testing only: lets the customer's or Staff's own pending VNPay / MoMo payment be
+    /// marked as paid without the gateway (POST /api/payments/{id}/simulate-success), and lets payments be
+    /// created when the gateway keys are not set. Must stay false in production.
+    /// </summary>
+    public bool AllowSimulatedPayments { get; set; }
+
     public VnPayOptions VnPay { get; set; } = new();
 
     public MoMoOptions MoMo { get; set; } = new();

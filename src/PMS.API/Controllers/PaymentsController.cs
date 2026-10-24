@@ -40,6 +40,25 @@ public class PaymentsController(IPaymentService paymentService, ILogger<Payments
         return Ok(ApiResult<PaymentCallbackResultModel>.Success(await paymentService.CheckStatusAsync(id, RequestContext(HttpContext).ClientIp)));
     }
 
+    /// <summary>Whether this server allows simulated payments (development / testing only), so the UI can show the test button.</summary>
+    [HttpGet("simulation")]
+    [AllowAnonymous]
+    public IActionResult GetSimulation()
+    {
+        return Ok(ApiResult<PaymentSimulationModel>.Success(new PaymentSimulationModel { Enabled = paymentService.SimulationEnabled }));
+    }
+
+    /// <summary>
+    /// Development / testing only: completes the caller's pending VNPay or MoMo payment as if the gateway
+    /// confirmed it (deposit confirmed, wallet credited…). Refused when Payments:AllowSimulatedPayments is off.
+    /// </summary>
+    [HttpPost("{id:long}/simulate-success")]
+    [Authorize]
+    public async Task<IActionResult> SimulateSuccessAsync(long id)
+    {
+        return Ok(ApiResult<PaymentCallbackResultModel>.Success(await paymentService.SimulateSuccessAsync(id)));
+    }
+
     /// <summary>VNPay return URL parameters (vnp_*), forwarded by the frontend return page.</summary>
     [HttpGet("vnpay/return")]
     [AllowAnonymous]

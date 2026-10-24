@@ -99,6 +99,12 @@ public class TopUpWalletModel
     public string ReturnUrl { get; set; }
 }
 
+/// <summary>Whether simulated payments are allowed on this server (development / testing only).</summary>
+public class PaymentSimulationModel
+{
+    public bool Enabled { get; set; }
+}
+
 /// <summary>Request to withdraw money from XXIV Wallet.</summary>
 public class WithdrawWalletModel
 {
