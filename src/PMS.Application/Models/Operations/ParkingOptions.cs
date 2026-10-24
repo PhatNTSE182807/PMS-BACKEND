@@ -32,12 +32,12 @@ public class ParkingOptions
     /// <summary>The tariffs in force: the configured ones, or the SRS defaults.</summary>
     public IReadOnlyList<DefaultTariff> EffectiveTariffs => Tariffs is { Length: > 0 } ? Tariffs : DefaultTariffs;
 
-    /// <summary>SRS fee example for cars (15 min free, 20,000 VND per hour, 150,000 VND per calendar day).</summary>
+    /// <summary>Default car tariff: 20,000 VND per hour from entry (no free period), 150,000 VND per calendar day.</summary>
     public static readonly DefaultTariff[] DefaultTariffs =
     [
-        new() { VehicleTypeCode = "CAR_4", GraceMinutes = 15, BlockMinutes = 60, BlockPrice = 20_000, MaxDailyFee = 150_000, LostTicketFee = 100_000 },
-        new() { VehicleTypeCode = "CAR_7", GraceMinutes = 15, BlockMinutes = 60, BlockPrice = 20_000, MaxDailyFee = 150_000, LostTicketFee = 100_000 },
-        new() { VehicleTypeCode = "MOTORBIKE", GraceMinutes = 15, BlockMinutes = 240, BlockPrice = 5_000, MaxDailyFee = 20_000, LostTicketFee = 50_000 }
+        new() { VehicleTypeCode = "CAR_4", GraceMinutes = 0, BlockMinutes = 60, BlockPrice = 20_000, MaxDailyFee = 150_000, LostTicketFee = 100_000 },
+        new() { VehicleTypeCode = "CAR_7", GraceMinutes = 0, BlockMinutes = 60, BlockPrice = 20_000, MaxDailyFee = 150_000, LostTicketFee = 100_000 },
+        new() { VehicleTypeCode = "MOTORBIKE", GraceMinutes = 0, BlockMinutes = 240, BlockPrice = 5_000, MaxDailyFee = 20_000, LostTicketFee = 50_000 }
     ];
 }
 

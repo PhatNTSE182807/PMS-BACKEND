@@ -124,7 +124,7 @@ Defaults are configurable; the full table is SRS section 5.
 | BR-14 approval deadlines, escalate to Admin | lost ticket 10 min; refund / waiver 24 h |
 | BR-18 ANPR confidence threshold | 85 % |
 | BR-20 overdue / abandoned vehicle | 24 h / 7 days |
-| BR-22 price version = the one valid at entry; daily cap per calendar day; round up to 1,000 VND; free period only if total stay ≤ it | — |
+| BR-22 price version = the one valid at entry; daily cap per calendar day; round up to 1,000 VND; no free period: the first block is owed from entry (team rule, section 10) | — |
 | BR-25 / BR-26 review deadline; keep registration photos / gate photos | 24 h; 30 / 90 days |
 | BR-28 account form (5 fields), Vietnamese phone `0` + 9 digits, unique email and phone | password: 6+ characters, 1 upper-case letter, 1 special character (team rule, section 10) |
 
@@ -274,6 +274,10 @@ git checkout features/<name>               # keep working on the branch afterwar
 
 Keep this list current; it is the first place to look when code and SRS disagree.
 
+- No free period (team decision, 2026-10-25): the first block (the first hour by default, or the rule's
+  first block) is owed as soon as the vehicle enters, so a stay is never charged 0 VND. This replaces
+  BR-09 / BR-22's grace period: `FeeCalculator` ignores `GraceMinutes` and the pricing page no longer
+  offers it. Only whitelisted plates, waivers and turned-back vehicles (cancelled sessions) pay nothing.
 - Only three vehicle types (team decision, 2026-10-25): `CAR_4` (4-seat car), `CAR_7` (7-seat car)
   and `MOTORBIKE`. No bicycles, e-bikes or EVs: the `BICYCLE` row is kept but inactive (old data may
   point to it), there are no EV chargers, and pricing has one rule per type. A vehicle without a

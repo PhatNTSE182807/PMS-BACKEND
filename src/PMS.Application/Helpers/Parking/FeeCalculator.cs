@@ -73,6 +73,9 @@ public static class FeeCalculator
     /// The fee for a stay from <paramref name="entryUtc"/> to <paramref name="exitUtc"/>. Days are split at
     /// local midnight in <paramref name="timeZone"/>; blocks are counted per day and rounded up; each day is
     /// capped by <see cref="Tariff.MaxDailyFee"/>.
+    /// Team change to BR-09 / BR-22: there is no free period. The first block (the first hour by default)
+    /// is owed from the moment the vehicle enters, so a stay is never charged 0; <see cref="Tariff.GraceMinutes"/>
+    /// is no longer used here.
     /// </summary>
     public static FeeBreakdown Calculate(Tariff tariff, DateTime entryUtc, DateTime exitUtc, TimeZoneInfo timeZone)
     {
@@ -81,12 +84,11 @@ public static class FeeCalculator
 
         var duration = exitUtc <= entryUtc ? 0 : (int)Math.Ceiling((exitUtc - entryUtc).TotalSeconds / 60d);
 
-        // BR-09 / BR-22: inside the free period there is no charge at all
-        if (duration <= tariff.GraceMinutes)
-            return new FeeBreakdown(duration, 0, true, []);
-
         var entryLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(entryUtc, DateTimeKind.Utc), timeZone);
         var exitLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(exitUtc, DateTimeKind.Utc), timeZone);
+        // A vehicle that leaves the minute it entered still owes the first block
+        if (exitLocal <= entryLocal)
+            exitLocal = entryLocal.AddMinutes(1);
 
         var days = new List<FeeDay>();
         var dayStart = entryLocal;
