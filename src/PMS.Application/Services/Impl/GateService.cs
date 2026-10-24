@@ -422,7 +422,7 @@ public class GateService(
             QueueSessionPush(session);
             await inventory.FlushAsync();
             throw new BadRequestException(session.ExitWindowEndsAt != null && Now > session.ExitWindowEndsAt
-                ? $"The Exit Window has passed: {quote.AmountDue:N0} VND more is due (BR-10)."
+                ? $"The exit window has passed: {quote.AmountDue:N0} VND more is due."
                 : $"{quote.AmountDue:N0} VND is still due.");
         }
 
