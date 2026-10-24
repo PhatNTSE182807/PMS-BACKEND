@@ -168,7 +168,7 @@ public class UserProfileService : IUserProfileService
 
         // Citizen ID must be saved in user profile before registering a vehicle
         if (string.IsNullOrWhiteSpace(customer.CitizenId))
-            throw new BadRequestException("Citizen ID (CCCD) must be saved in your profile before registering a vehicle.");
+            throw new BadRequestException("Your Citizen ID must be saved in your profile before registering a vehicle.");
 
         // Automatically use the Citizen ID from the user's profile
         var citizenId = customer.CitizenId.Trim();
