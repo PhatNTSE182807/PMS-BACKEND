@@ -700,6 +700,11 @@ public class PaymentService(
         pmsContext.Payments.Add(payment);
         await pmsContext.SaveChangesAsync();
 
+        // Simulation without gateway keys: the payment exists but has no pay page; it is completed
+        // with SimulateSuccessAsync instead of the gateway
+        if (!gateway.IsConfigured && gatewayOptions.AllowSimulatedPayments)
+            return;
+
         try
         {
             var provider = gateway.Provider.ToLowerInvariant();
@@ -745,9 +750,31 @@ public class PaymentService(
     {
         var gateway = gateways.FirstOrDefault(g => string.Equals(g.Provider, provider?.Trim(), StringComparison.OrdinalIgnoreCase))
                       ?? throw new BadRequestException("Provider must be VNPay or MoMo.");
-        if (!gateway.IsConfigured)
+        if (!gateway.IsConfigured && !gatewayOptions.AllowSimulatedPayments)
             throw new UnprocessableRequestException($"{gateway.Provider} is not configured on the server.");
         return gateway;
+    }
+
+    public bool SimulationEnabled => gatewayOptions.AllowSimulatedPayments;
+
+    public async Task<PaymentCallbackResultModel> SimulateSuccessAsync(long paymentId)
+    {
+        if (!gatewayOptions.AllowSimulatedPayments)
+            throw new ForbiddenException("Simulated payments are turned off on this server.");
+
+        var payment = await pmsContext.Payments.AsNoTracking().FirstOrDefaultAsync(p => p.Id == paymentId)
+                      ?? throw new NotFoundException("Payment not found.");
+        // Only the customer who owns the payment or Staff of its lot, like reading it
+        await EnsureCanSeeAsync(payment);
+        if (payment.GatewayProvider == null)
+            throw new BadRequestException("Only VNPay and MoMo payments can be simulated.");
+        if (payment.Status != PaymentStatus.Pending)
+            return new PaymentCallbackResultModel { SignatureValid = true, Outcome = "AlreadyProcessed", Payment = ToModel(payment) };
+
+        logger?.LogWarning("Simulated {Provider} success for payment {Code} ({Amount} VND).", payment.GatewayProvider, payment.PaymentCode, payment.Amount);
+        // Same path as a verified gateway callback: deposit confirmed, wallet credited, session paid…
+        return await ApplyAsync(payment.PaymentCode, true, payment.Amount, $"SIM{Now:yyyyMMddHHmmss}",
+            "Simulated success (testing only)", JsonSerializer.Serialize(new { simulated = true, payment.PaymentCode }));
     }
 
     private Invoice NewInvoice(int lotId, int? customerId, decimal amount, DateTime dueDate) => new()
