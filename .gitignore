@@ -364,3 +364,6 @@ coverage/
 # Vehicle paper photos (private, BR-26) and downloaded Tesseract language data
 **/App_Data/vehicle-documents/
 src/PMS.API/tessdata/*.traineddata
+
+# Local Claude Code settings: never committed
+.claude/

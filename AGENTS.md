@@ -44,9 +44,11 @@ This repo is one of two. Keep both in mind on every task:
    `grep -rnE "\b(FR|BR|NFR|UC|SEC|Sec)-[A-Z0-9]" src` and remove every hit that is not a comment.
 8. **No AI co-author or attribution in git.** Commit messages, merge messages, PR titles and
    descriptions never contain `Co-Authored-By: Claude …`, `noreply@anthropic.com`,
-   "Generated with Claude Code" or any other AI-assistant credit. `.claude/settings.json` turns
-   Claude Code's attribution off, and `.githooks/commit-msg` strips it as a safety net: run
-   `git config core.hooksPath .githooks` once after cloning. Pushed history is not rewritten.
+   "Generated with Claude Code" or any other AI-assistant credit. Turn Claude Code's attribution
+   off in your own `~/.claude/settings.json` (`"attribution": { "commit": "", "pr": "" }`);
+   `.githooks/commit-msg` strips it as a safety net: run `git config core.hooksPath .githooks`
+   once after cloning. The `.claude/` folder is local and never committed. Pushed history is
+   not rewritten.
 
 ## 2. The system in one screen (SRS v1.4)
 
