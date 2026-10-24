@@ -50,10 +50,10 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
         }
     }
 
-    /// <summary>Vehicle family for slot / lane matching: all cars share bays; bicycles use motorbike floors.</summary>
+    /// <summary>Vehicle family for slot / lane matching: all cars share bays; motorbikes use motorbike floors.</summary>
     public static string Family(string vehicleTypeCode) =>
         vehicleTypeCode?.StartsWith("CAR", StringComparison.OrdinalIgnoreCase) == true ? "car"
-        : vehicleTypeCode is "MOTORBIKE" or "BICYCLE" ? "two-wheel"
+        : vehicleTypeCode is "MOTORBIKE" ? "two-wheel"
         : vehicleTypeCode ?? string.Empty;
 
     public async Task<Dictionary<int, VehicleType>> VehicleTypesAsync() =>

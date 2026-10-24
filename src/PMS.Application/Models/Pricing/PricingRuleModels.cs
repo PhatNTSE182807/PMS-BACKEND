@@ -84,6 +84,26 @@ public class PricingRuleModel
     public DateTime? UpdatedAt { get; set; }
 }
 
+/// <summary>Public price of one vehicle type at a lot (what the gates charge now), for customers.</summary>
+public class PublicLotPriceModel
+{
+    public int VehicleTypeId { get; set; }
+    public string VehicleTypeCode { get; set; }
+    public string VehicleTypeName { get; set; }
+    /// <summary>"Block" (same price all day) or "DayNight" (block price by the hour it starts).</summary>
+    public string ChargeModel { get; set; }
+    public int GraceMinutes { get; set; }
+    public int? FirstBlockMinutes { get; set; }
+    public decimal? FirstBlockPrice { get; set; }
+    public int BlockMinutes { get; set; }
+    public decimal BlockPrice { get; set; }
+    public TimeOnly? DayStartTime { get; set; }
+    public TimeOnly? NightStartTime { get; set; }
+    public decimal? DayPrice { get; set; }
+    public decimal? NightPrice { get; set; }
+    public decimal? MaxDailyFee { get; set; }
+}
+
 /// <summary>Request DTO to create a new pricing rule for a parking lot.</summary>
 public class CreatePricingRuleModel
 {

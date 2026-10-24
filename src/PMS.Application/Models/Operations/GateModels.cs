@@ -11,7 +11,7 @@ public class CheckInModel
 
     public string PlateNumber { get; set; }
 
-    /// <summary>Bicycle, e-bike…: no ANPR, no duplicate-plate rule (FR-OPS-10).</summary>
+    /// <summary>The plate cannot be read or is missing: no ANPR, no duplicate-plate rule; ticket and photo only (FR-OPS-10).</summary>
     public bool NoPlate { get; set; }
 
     /// <summary>Vehicle type of the lane; defaults to the reservation's vehicle.</summary>

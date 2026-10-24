@@ -406,4 +406,56 @@ public class PricingRuleServiceTests
         var archivedList = await service.GetPricingRulesAsync(t.Lot.Id, "Archived");
         archivedList.Should().Contain(r => r.Id == rule.Id);
     }
+
+    /* ------------------------------------------------------------------ public prices */
+
+    [Fact]
+    public async Task Public_Prices_Show_The_Active_Rule_And_Day_Night_Prices()
+    {
+        var (t, service) = await CreateTestSetupAsync();
+        var car = t.Db.VehicleTypes.Single(v => v.Code == "CAR_4");
+        var rule = BuildRule(t.Lot.Id, car.Id, "CAR-DN", "Car day/night", effectiveFrom: t.Now.AddDays(-1));
+        rule.ChargeModel = "DayNight";
+        rule.DayStartTime = new TimeOnly(6, 0);
+        rule.NightStartTime = new TimeOnly(18, 0);
+        rule.DayPrice = 30_000;
+        rule.NightPrice = 15_000;
+        rule.MaxDailyFee = 200_000;
+        t.Db.PricingRules.Add(rule);
+        await t.Db.SaveChangesAsync();
+
+        var prices = await service.GetPublicPricesAsync(t.Lot.Id);
+
+        prices.Select(p => p.VehicleTypeCode).Should().Equal("CAR_4", "CAR_7", "MOTORBIKE");
+        var carPrice = prices.Single(p => p.VehicleTypeCode == "CAR_4");
+        carPrice.ChargeModel.Should().Be("DayNight");
+        carPrice.DayPrice.Should().Be(30_000);
+        carPrice.NightPrice.Should().Be(15_000);
+        carPrice.MaxDailyFee.Should().Be(200_000);
+    }
+
+    [Fact]
+    public async Task Public_Prices_Fall_Back_To_The_Default_Without_An_Active_Rule()
+    {
+        var (t, service) = await CreateTestSetupAsync();
+        var bike = t.Db.VehicleTypes.Single(v => v.Code == "MOTORBIKE");
+        t.Db.PricingRules.Add(BuildRule(t.Lot.Id, bike.Id, "MOTO-DRAFT", "Draft only", status: "Draft", effectiveFrom: t.Now.AddDays(-1)));
+        await t.Db.SaveChangesAsync();
+
+        var motorbike = (await service.GetPublicPricesAsync(t.Lot.Id)).Single(p => p.VehicleTypeCode == "MOTORBIKE");
+
+        // The draft is ignored: the system default motorbike tariff applies
+        motorbike.BlockMinutes.Should().Be(240);
+        motorbike.BlockPrice.Should().Be(5_000);
+    }
+
+    [Fact]
+    public async Task Public_Prices_Of_An_Unknown_Lot_Are_Not_Found()
+    {
+        var (_, service) = await CreateTestSetupAsync();
+
+        var act = () => service.GetPublicPricesAsync(999_999);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
 }

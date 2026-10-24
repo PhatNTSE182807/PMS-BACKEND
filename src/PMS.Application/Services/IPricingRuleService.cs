@@ -30,4 +30,10 @@ public interface IPricingRuleService
 
     /// <summary>Simulates checkout price calculation under active tariffs without mutating data.</summary>
     Task<PricingSimulationResultModel> SimulatePricingAsync(int lotId, PricingSimulationRequestModel model);
+
+    /// <summary>
+    /// Public: the prices a lot charges now, one entry per active vehicle type, picked exactly like the
+    /// gates do (the lot's Active rule, else the system default). Anonymous, so no rule ids or history.
+    /// </summary>
+    Task<IReadOnlyList<PublicLotPriceModel>> GetPublicPricesAsync(int lotId);
 }
