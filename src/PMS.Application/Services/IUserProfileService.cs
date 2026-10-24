@@ -11,6 +11,8 @@ public interface IUserProfileService
 
     Task<UserProfileResponseModel> UpdateProfileAsync(string userId, UpdateUserProfileModel model);
 
+    Task<ProfileFieldAvailabilityModel> CheckProfileUniquenessAsync(string userId, string? phone, string? citizenId);
+
     /// <summary>Uploads and saves a new avatar image for the user. Returns the updated profile.</summary>
     Task<UserProfileResponseModel> UploadAvatarAsync(string userId, IFormFile file);
 

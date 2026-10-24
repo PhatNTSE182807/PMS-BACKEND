@@ -131,6 +131,15 @@ public class UsersController(
         return Ok(ApiResult<UserProfileResponseModel>.Success(await userProfileService.UpdateProfileAsync(userId, model)));
     }
 
+    [HttpGet("profile/check-unique")]
+    [Tags(SwaggerTags.Profile)]
+    [Authorize]
+    public async Task<IActionResult> CheckProfileUniquenessAsync([FromQuery] string? phone = null, [FromQuery] string? citizenId = null)
+    {
+        var userId = claimService.GetUserId();
+        return Ok(ApiResult<ProfileFieldAvailabilityModel>.Success(await userProfileService.CheckProfileUniquenessAsync(userId, phone, citizenId)));
+    }
+
     [HttpPost("profile/avatar")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]

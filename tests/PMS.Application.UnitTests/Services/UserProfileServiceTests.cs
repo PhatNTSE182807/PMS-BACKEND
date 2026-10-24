@@ -208,6 +208,109 @@ public class UserProfileServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateProfileAsync_Should_Throw_When_Phone_Already_Registered_To_Another_Account()
+    {
+        var otherUserId = Guid.NewGuid().ToString();
+        var otherCustomer = new Customer
+        {
+            UserId = otherUserId,
+            CustomerCode = "CUS-OTHER",
+            FullName = "Other User",
+            Phone = "0988999888",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Customers.Add(otherCustomer);
+        await _pmsContext.SaveChangesAsync();
+
+        var userId = Guid.NewGuid().ToString();
+        var user = new ApplicationUser { Id = userId, UserName = "current_user", PhoneNumber = "0900000000" };
+        _userManager.FindByIdAsync(userId).Returns(user);
+
+        var currentCustomer = new Customer
+        {
+            UserId = userId,
+            CustomerCode = "CUS-CURRENT",
+            FullName = "Current User",
+            Phone = "0900000000",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Customers.Add(currentCustomer);
+        await _pmsContext.SaveChangesAsync();
+
+        var act = () => _sut.UpdateProfileAsync(userId, new UpdateUserProfileModel { PhoneNumber = "0988999888" });
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("Phone number is already registered to another account.");
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_Should_Throw_When_CitizenId_Already_Registered_To_Another_Account()
+    {
+        var otherUserId = Guid.NewGuid().ToString();
+        var otherCustomer = new Customer
+        {
+            UserId = otherUserId,
+            CustomerCode = "CUS-CID-OTHER",
+            FullName = "CID User",
+            CitizenId = "079999888777",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Customers.Add(otherCustomer);
+        await _pmsContext.SaveChangesAsync();
+
+        var userId = Guid.NewGuid().ToString();
+        var user = new ApplicationUser { Id = userId, UserName = "cid_current_user" };
+        _userManager.FindByIdAsync(userId).Returns(user);
+
+        var currentCustomer = new Customer
+        {
+            UserId = userId,
+            CustomerCode = "CUS-CID-CURR",
+            FullName = "Current CID User",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Customers.Add(currentCustomer);
+        await _pmsContext.SaveChangesAsync();
+
+        var act = () => _sut.UpdateProfileAsync(userId, new UpdateUserProfileModel { CitizenId = "079999888777" });
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("Citizen ID is already registered to another account.");
+    }
+
+    [Fact]
+    public async Task CheckProfileUniquenessAsync_Should_Report_Unavailability()
+    {
+        var otherUserId = Guid.NewGuid().ToString();
+        var otherCustomer = new Customer
+        {
+            UserId = otherUserId,
+            CustomerCode = "CUS-UNIQUE-TEST",
+            FullName = "Unique Test",
+            Phone = "0977111222",
+            CitizenId = "079123123123",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Customers.Add(otherCustomer);
+        await _pmsContext.SaveChangesAsync();
+
+        var myUserId = Guid.NewGuid().ToString();
+        var check = await _sut.CheckProfileUniquenessAsync(myUserId, "0977111222", "079123123123");
+
+        check.IsPhoneAvailable.Should().BeFalse();
+        check.PhoneReason.Should().Be("Phone number is already registered to another account.");
+        check.IsCitizenIdAvailable.Should().BeFalse();
+        check.CitizenIdReason.Should().Be("Citizen ID is already registered to another account.");
+
+        var okCheck = await _sut.CheckProfileUniquenessAsync(myUserId, "0988000111", "079555666777");
+        okCheck.IsPhoneAvailable.Should().BeTrue();
+        okCheck.IsCitizenIdAvailable.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task AddVehicleAsync_Should_Add_And_Normalize_Vehicle()
     {
         // Arrange

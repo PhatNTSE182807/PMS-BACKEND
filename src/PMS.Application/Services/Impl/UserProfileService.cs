@@ -105,6 +105,9 @@ public class UserProfileService : IUserProfileService
         if (!string.IsNullOrWhiteSpace(model.PhoneNumber))
         {
             var trimmedPhone = model.PhoneNumber.Trim();
+            if (await IsPhoneTakenAsync(trimmedPhone, userId))
+                throw new BadRequestException("Phone number is already registered to another account.");
+
             customer.Phone = trimmedPhone;
             user.PhoneNumber = trimmedPhone;
         }
@@ -117,8 +120,7 @@ public class UserProfileService : IUserProfileService
         if (!string.IsNullOrWhiteSpace(model.CitizenId))
         {
             var citizenId = model.CitizenId.Trim();
-            var taken = await _pmsContext.Customers.AnyAsync(c => c.CitizenId == citizenId && c.Id != customer.Id);
-            if (taken)
+            if (await IsCitizenIdTakenAsync(citizenId, userId))
                 throw new BadRequestException("Citizen ID is already registered to another account.");
             customer.CitizenId = citizenId;
         }
@@ -129,6 +131,55 @@ public class UserProfileService : IUserProfileService
         await _userManager.UpdateAsync(user);
 
         return await GetProfileAsync(userId);
+    }
+
+    public async Task<ProfileFieldAvailabilityModel> CheckProfileUniquenessAsync(string userId, string? phone, string? citizenId)
+    {
+        var result = new ProfileFieldAvailabilityModel();
+
+        if (!string.IsNullOrWhiteSpace(phone))
+        {
+            var trimmedPhone = phone.Trim();
+            if (await IsPhoneTakenAsync(trimmedPhone, userId))
+            {
+                result.IsPhoneAvailable = false;
+                result.PhoneReason = "Phone number is already registered to another account.";
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(citizenId))
+        {
+            var trimmedCitizenId = citizenId.Trim();
+            if (await IsCitizenIdTakenAsync(trimmedCitizenId, userId))
+            {
+                result.IsCitizenIdAvailable = false;
+                result.CitizenIdReason = "Citizen ID is already registered to another account.";
+            }
+        }
+
+        return result;
+    }
+
+    private async Task<bool> IsPhoneTakenAsync(string phone, string userId)
+    {
+        var takenInCustomers = await _pmsContext.Customers
+            .AnyAsync(c => c.Phone == phone && c.UserId != userId);
+        if (takenInCustomers) return true;
+
+        try
+        {
+            return await _userManager.Users.AnyAsync(u => u.PhoneNumber == phone && u.Id != userId);
+        }
+        catch (InvalidOperationException)
+        {
+            return _userManager.Users.Any(u => u.PhoneNumber == phone && u.Id != userId);
+        }
+    }
+
+    private async Task<bool> IsCitizenIdTakenAsync(string citizenId, string userId)
+    {
+        return await _pmsContext.Customers
+            .AnyAsync(c => c.CitizenId == citizenId && c.UserId != userId);
     }
 
     public async Task<UserProfileResponseModel> UploadAvatarAsync(string userId, IFormFile file)
