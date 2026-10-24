@@ -150,6 +150,15 @@ public class UsersController(
         return Ok(ApiResult<List<VehicleResponseModel>>.Success(await userProfileService.GetVehiclesAsync(userId)));
     }
 
+    [HttpGet("profile/vehicles/check-plate")]
+    [Tags(SwaggerTags.Profile)]
+    [Authorize]
+    public async Task<IActionResult> CheckPlateAvailabilityAsync([FromQuery] string plate, [FromQuery] Guid? excludeVehicleId = null)
+    {
+        var userId = claimService.GetUserId();
+        return Ok(ApiResult<PlateAvailabilityResponseModel>.Success(await userProfileService.CheckPlateAvailabilityAsync(userId, plate, excludeVehicleId)));
+    }
+
     [HttpPost("profile/vehicles")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]

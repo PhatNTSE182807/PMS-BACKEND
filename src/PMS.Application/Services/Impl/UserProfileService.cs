@@ -203,6 +203,52 @@ public class UserProfileService : IUserProfileService
         return await WithPapersAsync(vehicles);
     }
 
+    public async Task<PlateAvailabilityResponseModel> CheckPlateAvailabilityAsync(string userId, string plate, Guid? excludeVehicleId = null)
+    {
+        if (string.IsNullOrWhiteSpace(plate))
+        {
+            return new PlateAvailabilityResponseModel
+            {
+                LicensePlate = string.Empty,
+                IsAvailable = false,
+                Reason = "License plate is required."
+            };
+        }
+
+        var plateNormalized = NormalizePlate(plate);
+        var user = await _userManager.FindByIdAsync(userId);
+        var customer = user != null ? await _pmsContext.Customers.FirstOrDefaultAsync(c => c.UserId == userId) : null;
+
+        var query = _pmsContext.Vehicles
+            .Where(v => v.PlateNormalized == plateNormalized && v.IsActive);
+
+        if (excludeVehicleId.HasValue)
+        {
+            query = query.Where(v => v.Id != excludeVehicleId.Value);
+        }
+
+        var existingVehicle = await query.FirstOrDefaultAsync();
+
+        if (existingVehicle != null)
+        {
+            var isOwn = customer != null && existingVehicle.CustomerId == customer.Id;
+            return new PlateAvailabilityResponseModel
+            {
+                LicensePlate = plate.Trim().ToUpperInvariant(),
+                IsAvailable = false,
+                Reason = isOwn
+                    ? "Vehicle with this license plate is already registered to your account."
+                    : "This license plate is already registered by another account."
+            };
+        }
+
+        return new PlateAvailabilityResponseModel
+        {
+            LicensePlate = plate.Trim().ToUpperInvariant(),
+            IsAvailable = true
+        };
+    }
+
     public async Task<VehicleResponseModel> AddVehicleAsync(string userId, CreateVehicleModel model)
     {
         var user = await _userManager.FindByIdAsync(userId);
@@ -220,10 +266,15 @@ public class UserProfileService : IUserProfileService
         var plateNormalized = NormalizePlate(model.LicensePlate);
 
         var existingVehicle = await _pmsContext.Vehicles
-            .FirstOrDefaultAsync(v => v.CustomerId == customer.Id && v.PlateNormalized == plateNormalized && v.IsActive);
+            .FirstOrDefaultAsync(v => v.PlateNormalized == plateNormalized && v.IsActive);
 
         if (existingVehicle != null)
-            throw new BadRequestException("Vehicle with this license plate is already registered to your account.");
+        {
+            if (existingVehicle.CustomerId == customer.Id)
+                throw new BadRequestException("Vehicle with this license plate is already registered to your account.");
+
+            throw new BadRequestException("This license plate is already registered by another account.");
+        }
 
         var hasExistingVehicles = await _pmsContext.Vehicles
             .AnyAsync(v => v.CustomerId == customer.Id && v.IsActive);
@@ -291,10 +342,15 @@ public class UserProfileService : IUserProfileService
         var plateNormalized = NormalizePlate(model.LicensePlate);
 
         var duplicatePlate = await _pmsContext.Vehicles
-            .FirstOrDefaultAsync(v => v.CustomerId == customer.Id && v.Id != vehicleId && v.PlateNormalized == plateNormalized && v.IsActive);
+            .FirstOrDefaultAsync(v => v.Id != vehicleId && v.PlateNormalized == plateNormalized && v.IsActive);
 
         if (duplicatePlate != null)
-            throw new BadRequestException("Another vehicle with this license plate is already registered.");
+        {
+            if (duplicatePlate.CustomerId == customer.Id)
+                throw new BadRequestException("Another vehicle with this license plate is already registered to your account.");
+
+            throw new BadRequestException("This license plate is already registered by another account.");
+        }
 
         // Submitted papers were checked against this plate and owner; changing them needs a new registration
         var newCitizenId = string.IsNullOrWhiteSpace(model.CitizenId) ? vehicle.CitizenId : model.CitizenId.Trim();

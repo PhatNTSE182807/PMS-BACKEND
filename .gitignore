@@ -367,3 +367,8 @@ src/PMS.API/tessdata/*.traineddata
 
 # Local Claude Code settings: never committed
 .claude/
+
+# User uploaded avatars
+src/PMS.API/wwwroot/uploads/**/*
+!src/PMS.API/wwwroot/uploads/**/.gitkeep
+

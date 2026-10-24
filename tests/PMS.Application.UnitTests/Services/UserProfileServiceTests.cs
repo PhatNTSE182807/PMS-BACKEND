@@ -263,6 +263,109 @@ public class UserProfileServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task AddVehicleAsync_Should_Throw_When_Plate_Already_Registered_By_Another_Customer()
+    {
+        // Customer 1 registers a vehicle
+        var user1Id = Guid.NewGuid().ToString();
+        var user1 = new ApplicationUser { Id = user1Id, UserName = "owner1" };
+        _userManager.FindByIdAsync(user1Id).Returns(user1);
+
+        var vehicleType = new VehicleType { Id = 1, Code = "CAR_4", Name = "4-Seat Car", IsActive = true };
+        _pmsContext.VehicleTypes.Add(vehicleType);
+
+        var customer1 = new Customer
+        {
+            UserId = user1Id,
+            CustomerCode = "CUS-OWNER1",
+            FullName = "Owner 1",
+            CitizenId = "079111111111",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Customers.Add(customer1);
+        await _pmsContext.SaveChangesAsync();
+
+        await _sut.AddVehicleAsync(user1Id, new CreateVehicleModel
+        {
+            LicensePlate = "51K-123.45",
+            VehicleTypeId = 1,
+            Brand = "Toyota",
+            Model = "Vios",
+            Color = "White"
+        });
+
+        // Customer 2 attempts to register the same plate
+        var user2Id = Guid.NewGuid().ToString();
+        var user2 = new ApplicationUser { Id = user2Id, UserName = "owner2" };
+        _userManager.FindByIdAsync(user2Id).Returns(user2);
+
+        var customer2 = new Customer
+        {
+            UserId = user2Id,
+            CustomerCode = "CUS-OWNER2",
+            FullName = "Owner 2",
+            CitizenId = "079222222222",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Customers.Add(customer2);
+        await _pmsContext.SaveChangesAsync();
+
+        var act = () => _sut.AddVehicleAsync(user2Id, new CreateVehicleModel
+        {
+            LicensePlate = "51K-123.45",
+            VehicleTypeId = 1,
+            Brand = "Honda",
+            Model = "City",
+            Color = "Black"
+        });
+
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("This license plate is already registered by another account.");
+    }
+
+    [Fact]
+    public async Task CheckPlateAvailabilityAsync_Should_Report_Unavailable_When_Plate_Registered()
+    {
+        var user1Id = Guid.NewGuid().ToString();
+        var user1 = new ApplicationUser { Id = user1Id, UserName = "user_one" };
+        _userManager.FindByIdAsync(user1Id).Returns(user1);
+
+        var customer1 = new Customer
+        {
+            UserId = user1Id,
+            CustomerCode = "CUS-USER1",
+            FullName = "User One",
+            CitizenId = "079333333333",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Customers.Add(customer1);
+
+        var vehicle = new Vehicle
+        {
+            Id = Guid.NewGuid(),
+            CustomerId = customer1.Id,
+            VehicleTypeId = 1,
+            PlateNumber = "30E-888.88",
+            PlateNormalized = "30E88888",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.Vehicles.Add(vehicle);
+        await _pmsContext.SaveChangesAsync();
+
+        var user2Id = Guid.NewGuid().ToString();
+        var check = await _sut.CheckPlateAvailabilityAsync(user2Id, "30E-888.88");
+
+        check.IsAvailable.Should().BeFalse();
+        check.Reason.Should().Be("This license plate is already registered by another account.");
+
+        var availableCheck = await _sut.CheckPlateAvailabilityAsync(user2Id, "29A-999.99");
+        availableCheck.IsAvailable.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task SetDefaultVehicleAsync_Should_Switch_Default_Vehicle()
     {
         // Arrange

@@ -16,6 +16,8 @@ public interface IUserProfileService
 
     Task<List<VehicleResponseModel>> GetVehiclesAsync(string userId);
 
+    Task<PlateAvailabilityResponseModel> CheckPlateAvailabilityAsync(string userId, string plate, Guid? excludeVehicleId = null);
+
     Task<VehicleResponseModel> AddVehicleAsync(string userId, CreateVehicleModel model);
 
     Task<VehicleResponseModel> UpdateVehicleAsync(string userId, Guid vehicleId, UpdateVehicleModel model);
