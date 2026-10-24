@@ -1,0 +1,13 @@
+#!/bin/sh
+# Removes AI attribution from commit messages: the team does not credit Claude (or any AI
+# assistant) as a co-author. Enable once per clone with: git config core.hooksPath .githooks
+#
+# Drops "Co-Authored-By:" trailers that name Claude or an anthropic.com address, and the
+# "Generated with Claude Code" line, then trims the blank lines they leave at the end.
+msg_file="$1"
+tmp_file="$msg_file.tmp"
+
+grep -v -i -E '^co-authored-by:.*(claude|anthropic)|generated with \[?claude code' "$msg_file" > "$tmp_file"
+# Remove trailing blank lines left behind by the removed trailer
+sed -e ':a' -e '/^[[:space:]]*$/{$d;N;ba' -e '}' "$tmp_file" > "$msg_file"
+rm -f "$tmp_file"
