@@ -119,7 +119,7 @@ Defaults are configurable; the full table is SRS section 5.
 | BR-20 overdue / abandoned vehicle | 24 h / 7 days |
 | BR-22 price version = the one valid at entry; daily cap per calendar day; round up to 1,000 VND; free period only if total stay ≤ it | — |
 | BR-25 / BR-26 review deadline; keep registration photos / gate photos | 24 h; 30 / 90 days |
-| BR-28 account form (5 fields), Vietnamese phone `0` + 9 digits, unique email and phone | see section 10 for the password rule |
+| BR-28 account form (5 fields), Vietnamese phone `0` + 9 digits, unique email and phone | password: 6+ characters, 1 upper-case letter, 1 special character (team rule, section 10) |
 
 The six fee examples at the end of SRS section 5 are the acceptance tests for pricing; keep a
 unit test for each.
@@ -267,9 +267,11 @@ git checkout features/<name>               # keep working on the branch afterwar
 
 Keep this list current; it is the first place to look when code and SRS disagree.
 
-- Password rule: the team chose at least 6 characters with one upper-case letter and one special
-  character (`UserValidatorConfiguration`), instead of BR-28 (8+ characters with upper, lower and
-  digit).
+- Password rule (confirmed by the team on 2026-10-24, keep it): at least 6 characters with at
+  least one upper-case letter and at least one special character, for every account. It replaces
+  BR-28's rule (8+ characters with upper, lower and digit); do not switch to the SRS version.
+  The single source is `UserValidatorConfiguration` (`MinimumPasswordLength`, `PasswordRegex`);
+  the frontend uses the same rule in `src/lib/password.ts`.
 - Legacy entities from earlier SRS versions still exist (`Shift*`, `Subscription*`, `Voucher`,
   `Einvoice`, `OtpCode`…). They are out of scope in v1.4: do not extend them for new features.
 - The user wallet (`WalletController`, `Wallet*` entities) is a team addition: the SRS lists an
@@ -282,6 +284,3 @@ Keep this list current; it is the first place to look when code and SRS disagree
 - Not built yet in the API (as of 2026-10-24): pricing management, reports, the approval queue
   (`ApprovalRequest`), daily cash close, inventory check, incidents, emergency mode, audit log
   viewer. Re-check with the commands in section 7 before relying on this line.
-- Rule 7 is not met yet (as of 2026-10-24): two API messages end with "(BR-10)" in
-  `Services/Impl/GateService.cs` and `Services/Impl/GateRequestService.cs`. Remove the code from
-  the text when you touch these files.
