@@ -29,8 +29,8 @@ public static class DatabaseContextSeed
             pmsContext.VehicleTypes.AddRange(
                 new VehicleType { Code = "CAR_4", Name = "4-Seat Car", Description = "Sedan/Hatchback up to 5 seats", SortOrder = 1, IsActive = true },
                 new VehicleType { Code = "CAR_7", Name = "7-Seat Car", Description = "SUV/MPV up to 7 seats", SortOrder = 2, IsActive = true },
-                new VehicleType { Code = "MOTORBIKE", Name = "Motorbike", Description = "Two-wheeled motorcycles and scooters", SortOrder = 3, IsActive = true },
-                new VehicleType { Code = "BICYCLE", Name = "Bicycle", Description = "Bicycles and light electric bikes", SortOrder = 4, IsActive = true });
+                // Only 4-seat cars, 7-seat cars and motorbikes are accepted
+                new VehicleType { Code = "MOTORBIKE", Name = "Motorbike", Description = "Two-wheeled motorcycles", SortOrder = 3, IsActive = true });
             await pmsContext.SaveChangesAsync();
         }
 

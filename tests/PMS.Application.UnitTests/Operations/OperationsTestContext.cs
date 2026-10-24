@@ -111,8 +111,7 @@ public sealed class OperationsTestContext
         Db.VehicleTypes.AddRange(
             new VehicleType { Code = "CAR_4", Name = "4-Seat Car", IsActive = true, SortOrder = 1 },
             new VehicleType { Code = "CAR_7", Name = "7-Seat Car", IsActive = true, SortOrder = 2 },
-            new VehicleType { Code = "MOTORBIKE", Name = "Motorbike", IsActive = true, SortOrder = 3 },
-            new VehicleType { Code = "BICYCLE", Name = "Bicycle", IsActive = true, SortOrder = 4 });
+            new VehicleType { Code = "MOTORBIKE", Name = "Motorbike", IsActive = true, SortOrder = 3 });
         Lot = new ParkingLot { Code = "LOT-T", Name = "Test lot", Address = "1 Test St", Status = "Active", TimeZoneId = "SE Asia Standard Time", CreatedAt = Now };
         Db.ParkingLots.Add(Lot);
         await Db.SaveChangesAsync();

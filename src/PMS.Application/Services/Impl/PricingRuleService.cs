@@ -307,6 +307,46 @@ public class PricingRuleService(
         await TryRecordHistoryAsync(rule.Id, "Delete", JsonSerializer.Serialize(new { Status = oldStatus }), JsonSerializer.Serialize(new { Status = "Archived" }), "Pricing rule archived", now);
     }
 
+    public async Task<IReadOnlyList<PublicLotPriceModel>> GetPublicPricesAsync(int lotId)
+    {
+        var lotExists = await pmsContext.ParkingLots.AsNoTracking().AnyAsync(p => p.Id == lotId && !p.IsDeleted);
+        if (!lotExists)
+            throw new NotFoundException($"Parking lot {lotId} was not found.");
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var types = await pmsContext.VehicleTypes.AsNoTracking()
+            .Where(v => v.IsActive)
+            .OrderBy(v => v.SortOrder)
+            .ToListAsync();
+
+        var prices = new List<PublicLotPriceModel>();
+        foreach (var type in types)
+        {
+            // Same choice as a checkout now: the lot's Active rule for the type, else the configured default
+            var tariff = await tariffProvider.ForAsync(lotId, null, type.Id, now);
+            var dayNight = string.Equals(tariff.ChargeModel, "DayNight", StringComparison.OrdinalIgnoreCase);
+            prices.Add(new PublicLotPriceModel
+            {
+                VehicleTypeId = type.Id,
+                VehicleTypeCode = type.Code,
+                VehicleTypeName = type.Name,
+                ChargeModel = dayNight ? "DayNight" : "Block",
+                GraceMinutes = tariff.GraceMinutes,
+                FirstBlockMinutes = tariff.FirstBlockMinutes,
+                FirstBlockPrice = tariff.FirstBlockPrice,
+                BlockMinutes = tariff.BlockMinutes,
+                BlockPrice = tariff.BlockPrice,
+                DayStartTime = dayNight ? tariff.DayStart : null,
+                NightStartTime = dayNight ? tariff.NightStart : null,
+                DayPrice = dayNight ? tariff.DayPrice : null,
+                NightPrice = dayNight ? tariff.NightPrice : null,
+                MaxDailyFee = tariff.MaxDailyFee
+            });
+        }
+
+        return prices;
+    }
+
     public async Task<PricingSimulationResultModel> SimulatePricingAsync(int lotId, PricingSimulationRequestModel model)
     {
         ArgumentNullException.ThrowIfNull(model);

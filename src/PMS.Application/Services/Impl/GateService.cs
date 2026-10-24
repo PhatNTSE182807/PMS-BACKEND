@@ -127,8 +127,8 @@ public class GateService(
             reservation = await FindReservationAsync(lotId, model, normalized, alerts, overrides);
 
         var types = await inventory.VehicleTypesAsync();
-        var laneType = model.VehicleTypeId ?? reservation?.VehicleTypeId
-                       ?? (model.NoPlate ? types.Values.FirstOrDefault(t => t.Code == "BICYCLE")?.Id : null);
+        // Bicycles are no longer accepted, so a vehicle without a readable plate still needs the lane's type
+        var laneType = model.VehicleTypeId ?? reservation?.VehicleTypeId;
         if (laneType == null)
         {
             // A refused reservation QR already blocks the lane; report that instead of the missing type

@@ -2,9 +2,11 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using PMS.Application.Models;
 using PMS.Application.Models.Layout;
 using PMS.Application.Models.ParkingLot;
+using PMS.Application.Models.Pricing;
 using PMS.Application.Services;
 using PMS.Shared.Services;
 
@@ -14,6 +16,7 @@ namespace PMS.API.Controllers;
 [Route("api/parking-lots")]
 public class LotsController(
     IParkingLotService parkingLotService,
+    IPricingRuleService pricingRuleService,
     IClaimService claimService) : ApiController
 {
     [HttpGet]
@@ -34,6 +37,18 @@ public class LotsController(
     {
         return Ok(ApiResult<IEnumerable<PublicParkingLotResponseModel>>.Success(
             await parkingLotService.GetPublicLotsAsync(searchTerm)));
+    }
+
+    /// <summary>
+    /// Public prices of a lot, one per vehicle type: what the gates charge now (the lot's Active pricing rule,
+    /// or the system default). Rate limited like the other public lot data.
+    /// </summary>
+    [HttpGet("/api/public/lots/{id:int}/prices")]
+    [AllowAnonymous]
+    [EnableRateLimiting(ApiDependencyInjection.PublicLayoutRateLimit)]
+    public async Task<IActionResult> GetPublicPricesAsync(int id)
+    {
+        return Ok(ApiResult<IReadOnlyList<PublicLotPriceModel>>.Success(await pricingRuleService.GetPublicPricesAsync(id)));
     }
 
     [HttpGet("{id:int}")]

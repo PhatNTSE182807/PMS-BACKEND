@@ -37,8 +37,7 @@ public class ParkingOptions
     [
         new() { VehicleTypeCode = "CAR_4", GraceMinutes = 15, BlockMinutes = 60, BlockPrice = 20_000, MaxDailyFee = 150_000, LostTicketFee = 100_000 },
         new() { VehicleTypeCode = "CAR_7", GraceMinutes = 15, BlockMinutes = 60, BlockPrice = 20_000, MaxDailyFee = 150_000, LostTicketFee = 100_000 },
-        new() { VehicleTypeCode = "MOTORBIKE", GraceMinutes = 15, BlockMinutes = 240, BlockPrice = 5_000, MaxDailyFee = 20_000, LostTicketFee = 50_000 },
-        new() { VehicleTypeCode = "BICYCLE", GraceMinutes = 15, BlockMinutes = 240, BlockPrice = 2_000, MaxDailyFee = 10_000, LostTicketFee = 30_000 }
+        new() { VehicleTypeCode = "MOTORBIKE", GraceMinutes = 15, BlockMinutes = 240, BlockPrice = 5_000, MaxDailyFee = 20_000, LostTicketFee = 50_000 }
     ];
 }
 

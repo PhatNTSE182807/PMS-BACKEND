@@ -72,9 +72,12 @@ public static partial class AutomatedMigration
                 VALUES 
                     ('CAR_4', '4-Seat Car', 'Sedan/Hatchback up to 5 seats', 1, 1),
                     ('CAR_7', '7-Seat Car', 'SUV/MPV up to 7 seats', 2, 1),
-                    ('MOTORBIKE', 'Motorbike', 'Two-wheeled motorcycles and scooters', 3, 1),
-                    ('BICYCLE', 'Bicycle', 'Bicycles and light electric bikes', 4, 1);
+                    ('MOTORBIKE', 'Motorbike', 'Two-wheeled motorcycles', 3, 1);
             END
+
+            -- Only 4-seat cars, 7-seat cars and motorbikes are accepted (team decision, 2026-10-25).
+            -- Older databases keep their Bicycle row (vehicles and history may point to it) but it is turned off.
+            UPDATE [dbo].[VehicleTypes] SET [IsActive] = 0 WHERE [Code] IN ('BICYCLE', 'EV') AND [IsActive] = 1;
 
             IF OBJECT_ID('dbo.Customers', 'U') IS NULL
             BEGIN
