@@ -365,6 +365,37 @@ public class UserProfileServiceTests : IDisposable
         vehicleInDb.IsActive.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task UploadAvatarAsync_Should_Throw_When_File_Is_Null()
+    {
+        var act = () => _sut.UploadAvatarAsync("user-1", null!);
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("No file was uploaded.");
+    }
+
+    [Fact]
+    public async Task UploadAvatarAsync_Should_Throw_When_Content_Type_Not_Allowed()
+    {
+        var file = Substitute.For<Microsoft.AspNetCore.Http.IFormFile>();
+        file.Length.Returns(100);
+        file.ContentType.Returns("application/pdf");
+
+        var act = () => _sut.UploadAvatarAsync("user-1", file);
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("Only JPEG, PNG, GIF and WebP images are allowed.");
+    }
+
+    [Fact]
+    public async Task UploadAvatarAsync_Should_Throw_When_File_Exceeds_Max_Size()
+    {
+        var file = Substitute.For<Microsoft.AspNetCore.Http.IFormFile>();
+        file.Length.Returns(3 * 1024 * 1024); // 3 MB > 2 MB
+
+        var act = () => _sut.UploadAvatarAsync("user-1", file);
+        await act.Should().ThrowAsync<BadRequestException>()
+            .WithMessage("Avatar image must be smaller than 2 MB.");
+    }
+
     public void Dispose()
     {
         _pmsContext.Dispose();

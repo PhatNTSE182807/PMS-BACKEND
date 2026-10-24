@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
@@ -18,11 +21,22 @@ public class UserProfileService : IUserProfileService
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly PmsDbContext _pmsContext;
+    private readonly IWebHostEnvironment? _env;
 
-    public UserProfileService(UserManager<ApplicationUser> userManager, PmsDbContext pmsContext)
+    /// <summary>Allowed MIME types for avatar images.</summary>
+    private static readonly HashSet<string> AllowedImageTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/png", "image/gif", "image/webp"
+    };
+
+    /// <summary>Maximum avatar file size: 2 MB.</summary>
+    private const long MaxAvatarBytes = 2 * 1024 * 1024;
+
+    public UserProfileService(UserManager<ApplicationUser> userManager, PmsDbContext pmsContext, IWebHostEnvironment? env = null)
     {
         _userManager = userManager;
         _pmsContext = pmsContext;
+        _env = env;
     }
 
     public async Task<UserProfileResponseModel> GetProfileAsync(string userId)
@@ -113,6 +127,54 @@ public class UserProfileService : IUserProfileService
 
         await _pmsContext.SaveChangesAsync();
         await _userManager.UpdateAsync(user);
+
+        return await GetProfileAsync(userId);
+    }
+
+    public async Task<UserProfileResponseModel> UploadAvatarAsync(string userId, IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            throw new BadRequestException("No file was uploaded.");
+
+        if (file.Length > MaxAvatarBytes)
+            throw new BadRequestException("Avatar image must be smaller than 2 MB.");
+
+        if (!AllowedImageTypes.Contains(file.ContentType))
+            throw new BadRequestException("Only JPEG, PNG, GIF and WebP images are allowed.");
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null)
+            throw new NotFoundException("User not found.");
+
+        var customer = await GetOrCreateCustomerAsync(user);
+
+        // Build a unique file name: userId + timestamp + original extension
+        var extension = Path.GetExtension(file.FileName)?.ToLowerInvariant() ?? ".jpg";
+        var fileName = $"{userId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}{extension}";
+
+        var uploadsDir = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), "uploads", "avatars");
+        Directory.CreateDirectory(uploadsDir);
+
+        var filePath = Path.Combine(uploadsDir, fileName);
+        await using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        // Delete the old avatar file when it was served from local storage
+        if (!string.IsNullOrWhiteSpace(customer.AvatarUrl) && customer.AvatarUrl.StartsWith("/uploads/"))
+        {
+            var oldPath = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"),
+                customer.AvatarUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(oldPath))
+            {
+                try { File.Delete(oldPath); } catch { /* best-effort cleanup */ }
+            }
+        }
+
+        customer.AvatarUrl = $"/uploads/avatars/{fileName}";
+        customer.UpdatedAt = DateTime.UtcNow;
+        await _pmsContext.SaveChangesAsync();
 
         return await GetProfileAsync(userId);
     }

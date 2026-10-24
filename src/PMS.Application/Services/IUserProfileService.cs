@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using PMS.Application.Models.Profile;
 
 namespace PMS.Application.Services;
@@ -9,6 +10,9 @@ public interface IUserProfileService
     Task<UserProfileResponseModel> GetProfileAsync(string userId);
 
     Task<UserProfileResponseModel> UpdateProfileAsync(string userId, UpdateUserProfileModel model);
+
+    /// <summary>Uploads and saves a new avatar image for the user. Returns the updated profile.</summary>
+    Task<UserProfileResponseModel> UploadAvatarAsync(string userId, IFormFile file);
 
     Task<List<VehicleResponseModel>> GetVehiclesAsync(string userId);
 

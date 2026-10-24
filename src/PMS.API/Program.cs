@@ -54,6 +54,8 @@ app.UseCors(corsPolicyBuilder =>
         .AllowAnyHeader()
 );
 
+app.UseStaticFiles();
+
 app.UseRouting();
 
 app.UseRateLimiter();

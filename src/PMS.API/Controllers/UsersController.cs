@@ -131,6 +131,16 @@ public class UsersController(
         return Ok(ApiResult<UserProfileResponseModel>.Success(await userProfileService.UpdateProfileAsync(userId, model)));
     }
 
+    [HttpPost("profile/avatar")]
+    [Tags(SwaggerTags.Profile)]
+    [Authorize]
+    [DisableRequestSizeLimit]
+    public async Task<IActionResult> UploadAvatarAsync(IFormFile file)
+    {
+        var userId = claimService.GetUserId();
+        return Ok(ApiResult<UserProfileResponseModel>.Success(await userProfileService.UploadAvatarAsync(userId, file)));
+    }
+
     [HttpGet("profile/vehicles")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
