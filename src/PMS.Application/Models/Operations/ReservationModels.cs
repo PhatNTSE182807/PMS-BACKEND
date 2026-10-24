@@ -17,6 +17,12 @@ public class CreateReservationModel
 
     /// <summary>Planned departure of a Scheduled booking; ignored for pay-as-you-go.</summary>
     public DateTimeOffset? DepartureTime { get; set; }
+
+    /// <summary>
+    /// True (default): pay a deposit within the deadline; the slot is then held 30 minutes after arrival.
+    /// False: no deposit, the booking is confirmed at once and the slot is held only 15 minutes after arrival.
+    /// </summary>
+    public bool PayDeposit { get; set; } = true;
 }
 
 /// <summary>Change the arrival time and/or the slot before the change deadline (FR-RSV-03).</summary>
@@ -87,6 +93,12 @@ public class ReservationResponseModel
     public DateTime CheckInUntil { get; set; }
 
     public decimal DepositAmount { get; set; }
+
+    /// <summary>False for a booking made without a deposit (shorter hold, nothing to pay or refund).</summary>
+    public bool HasDeposit { get; set; }
+
+    /// <summary>Minutes the slot is held after the arrival time: 30 with a deposit, 15 without.</summary>
+    public int HoldMinutes { get; set; }
 
     /// <summary>Pay the deposit before this or the reservation expires (BR-06).</summary>
     public DateTime? DepositDueAt { get; set; }

@@ -840,8 +840,16 @@ public class PaymentService(
         if (model == null || model.Amount <= 0)
             throw new BadRequestException("Please enter a valid top-up amount.");
 
-        if (model.Amount < 10_000)
-            throw new BadRequestException("Minimum top-up amount is 10,000 VND.");
+        var walletRules = parkingOptions.Wallet;
+        if (model.Amount < walletRules.MinTopUp)
+            throw new BadRequestException($"Minimum top-up amount is {Vnd(walletRules.MinTopUp)}.");
+
+        // Daily cap per customer: paid top-ups and still-payable links of today both count
+        var remaining = walletRules.DailyTopUpLimit - await TopUpsTodayAsync(userId);
+        if (model.Amount > remaining)
+            throw new BadRequestException(remaining > 0
+                ? $"You can top up at most {Vnd(walletRules.DailyTopUpLimit)} a day. You can still add {Vnd(remaining)} today."
+                : $"You have reached today's top-up limit of {Vnd(walletRules.DailyTopUpLimit)}. Try again tomorrow.");
 
         var gateway = Gateway(model.Provider);
         var customer = await GetOrCreateCustomerAsync(userId);
@@ -928,6 +936,9 @@ public class PaymentService(
             HoldAmount = holdAmount,
             Currency = wallet.Currency ?? "VND",
             Status = wallet.Status ?? "Active",
+            DailyTopUpLimit = parkingOptions.Wallet.DailyTopUpLimit,
+            TopUpRemainingToday = Math.Max(0, parkingOptions.Wallet.DailyTopUpLimit - await TopUpsTodayAsync(userId)),
+            MinTopUp = parkingOptions.Wallet.MinTopUp,
             RecentTransactions = recent
         };
     }
@@ -989,6 +1000,31 @@ public class PaymentService(
         return customer;
     }
 
+    /// <summary>"10,000,000 VND", the same in every server culture.</summary>
+    private static string Vnd(decimal amount) => $"{amount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} VND";
+
+    /// <summary>Midnight of today in the business time zone (Vietnam by default), as UTC.</summary>
+    private DateTime TodayStartUtc()
+    {
+        var zone = ParkingText.FindTimeZone(parkingOptions.TimeZoneId);
+        var localNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(Now, DateTimeKind.Utc), zone);
+        return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localNow.Date, DateTimeKind.Unspecified), zone);
+    }
+
+    /// <summary>
+    /// What the customer topped up today for the daily limit: succeeded top-ups plus payment links
+    /// that can still be paid (expired, failed and refunded ones do not count).
+    /// </summary>
+    private async Task<decimal> TopUpsTodayAsync(string userId)
+    {
+        var dayStart = TodayStartUtc();
+        var now = Now;
+        return await pmsContext.Payments
+            .Where(p => p.Purpose == PaymentPurpose.WalletTopUp && p.CustomerUserId == userId && p.CreatedAt >= dayStart
+                        && (p.Status == PaymentStatus.Succeeded || (p.Status == PaymentStatus.Pending && (p.ExpiresAt == null || p.ExpiresAt > now))))
+            .SumAsync(p => (decimal?)p.Amount) ?? 0m;
+    }
+
     private async Task<Wallet> GetOrCreateWalletAsync(int customerId)
     {
         var wallet = await pmsContext.Wallets.FirstOrDefaultAsync(w => w.CustomerId == customerId);
@@ -1001,7 +1037,9 @@ public class PaymentService(
             Balance = 0,
             Currency = "VND",
             Status = "Active",
-            UpdatedAt = Now
+            UpdatedAt = Now,
+            // SQL Server generates the rowversion; the in-memory test database needs a value
+            RowVersion = []
         };
         pmsContext.Wallets.Add(wallet);
         await pmsContext.SaveChangesAsync();

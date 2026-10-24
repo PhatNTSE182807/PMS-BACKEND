@@ -67,6 +67,10 @@ public class ReservationService(
 
             if (holdNow)
                 await inventory.HoldAsync(slot, lot.Id);
+
+            // With a deposit the booking waits for the payment and then holds the slot 30 minutes after
+            // arrival; without one it is confirmed at once and holds the slot only 15 minutes.
+            var withDeposit = model.PayDeposit;
             var created = new Reservation
             {
                 ReservationCode = ParkingText.NewCode("RSV", Now),
@@ -78,19 +82,20 @@ public class ReservationService(
                 ZoneId = slot.ZoneId,
                 SlotId = slot.Id,
                 StartTime = arrival,
-                EndTime = arrival.AddMinutes(Rules.HoldMinutes),
+                EndTime = arrival.AddMinutes(Rules.HoldMinutesFor(withDeposit)),
                 BookingMode = mode,
                 DepartureTime = departure,
                 SlotHeldAt = holdNow ? Now : null,
-                DepositAmount = DepositFor(vehicleType.Code),
-                DepositDueAt = Now.AddMinutes(Rules.DepositMinutes),
-                Status = ReservationStatus.PendingDeposit,
+                DepositAmount = withDeposit ? DepositFor(vehicleType.Code) : 0,
+                DepositDueAt = withDeposit ? Now.AddMinutes(Rules.DepositMinutes) : null,
+                Status = withDeposit ? ReservationStatus.PendingDeposit : ReservationStatus.Confirmed,
+                ConfirmedAt = withDeposit ? null : Now,
                 CreatedAt = Now
             };
             pmsContext.Reservations.Add(created);
             await pmsContext.SaveChangesAsync();
 
-            Log(created.Id, "Created", null, $"{slot.Code} {mode} @ {arrival:O}{(departure != null ? $" - {departure:O}" : "")}", userId);
+            Log(created.Id, "Created", null, $"{slot.Code} {mode} @ {arrival:O}{(departure != null ? $" - {departure:O}" : "")}{(withDeposit ? "" : " no deposit")}", userId);
             await pmsContext.SaveChangesAsync();
             return created;
         }));
@@ -166,7 +171,8 @@ public class ReservationService(
             {
                 Log(reservation.Id, "ArrivalChanged", reservation.StartTime.ToString("O"), arrival.ToString("O"), userId);
                 reservation.StartTime = arrival;
-                reservation.EndTime = arrival.AddMinutes(Rules.HoldMinutes);
+                // Keep the hold length of the booking type: 30 minutes with a deposit, 15 without
+                reservation.EndTime = arrival.AddMinutes(Rules.HoldMinutesFor(reservation.DepositAmount > 0));
                 reservation.ReminderSentAt = null;
                 reservation.HoldReminderSentAt = null;
             }
@@ -670,6 +676,8 @@ public class ReservationService(
                 CheckInFrom = Utc(r.StartTime.AddMinutes(-Rules.EarlyArrivalMinutes)),
                 CheckInUntil = Utc(r.EndTime),
                 DepositAmount = r.DepositAmount,
+                HasDeposit = r.DepositAmount > 0,
+                HoldMinutes = (int)(r.EndTime - r.StartTime).TotalMinutes,
                 DepositDueAt = r.DepositDueAt is { } due ? Utc(due) : null,
                 RefundAmount = r.RefundAmount,
                 CancelReason = r.CancelReason,
