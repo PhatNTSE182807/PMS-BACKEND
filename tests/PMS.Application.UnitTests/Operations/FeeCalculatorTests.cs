@@ -6,9 +6,9 @@ using Xunit;
 namespace PMS.Application.UnitTests.Operations;
 
 /// <summary>
-/// The fee table of SRS section 5 (car; free when leaving within 15 minutes, otherwise charged from the
-/// first minute; 20,000 VND per 1-hour block rounded up; 150,000 VND cap per calendar day; 10,000 VND
-/// late charge after the Exit Window). Phase 1 acceptance requires all six examples to be right.
+/// The fee table of SRS section 5 (car; 20,000 VND per 1-hour block rounded up; 150,000 VND cap per calendar
+/// day; 10,000 VND late charge after the Exit Window), with the team's change: no free period, the first
+/// hour is owed from entry. Phase 1 acceptance requires all six examples to be right.
 /// </summary>
 public class FeeCalculatorTests
 {
@@ -29,12 +29,23 @@ public class FeeCalculatorTests
     private static decimal Fee(DateTime entry, DateTime exit) => FeeCalculator.Calculate(SrsCar, entry, exit, Vietnam).Total;
 
     [Fact]
-    public void Example1_Leaving_Within_The_Free_Period_Costs_Nothing()
+    public void Example1_Leaving_After_Ten_Minutes_Costs_The_First_Hour()
     {
         var result = FeeCalculator.Calculate(SrsCar, Local(20, 8, 0), Local(20, 8, 10), Vietnam);
 
-        result.Total.Should().Be(0);
-        result.WithinGrace.Should().BeTrue();
+        // No free period any more, even with a grace time on the tariff
+        result.Total.Should().Be(20_000);
+        result.WithinGrace.Should().BeFalse();
+        result.Days.Should().ContainSingle().Which.Blocks.Should().Be(1);
+    }
+
+    [Fact]
+    public void Leaving_The_Minute_Of_Entry_Still_Costs_The_First_Block()
+    {
+        var withFirstBlock = SrsCar with { FirstBlockMinutes = 120, FirstBlockPrice = 35_000 };
+
+        FeeCalculator.Calculate(SrsCar, Local(20, 8, 0), Local(20, 8, 0), Vietnam).Total.Should().Be(20_000);
+        FeeCalculator.Calculate(withFirstBlock, Local(20, 8, 0), Local(20, 8, 1), Vietnam).Total.Should().Be(35_000);
     }
 
     [Fact]
@@ -95,10 +106,12 @@ public class FeeCalculatorTests
     }
 
     [Fact]
-    public void Exactly_The_Free_Period_Is_Still_Free_And_One_Minute_More_Pays_From_The_Start()
+    public void The_First_Hour_Covers_The_First_Sixty_Minutes_Then_The_Next_Block_Starts()
     {
-        Fee(Local(20, 8, 0), Local(20, 8, 15)).Should().Be(0);
-        Fee(Local(20, 8, 0), Local(20, 8, 16)).Should().Be(20_000);
+        // No free period: 15 minutes and 60 minutes both cost the first hour, minute 61 starts block two
+        Fee(Local(20, 8, 0), Local(20, 8, 15)).Should().Be(20_000);
+        Fee(Local(20, 8, 0), Local(20, 9, 0)).Should().Be(20_000);
+        Fee(Local(20, 8, 0), Local(20, 9, 1)).Should().Be(40_000);
     }
 
     [Fact]
