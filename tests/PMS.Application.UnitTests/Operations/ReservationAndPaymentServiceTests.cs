@@ -188,7 +188,12 @@ public class ReservationAndPaymentServiceTests
         var t = await new OperationsTestContext().SeedAsync();
         var (reservation, _) = await t.ConfirmedReservationAsync(arrivalInMinutes: 30);
 
+        // Still inside the 30-minute hold of a booking with a deposit
         t.Clock.Advance(TimeSpan.FromMinutes(46));
+        (await t.Jobs.RunMinutelyAsync()).NoShows.Should().Be(0);
+
+        // The hold has ended (arrival + 30 minutes)
+        t.Clock.Advance(TimeSpan.FromMinutes(15));
         (await t.Jobs.RunMinutelyAsync()).NoShows.Should().Be(1);
 
         var after = await t.Reservations.GetAsync(t.CustomerUserId, reservation.Id);

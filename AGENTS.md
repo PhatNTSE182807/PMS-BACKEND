@@ -274,6 +274,15 @@ git checkout features/<name>               # keep working on the branch afterwar
 
 Keep this list current; it is the first place to look when code and SRS disagree.
 
+- Deposit is optional when booking (team decision, 2026-10-24). With a deposit (BR-06, paid by
+  wallet, VNPay or MoMo) the booking waits in `PendingDeposit` and the slot is held **30 minutes**
+  after arrival (`Parking:Reservations:DepositHoldMinutes`). Without a deposit
+  (`CreateReservationModel.PayDeposit = false`) it is `Confirmed` at once, `DepositAmount` is 0 and
+  the slot is held only **15 minutes** (`HoldMinutes`, the SRS BR-02 value). BR-02's single hold time
+  no longer applies to deposit bookings.
+- Online wallet top-ups (VNPay / MoMo) are capped at **10,000,000 VND per customer per calendar day**
+  (Vietnam time, `Parking:Wallet:DailyTopUpLimit`); paid and still-payable top-up links of the day
+  both count. The wallet itself is a team addition (see below).
 - Password rule (confirmed by the team on 2026-10-24, keep it): at least 6 characters with at
   least one upper-case letter and at least one special character, for every account. It replaces
   BR-28's rule (8+ characters with upper, lower and digit); do not switch to the SRS version.

@@ -12,6 +12,8 @@ public class ParkingOptions
 
     public GateRules Gate { get; set; } = new();
 
+    public WalletRules Wallet { get; set; } = new();
+
     /// <summary>
     /// Tariffs used when a lot has no active PricingRule for the vehicle type. When empty the SRS fee
     /// example is used for cars plus small flat-ish tariffs for two-wheelers (see <see cref="DefaultTariffs"/>).
@@ -61,8 +63,20 @@ public class ReservationRules
     /// <summary>BR-02: check-in opens this many minutes before the arrival time.</summary>
     public int EarlyArrivalMinutes { get; set; } = 15;
 
-    /// <summary>BR-02: the slot is held this many minutes after the arrival time (then No-show, BR-05).</summary>
+    /// <summary>
+    /// BR-02: a booking made without a deposit holds the slot this many minutes after the arrival time
+    /// (then No-show, BR-05).
+    /// </summary>
     public int HoldMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Team change to BR-02: a booking with a paid deposit holds the slot longer, this many minutes
+    /// after the arrival time.
+    /// </summary>
+    public int DepositHoldMinutes { get; set; } = 30;
+
+    /// <summary>How long the slot is held after arrival for a booking with or without a deposit.</summary>
+    public int HoldMinutesFor(bool withDeposit) => withDeposit ? DepositHoldMinutes : HoldMinutes;
 
     /// <summary>BR-04: cancelling at least this many minutes before arrival refunds 100 %; later refunds nothing. Also the change deadline.</summary>
     public int CancelRefundMinutes { get; set; } = 30;
@@ -86,6 +100,19 @@ public class ReservationRules
 
     /// <summary>BR-01: only these vehicle types may book ("chỉ ô tô" by default).</summary>
     public string[] ReservableVehicleTypeCodes { get; set; } = ["CAR_4", "CAR_7"];
+}
+
+/// <summary>XXIV Wallet limits for customers.</summary>
+public class WalletRules
+{
+    /// <summary>Smallest online top-up accepted.</summary>
+    public decimal MinTopUp { get; set; } = 10_000;
+
+    /// <summary>
+    /// Most a customer can top up online in one calendar day (Vietnam time). Paid and still-open
+    /// top-ups of the day both count, so parallel payment links cannot go over it.
+    /// </summary>
+    public decimal DailyTopUpLimit { get; set; } = 10_000_000;
 }
 
 /// <summary>Gate rules: BR-10, BR-11, BR-18, BR-20 and the turn-around timeout.</summary>

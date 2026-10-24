@@ -121,6 +121,15 @@ public class WalletResponseModel
 
     public string Status { get; set; } = "Active";
 
+    /// <summary>Most the customer can top up online per calendar day.</summary>
+    public decimal DailyTopUpLimit { get; set; }
+
+    /// <summary>What is left of today's top-up limit (paid and still-payable top-ups count).</summary>
+    public decimal TopUpRemainingToday { get; set; }
+
+    /// <summary>Smallest online top-up accepted.</summary>
+    public decimal MinTopUp { get; set; }
+
     public IReadOnlyList<WalletTransactionResponseModel> RecentTransactions { get; set; } = [];
 }
 
