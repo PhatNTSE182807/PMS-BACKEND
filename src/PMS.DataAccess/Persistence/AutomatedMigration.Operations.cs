@@ -132,6 +132,22 @@ public static partial class AutomatedMigration
                 CREATE NONCLUSTERED INDEX [IX_PricingRules_Lot_VehicleType] ON [dbo].[PricingRules]([ParkingLotId] ASC, [VehicleTypeId] ASC, [Status] ASC);
             END
 
+            IF OBJECT_ID('dbo.PricingRuleHistories', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[PricingRuleHistories](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [PricingRuleId] [int] NOT NULL,
+                    [ChangeType] [varchar](20) NOT NULL,
+                    [OldValuesJson] [nvarchar](max) NULL,
+                    [NewValuesJson] [nvarchar](max) NULL,
+                    [ChangedBy] [nvarchar](450) NULL,
+                    [ChangedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [Reason] [nvarchar](500) NULL,
+                    CONSTRAINT [FK_PricingRuleHistories_PricingRules] FOREIGN KEY([PricingRuleId]) REFERENCES [dbo].[PricingRules] ([Id])
+                );
+                CREATE NONCLUSTERED INDEX [IX_PricingRuleHistories_PricingRuleId] ON [dbo].[PricingRuleHistories]([PricingRuleId] ASC);
+            END
+
             IF OBJECT_ID('dbo.Reservations', 'U') IS NULL
             BEGIN
                 CREATE TABLE [dbo].[Reservations](

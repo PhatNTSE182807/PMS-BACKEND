@@ -29,6 +29,7 @@ public static class OperationsDependencyInjection
         services.AddScoped<ParkingInventory>();
         services.AddScoped<LotScopeService>();
         services.AddScoped<TariffProvider>();
+        services.AddScoped<IPricingRuleService, PricingRuleService>();
         services.AddScoped<PlateListService>();
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<ReservationService>();
