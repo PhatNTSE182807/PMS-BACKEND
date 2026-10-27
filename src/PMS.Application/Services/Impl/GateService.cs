@@ -58,6 +58,27 @@ public class GateService(
         return await ToModelsAsync(await query.OrderByDescending(s => s.EntryTime).Take(300).ToListAsync());
     }
 
+    public async Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize)
+    {
+        await lotScope.EnsureCanOperateAsync(lotId);
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+        var query = pmsContext.ParkingSessions.AsNoTracking().Where(s => s.ParkingLotId == lotId);
+        var normalized = ParkingText.NormalizePlate(plate);
+        if (normalized.Length > 0)
+            query = query.Where(s => s.EntryPlateNormalized.Contains(normalized));
+        var count = await query.CountAsync();
+        var offset = (long)(page - 1) * pageSize;
+        List<ParkingSession> sessions = offset >= count
+            ? []
+            : await query.OrderByDescending(s => s.EntryTime).ThenByDescending(s => s.Id)
+                .Skip((int)offset).Take(pageSize).ToListAsync();
+        return new StaffSessionHistoryPageModel
+        {
+            Items = await ToModelsAsync(sessions), Page = page, PageSize = pageSize, TotalCount = count
+        };
+    }
+
     public async Task<SessionResponseModel> GetSessionAsync(long sessionId) =>
         await ToModelAsync(await ScopedSessionAsync(sessionId));
 

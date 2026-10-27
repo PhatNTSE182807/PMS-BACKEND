@@ -15,6 +15,8 @@ public interface IGateService
     /// <summary>Sessions of the lot; by default the open ones (vehicles inside or entering).</summary>
     Task<IReadOnlyList<SessionResponseModel>> GetSessionsAsync(int lotId, string status, string plate);
 
+    Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize);
+
     Task<SessionResponseModel> GetSessionAsync(long sessionId);
 
     /// <summary>Find the open session of a plate, a ticket QR or a session code at an exit lane.</summary>

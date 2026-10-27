@@ -309,3 +309,11 @@ public class CreatePlateListEntryModel
 
     public DateTime ExpiresAt { get; set; }
 }
+
+public class StaffSessionHistoryPageModel
+{
+    public IReadOnlyList<SessionResponseModel> Items { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+}
