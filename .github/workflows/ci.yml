@@ -1,0 +1,190 @@
+# CI/CD for the PMS backend (.NET 9) on GitHub Actions.
+#
+# GitLab (git.fsoft-academy.edu.vn) stays the main repository: a GitLab push mirror copies every
+# branch here, and this workflow runs on GitHub's hosted runners. Setup: docs/GITHUB-ACTIONS.md.
+#
+# build  -> restore + compile the solution
+# test   -> unit + integration tests (in-memory DB), test results and coverage as artifacts
+# docker -> build the API image; push it to GitHub Container Registry on develop / main / tags
+# deploy -> publish and zip-deploy to Azure App Service on push to `production`,
+#           only when the repository variable AZURE_DEPLOY_ENABLED is "true"
+
+name: Backend CI/CD
+
+on:
+  push:
+    branches: ['**']
+    tags: ['*']
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the older run, except on production (never cut a deploy)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/production' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: NuGet cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - run: dotnet restore PMS.sln
+      - run: dotnet build PMS.sln -c "$BUILD_CONFIGURATION" --no-restore
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: unit-tests
+            project: tests/PMS.Application.UnitTests/PMS.Application.UnitTests.csproj
+          - name: integration-tests
+            project: tests/PMS.Api.IntegrationTests/PMS.Api.IntegrationTests.csproj
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: NuGet cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Run tests
+        run: >
+          dotnet test ${{ matrix.project }} -c "$BUILD_CONFIGURATION"
+          --logger "trx;LogFilePrefix=${{ matrix.name }}"
+          --collect "XPlat Code Coverage"
+          --results-directory TestResults
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      - name: Keep test results and coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-results
+          path: TestResults/
+          retention-days: 7
+
+  docker-image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Only branches that ship push the image; every other run still builds it to catch a broken Dockerfile
+      - name: Decide whether to push
+        id: push
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && \
+             { [ "${{ github.ref }}" = "refs/heads/develop" ] || [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref_type }}" = "tag" ]; }; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Log in to GitHub Container Registry
+        if: steps.push.outputs.enabled == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Image name in lower case (ghcr.io/<owner>/<repo>/pms-api), tagged with the short SHA,
+      # the branch or tag name, and "latest" on main
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/pms-api
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ steps.push.outputs.enabled == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-azure:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/production' && vars.AZURE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.AZURE_WEBAPP_URL }}
+    # One deploy at a time
+    concurrency:
+      group: azure-production
+      cancel-in-progress: false
+    env:
+      AZURE_WEBAPP_URL: ${{ vars.AZURE_WEBAPP_URL }}
+      AZURE_SCM_URL: ${{ vars.AZURE_SCM_URL }}
+      # Passed through env, never pasted into the script: the user name starts with "$"
+      AZURE_DEPLOY_USER: ${{ secrets.AZURE_DEPLOY_USER }}
+      AZURE_DEPLOY_PASSWORD: ${{ secrets.AZURE_DEPLOY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: NuGet cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Check deploy settings
+        run: |
+          for v in AZURE_WEBAPP_URL AZURE_SCM_URL AZURE_DEPLOY_USER AZURE_DEPLOY_PASSWORD; do
+            if [ -z "$(printenv "$v")" ]; then echo "Missing setting: $v (see docs/GITHUB-ACTIONS.md)"; exit 1; fi
+          done
+      - name: Publish
+        run: |
+          dotnet publish src/PMS.API/PMS.API.csproj -c "$BUILD_CONFIGURATION" -o publish /p:UseAppHost=false
+          (cd publish && zip -qr ../app.zip .)
+      - name: Zip deploy to Azure App Service
+        run: >
+          curl --fail-with-body -sS -X POST
+          -u "$AZURE_DEPLOY_USER:$AZURE_DEPLOY_PASSWORD"
+          --data-binary @app.zip
+          "$AZURE_SCM_URL/api/zipdeploy?isAsync=false"
+      # Free tier + paused serverless DB can take a while to cold start
+      - name: Wait until the API answers
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$AZURE_WEBAPP_URL/swagger/index.html" || true)
+            echo "Health check $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 15
+          done
+          echo "App did not become healthy - check Log stream in the Azure portal"
+          exit 1

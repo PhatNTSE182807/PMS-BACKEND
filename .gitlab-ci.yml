@@ -3,7 +3,8 @@
 # build  -> restore + compile the solution
 # test   -> unit + integration tests (in-memory DB), JUnit + Cobertura reports
 # docker -> build the API image and push it to the GitLab Container Registry (develop/main/tags)
-# deploy -> publish and zip-deploy to Azure App Service (automatic on push to `production`)
+# deploy -> publish and zip-deploy to Azure App Service (automatic on push to `production`,
+#           unless AZURE_DEPLOY_DISABLED is "true" because GitHub Actions deploys instead)
 #
 # Required CI/CD variables for deploy (Settings > CI/CD > Variables, Protected + Masked),
 # printed by deploy/azure/setup-azure.sh:
@@ -143,7 +144,9 @@ deploy-azure:
     url: $AZURE_WEBAPP_URL
   resource_group: production
   rules:
-    - if: $CI_COMMIT_BRANCH == "production"
+    # Set AZURE_DEPLOY_DISABLED=true in Settings > CI/CD > Variables once GitHub Actions deploys
+    # (docs/GITHUB-ACTIONS.md), so the same push is not deployed twice
+    - if: $CI_COMMIT_BRANCH == "production" && $AZURE_DEPLOY_DISABLED != "true"
   before_script:
     - |
       for v in AZURE_WEBAPP_URL AZURE_SCM_URL AZURE_DEPLOY_USER AZURE_DEPLOY_PASSWORD; do
