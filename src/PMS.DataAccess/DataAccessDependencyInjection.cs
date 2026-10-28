@@ -63,7 +63,12 @@ public static class DataAccessDependencyInjection
             });
 
             services.AddDbContext<PmsDbContext>(options =>
-                options.UseSqlServer(connectionString));
+            {
+                options.UseSqlServer(connectionString);
+                // MARS is on, so EF never uses savepoints inside a transaction; without this every SaveChanges
+                // in one (e.g. the demo data seed) logs the same warning
+                options.ConfigureWarnings(w => w.Ignore(SqlServerEventId.SavepointsDisabledBecauseOfMARS));
+            });
         }
     }
 

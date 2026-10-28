@@ -43,6 +43,9 @@ await AutomatedMigration.MigrateAsync(scope.ServiceProvider);
 var pmsContext = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
 await PMS.Application.Helpers.ParkingLotDataSeed.SeedParkingLotsAsync(pmsContext);
 
+// Demo accounts and parking data for manual testing, when "Seed:DemoData" is true (docs/DEMO_DATA.md)
+await PMS.Application.Helpers.DemoData.DemoDataSeed.SeedIfEnabledAsync(scope.ServiceProvider);
+
 app.UseSwagger();
 app.UseSwaggerUI(c => { c.SwaggerEndpoint("/swagger/v1/swagger.json", "XXIV Parking V1"); });
 
