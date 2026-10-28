@@ -17,7 +17,7 @@ dotnet test tests/PMS.Application.UnitTests --settings coverlet.runsettings --co
 
 The run writes `TestResults/<guid>/coverage.cobertura.xml`. The overall line coverage is the `line-rate` attribute on the root `<coverage>` element.
 
-`coverlet.runsettings` measures only the `PMS.*` assemblies and skips the test projects, EF Core migrations, generated code and auto-properties.
+`coverlet.runsettings` measures only the `PMS.*` assemblies and skips the test projects, EF Core migrations, generated code, auto-properties and start-up wiring that unit tests cannot run: `*DependencyInjection.cs`, the migration runner (`AutomatedMigration*`), the local SQL Server probe (`DatabaseConnectionStringResolver`) and the Development demo seed (`Helpers/DemoData`, covered by the integration tests).
 
 ## HTML report (optional)
 
