@@ -9,8 +9,11 @@
           <!-- Measure only the PMS assemblies, never the test projects themselves. -->
           <Include>[PMS.*]*</Include>
           <Exclude>[PMS.*Tests]*</Exclude>
-          <!-- EF Core migrations and generated code are not worth covering. -->
-          <ExcludeByFile>**/Migrations/*.cs,**/obj/**/*.cs</ExcludeByFile>
+          <!-- EF Core migrations and generated code are not worth covering.
+               Start-up wiring is not unit-testable either: DI registration, the database migration runner,
+               the local SQL Server probe and the Development-only demo seed (checked by the API integration
+               tests in DemoDataSeedTests). -->
+          <ExcludeByFile>**/Migrations/*.cs,**/obj/**/*.cs,**/*DependencyInjection.cs,**/Helpers/DemoData/*.cs,**/Persistence/AutomatedMigration*.cs,**/Persistence/DatabaseConnectionStringResolver.cs</ExcludeByFile>
           <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
           <SkipAutoProps>true</SkipAutoProps>
         </Configuration>
