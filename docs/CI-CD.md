@@ -55,6 +55,8 @@ Link backend: `<AZURE_WEBAPP_URL>/swagger` (hiện ở **Operate → Environment
 
 Thêm trong Azure Portal → Web app → **Settings → Environment variables**, dùng cú pháp `__` để ghi đè `appsettings.json`, ví dụ `SmtpSettings__Username`, `SmtpSettings__Password`.
 
+Forgot password gửi link về frontend: đặt `App__FrontendBaseUrl` = URL frontend đã deploy (ví dụ `https://pms-web.example.com`), nếu không link sẽ trỏ về `http://localhost:5173`. Cần cấu hình `SmtpSettings__*` để email được gửi đi.
+
 ### Xem log khi lỗi
 
 Azure Portal → Web app → **Monitoring → Log stream**.
