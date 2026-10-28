@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace PMS.Application.Models.ParkingLot;
 
@@ -40,4 +41,24 @@ public class PublicParkingLotResponseModel
 
     /// <summary>Why the lot cannot be booked, in plain words; null when it can.</summary>
     public string MaintenanceNotice { get; set; }
+
+    /// <summary>Bays in the lot's active zones: the zone counters, or the active slots of zones without one.</summary>
+    public int TotalBays { get; set; }
+
+    /// <summary>Bays free right now, from the same zone counters (live).</summary>
+    public int FreeBays { get; set; }
+
+    /// <summary>Free and total bays per vehicle family (CAR, MOTORBIKE). Counts only, never plates.</summary>
+    public List<PublicLotBaysModel> BaysByVehicle { get; set; } = [];
+}
+
+/// <summary>Free and total bays of one vehicle family in a lot.</summary>
+public class PublicLotBaysModel
+{
+    /// <summary>CAR (4- and 7-seat cars share bays) or MOTORBIKE.</summary>
+    public string VehicleType { get; set; }
+
+    public int TotalBays { get; set; }
+
+    public int FreeBays { get; set; }
 }
