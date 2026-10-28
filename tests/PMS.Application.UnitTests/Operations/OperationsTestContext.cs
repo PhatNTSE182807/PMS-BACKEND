@@ -75,6 +75,9 @@ public sealed class OperationsTestContext
     public ParkingLot Lot { get; private set; }
     public string CustomerUserId { get; } = "customer-1";
     public string StaffUserId { get; } = "staff-1";
+
+    /// <summary>The lot's Manager; a lot needs an active Manager and Staff to take bookings.</summary>
+    public string ManagerUserId { get; } = "manager-1";
     public Customer Customer { get; private set; }
     public Vehicle Car { get; private set; }
 
@@ -112,12 +115,14 @@ public sealed class OperationsTestContext
             new VehicleType { Code = "CAR_4", Name = "4-Seat Car", IsActive = true, SortOrder = 1 },
             new VehicleType { Code = "CAR_7", Name = "7-Seat Car", IsActive = true, SortOrder = 2 },
             new VehicleType { Code = "MOTORBIKE", Name = "Motorbike", IsActive = true, SortOrder = 3 });
-        Lot = new ParkingLot { Code = "LOT-T", Name = "Test lot", Address = "1 Test St", Status = "Active", TimeZoneId = "SE Asia Standard Time", CreatedAt = Now };
+        // A lot only takes bookings with an active Manager and Staff on duty
+        Lot = new ParkingLot { Code = "LOT-T", Name = "Test lot", Address = "1 Test St", Status = "Active", ManagerUserId = ManagerUserId, TimeZoneId = "SE Asia Standard Time", CreatedAt = Now };
         Db.ParkingLots.Add(Lot);
         await Db.SaveChangesAsync();
         await LotTemplates.ApplyAsync(Db, Lot, "L3S20", "admin");
 
         Db.Employees.Add(new Employee { UserId = StaffUserId, EmployeeCode = "EMP-1", FullName = "Staff", ParkingLotId = Lot.Id, Status = "Active", Position = "Attendant", CreatedAt = Now });
+        Db.Employees.Add(new Employee { UserId = ManagerUserId, EmployeeCode = "QL-1", FullName = "Manager", Status = "Active", Position = "Manager", CreatedAt = Now });
         Customer = new Customer { UserId = CustomerUserId, CustomerCode = "CUS-1", FullName = "Customer", IsActive = true, CreatedAt = Now };
         Db.Customers.Add(Customer);
         await Db.SaveChangesAsync();

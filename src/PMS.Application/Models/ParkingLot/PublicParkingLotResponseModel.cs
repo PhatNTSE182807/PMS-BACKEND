@@ -32,5 +32,12 @@ public class PublicParkingLotResponseModel
 
     public string Phone { get; set; }
 
+    /// <summary>Active, or Maintenance (also when the lot has no Manager and Staff on duty yet).</summary>
     public string Status { get; set; }
+
+    /// <summary>False while the lot is under maintenance: it can be viewed but not booked.</summary>
+    public bool IsBookable { get; set; }
+
+    /// <summary>Why the lot cannot be booked, in plain words; null when it can.</summary>
+    public string MaintenanceNotice { get; set; }
 }

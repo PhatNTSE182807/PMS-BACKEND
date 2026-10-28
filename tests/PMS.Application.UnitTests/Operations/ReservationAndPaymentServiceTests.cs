@@ -34,6 +34,26 @@ public class ReservationAndPaymentServiceTests
         t.CounterOf(slot.ZoneId).AvailableSpaces.Should().Be(before - 1);
     }
 
+    [Theory]
+    [InlineData("staff")]
+    [InlineData("manager")]
+    public async Task A_Lot_Without_An_Active_Manager_And_Staff_Cannot_Be_Booked(string missing)
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+        var gone = missing == "staff" ? t.StaffUserId : t.ManagerUserId;
+        (await t.Db.Employees.SingleAsync(e => e.UserId == gone)).Status = "Inactive";
+        await t.Db.SaveChangesAsync();
+        var slot = t.FreeCarSlot();
+
+        var act = () => t.Reservations.CreateAsync(t.CustomerUserId, new CreateReservationModel
+        {
+            ParkingLotId = t.Lot.Id, SlotId = slot.Id, VehicleId = t.Car.Id, ArrivalTime = t.Clock.GetUtcNow().AddMinutes(30)
+        });
+
+        await act.Should().ThrowAsync<BadRequestException>().WithMessage("*under maintenance*");
+        (await t.Db.Slots.FindAsync(slot.Id))!.Status.Should().Be(SlotStatus.Available);
+    }
+
     [Fact]
     public async Task Second_Holder_Of_The_Same_Slot_Loses()
     {

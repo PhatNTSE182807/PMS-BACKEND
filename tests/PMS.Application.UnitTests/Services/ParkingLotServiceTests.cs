@@ -51,7 +51,11 @@ public class ParkingLotServiceTests
         result.Id.Should().BeGreaterThan(0);
         result.Code.Should().Be("LOT-Q1-01");
         result.Name.Should().Be("District 1 Central Parking");
-        result.Status.Should().Be("Active");
+        // A new lot has no Manager and Staff yet: it is saved as Active but shown as Maintenance
+        result.StoredStatus.Should().Be("Active");
+        result.Status.Should().Be("Maintenance");
+        result.IsStaffed.Should().BeFalse();
+        result.IsBookable.Should().BeFalse();
         result.IsDeleted.Should().BeFalse();
         result.CreatedBy.Should().Be("admin-user-id");
 
@@ -116,19 +120,49 @@ public class ParkingLotServiceTests
     }
 
     [Fact]
-    public async Task GetPublicLotsAsync_Should_Return_Only_Active_And_NonDeleted_Lots()
+    public async Task GetPublicLotsAsync_Should_Show_Open_And_Maintenance_Lots_But_Not_Closed_Or_Deleted_Ones()
     {
         _context.ParkingLots.AddRange(
             new ParkingLot { Code = "L1", Name = "Active Lot", Address = "A1", Status = "Active", IsDeleted = false },
             new ParkingLot { Code = "L2", Name = "Maintenance Lot", Address = "A2", Status = "Maintenance", IsDeleted = false },
-            new ParkingLot { Code = "L3", Name = "Deleted Lot", Address = "A3", Status = "Active", IsDeleted = true }
+            new ParkingLot { Code = "L3", Name = "Deleted Lot", Address = "A3", Status = "Active", IsDeleted = true },
+            new ParkingLot { Code = "L4", Name = "Closed Lot", Address = "A4", Status = "TemporarilyClosed", IsDeleted = false }
         );
         await _context.SaveChangesAsync();
 
         var result = await _sut.GetPublicLotsAsync();
 
-        result.Should().HaveCount(1);
-        result.First().Code.Should().Be("L1");
+        result.Select(l => l.Code).Should().BeEquivalentTo(["L1", "L2"]);
+        result.Should().OnlyContain(l => !l.IsBookable && l.Status == "Maintenance");
+    }
+
+    [Fact]
+    public async Task A_Lot_Is_Bookable_Only_With_An_Active_Manager_And_Active_Staff()
+    {
+        var lot = new ParkingLot { Code = "L1", Name = "Lot", Address = "A1", Status = "Active", ManagerUserId = "manager-1" };
+        _context.ParkingLots.Add(lot);
+        _context.Employees.Add(new Employee { UserId = "manager-1", EmployeeCode = "QL1", FullName = "Manager", Position = "Manager", Status = "Active" });
+        await _context.SaveChangesAsync();
+
+        // Manager only: still under maintenance
+        (await _sut.GetByIdAsync(lot.Id)).Status.Should().Be("Maintenance");
+
+        var staff = new Employee { UserId = "staff-1", EmployeeCode = "NV1", FullName = "Staff", Position = "Staff", Status = "Active", ParkingLotId = lot.Id };
+        _context.Employees.Add(staff);
+        await _context.SaveChangesAsync();
+
+        var staffed = await _sut.GetByIdAsync(lot.Id);
+        staffed.Status.Should().Be("Active");
+        staffed.IsBookable.Should().BeTrue();
+        (await _sut.GetPublicLotsAsync()).Single().IsBookable.Should().BeTrue();
+
+        // The only Staff member is deactivated: back to maintenance
+        staff.Status = "Inactive";
+        await _context.SaveChangesAsync();
+        var unstaffed = (await _sut.GetPublicLotsAsync()).Single();
+        unstaffed.Status.Should().Be("Maintenance");
+        unstaffed.IsBookable.Should().BeFalse();
+        unstaffed.MaintenanceNotice.Should().NotBeNullOrEmpty();
     }
 
     [Fact]
