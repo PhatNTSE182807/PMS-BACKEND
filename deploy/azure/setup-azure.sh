@@ -51,6 +51,8 @@ az webapp config set -g "$RESOURCE_GROUP" -n "$APP_NAME" --startup-file "dotnet 
 az webapp config appsettings set -g "$RESOURCE_GROUP" -n "$APP_NAME" -o none --settings \
     ASPNETCORE_ENVIRONMENT=Production \
     Database__UseInMemoryDatabase=false \
+    Database__UsePerUserDatabase=false \
+    Database__AutoDetectLocalServer=false \
     "Database__ConnectionString=$CONNECTION_STRING" \
     "JwtConfiguration__SecretKey=$JWT_SECRET"
 

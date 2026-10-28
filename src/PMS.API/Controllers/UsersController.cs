@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using PMS.Application.Models;
 using PMS.Application.Models.Profile;
 using PMS.Application.Models.User;
@@ -23,6 +24,7 @@ internal static class SwaggerTags
 public class UsersController(
     IUserService userService,
     IUserProfileService userProfileService,
+    IPasswordResetService passwordResetService,
     IClaimService claimService) : ApiController
 {
     [HttpGet]
@@ -103,6 +105,28 @@ public class UsersController(
     public async Task<IActionResult> LoginWithOtpAsync(VerifyLoginOtpModel model)
     {
         return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginWithOtpAsync(model)));
+    }
+
+    [HttpPost("forgot-password")]
+    [Tags(SwaggerTags.Authentication)]
+    [AllowAnonymous]
+    [EnableRateLimiting(ApiDependencyInjection.PasswordResetRateLimit)]
+    public async Task<IActionResult> ForgotPasswordAsync([FromBody] ForgotPasswordModel model)
+    {
+        await passwordResetService.RequestResetAsync(model);
+        // Same answer whether or not the email has an account
+        return Ok(ApiResult<string>.Success(
+            "If an account uses this email, we have sent a link to reset the password. Please check your inbox."));
+    }
+
+    [HttpPost("reset-password")]
+    [Tags(SwaggerTags.Authentication)]
+    [AllowAnonymous]
+    [EnableRateLimiting(ApiDependencyInjection.PasswordResetRateLimit)]
+    public async Task<IActionResult> ResetPasswordAsync([FromBody] ResetPasswordModel model)
+    {
+        await passwordResetService.ResetPasswordAsync(model);
+        return Ok(ApiResult<string>.Success("Your password has been reset. You can now sign in with it."));
     }
 
     [HttpPost("login-google")]

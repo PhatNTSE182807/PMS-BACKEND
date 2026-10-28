@@ -19,12 +19,27 @@ public static class ApiDependencyInjection
     /// <summary>Rate limit for the public 3D layout channel (SRS FR-3D-08).</summary>
     public const string PublicLayoutRateLimit = "public-layout";
 
-    /// <summary>120 requests a minute per client IP: enough to poll statuses every second.</summary>
+    /// <summary>Rate limit for the forgot / reset password endpoints, which send emails and check tokens.</summary>
+    public const string PasswordResetRateLimit = "password-reset";
+
+    /// <summary>
+    /// Public layout: 120 requests a minute per client IP, enough to poll statuses every second.
+    /// Password reset: 5 requests per 15 minutes per client IP, so nobody can flood a mailbox.
+    /// </summary>
     public static void AddPublicRateLimits(this IServiceCollection services)
     {
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddPolicy(PasswordResetRateLimit, context =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 5,
+                        Window = TimeSpan.FromMinutes(15),
+                        QueueLimit = 0
+                    }));
             options.AddPolicy(PublicLayoutRateLimit, context =>
                 RateLimitPartition.GetFixedWindowLimiter(
                     context.Connection.RemoteIpAddress?.ToString() ?? "unknown",

@@ -70,7 +70,12 @@ public static class DataAccessDependencyInjection
     private static void AddIdentity(this IServiceCollection services)
     {
         services.AddDefaultIdentity<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = false)
-            .AddEntityFrameworkStores<DatabaseContext>();
+            .AddEntityFrameworkStores<DatabaseContext>()
+            .AddTokenProvider<PasswordResetTokenProvider>(PasswordResetTokenProviderOptions.ProviderName);
+
+        // Reset links expire after 30 minutes, without changing the lifetime of other tokens
+        services.Configure<IdentityOptions>(options =>
+            options.Tokens.PasswordResetTokenProvider = PasswordResetTokenProviderOptions.ProviderName);
 
         services.Configure<IdentityOptions>(options =>
         {

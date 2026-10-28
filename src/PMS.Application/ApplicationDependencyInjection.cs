@@ -29,6 +29,7 @@ public static class ApplicationDependencyInjection
     {
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IUserProfileService, UserProfileService>();
+        services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IEmployeeAccountService, EmployeeAccountService>();
         services.AddScoped<ILayoutService, LayoutService>();
         services.AddScoped<IParkingLotService, ParkingLotService>();
