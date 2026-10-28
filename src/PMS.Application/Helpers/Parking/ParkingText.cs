@@ -24,9 +24,12 @@ public static class ParkingText
     }
 
     /// <summary>The lot's time zone (Windows or IANA id), falling back to Vietnam time.</summary>
-    public static TimeZoneInfo FindTimeZone(string id)
+    public static TimeZoneInfo FindTimeZone(string id) => FirstTimeZone(id, "SE Asia Standard Time", "Asia/Ho_Chi_Minh");
+
+    /// <summary>The first id this server knows; a fixed UTC+7 zone when it knows none of them.</summary>
+    internal static TimeZoneInfo FirstTimeZone(params string[] candidates)
     {
-        foreach (var candidate in new[] { id, "SE Asia Standard Time", "Asia/Ho_Chi_Minh" })
+        foreach (var candidate in candidates)
         {
             if (string.IsNullOrWhiteSpace(candidate)) continue;
             try
