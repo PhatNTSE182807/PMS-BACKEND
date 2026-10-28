@@ -11,6 +11,9 @@ Pipeline được định nghĩa trong [`.gitlab-ci.yml`](../.gitlab-ci.yml).
 
 Quy trình release: merge `develop` → `production` (hoặc `git push origin develop:production`). Test fail thì không deploy.
 
+The same pipeline can also run on GitHub Actions through a GitLab push mirror, without a team
+runner: see [GITHUB-ACTIONS.md](GITHUB-ACTIONS.md).
+
 ## Chi phí Azure
 
 Toàn bộ dùng gói miễn phí:
