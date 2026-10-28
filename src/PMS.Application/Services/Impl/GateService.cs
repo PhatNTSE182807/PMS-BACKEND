@@ -513,25 +513,43 @@ public class GateService(
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         if (string.IsNullOrWhiteSpace(model?.Reason))
             throw new BadRequestException("A reason is required.");
+
+        // The fee was already asked at the lane when the driver says the ticket is lost: drop that fee
+        // request first (PendingPayment → Active), unless an online payment for it is still running
+        if (session.Status == SessionStatus.PendingPayment)
+        {
+            if (await pmsContext.Payments.AnyAsync(p => p.SessionId == session.Id && p.Status == PaymentStatus.Pending && p.ExpiresAt > Now))
+                throw new BadRequestException("A payment for this session is still in progress: wait for it to finish or expire, then report the lost ticket.");
+            session.Status = SessionStatus.Active;
+        }
         ParkingStateMachines.EnsureSession(session.Status, SessionStatus.LostTicketPending);
 
         var tariff = await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
+        var reporter = lotScope.UserId;
         session.IsLostCard = true;
         session.Status = SessionStatus.LostTicketPending;
         session.UpdatedAt = Now;
-        pmsContext.SessionViolations.Add(new SessionViolation
+        // One row per report: a new report after a rejection is a new case
+        var lostCase = new SessionViolation
         {
             SessionId = session.Id,
-            ViolationType = "LostTicket",
+            ViolationType = ViolationType.LostTicket,
             FineAmount = tariff.LostTicketFee,
             Note = model.Reason.Trim(),
-            ReportedBy = lotScope.UserId,
-            ReportedAt = Now
-        });
+            ReportedBy = reporter,
+            ReportedAt = Now,
+            Status = LostTicketCaseStatus.Pending,
+            ApprovalMode = LostTicketApproval.Manager
+        };
+        pmsContext.SessionViolations.Add(lostCase);
 
         if (model.ConditionsMet)
         {
-            // BR-13: conditional approval; the Manager reviews it within 24 h
+            // BR-13: approved on the spot; IsResolved stays false until the Manager reviews it (24 h)
+            lostCase.Status = LostTicketCaseStatus.Approved;
+            lostCase.ApprovalMode = LostTicketApproval.Conditional;
+            lostCase.DecidedBy = reporter;
+            lostCase.DecidedAt = Now;
             session.Status = SessionStatus.PendingPayment;
             await QuoteAsync(session, null, null, mutate: true);
         }
@@ -554,6 +572,22 @@ public class GateService(
         await lotScope.EnsureCanManageAsync(session.ParkingLotId);
         if (session.Status != SessionStatus.LostTicketPending)
             throw new BadRequestException("No lost-ticket case is waiting.");
+        var lostCase = await CurrentLostTicketCaseAsync(session.Id)
+                       ?? throw new BadRequestException("No lost-ticket case is waiting.");
+
+        // BR-14 Maker-Checker: whoever reported the case never decides it
+        var decider = lotScope.UserId;
+        if (lostCase.ReportedBy == decider)
+            throw new ForbiddenException("You reported this lost ticket, so another Manager or an Admin has to decide it.");
+        if (!approve && string.IsNullOrWhiteSpace(reason))
+            throw new BadRequestException("A reason is required to reject a lost-ticket case.");
+
+        lostCase.Status = approve ? LostTicketCaseStatus.Approved : LostTicketCaseStatus.Rejected;
+        lostCase.ApprovalMode = LostTicketApproval.Manager;
+        lostCase.DecidedBy = decider;
+        lostCase.DecidedAt = Now;
+        lostCase.DecisionNote = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        lostCase.IsResolved = true;
 
         if (approve)
         {
@@ -562,11 +596,10 @@ public class GateService(
         }
         else
         {
-            // 4.2.4: the vehicle stays; the customer comes back with full papers
+            // 4.2.4: the vehicle stays; the customer comes back with full papers and a new case
             session.Status = SessionStatus.Active;
         }
 
-        session.ClosedNote = $"Lost ticket {(approve ? "approved" : "rejected")}: {reason}".Trim();
         session.UpdatedAt = Now;
         await pmsContext.SaveChangesAsync();
         QueueSessionPush(session);
@@ -757,6 +790,9 @@ public class GateService(
             throw new BadRequestException("The lost-ticket case is waiting for a Manager.");
         if (!SessionStatus.Inside.Contains(session.Status))
             throw new BadRequestException($"The session is {session.Status} and cannot be charged.");
+        // 4.2.4: after a rejection nobody takes the fee (lane, counter, app or check-out) until a new case is approved
+        if (mutate && session.IsLostCard && (await CurrentLostTicketCaseAsync(session.Id))?.Status == LostTicketCaseStatus.Rejected)
+            throw new BadRequestException("The lost-ticket case was rejected: the vehicle stays in the lot until the owner shows the papers and a new case is approved.");
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstAsync(p => p.Id == session.ParkingLotId);
         var timeZone = ParkingText.FindTimeZone(lot.TimeZoneId ?? options.TimeZoneId);
@@ -968,6 +1004,23 @@ public class GateService(
         return session;
     }
 
+    /// <summary>
+    /// The session's current lost-ticket case: the newest "LostTicket" row, including one added in this request
+    /// and not saved yet. Tracked, so a decision can be written to it.
+    /// </summary>
+    private async Task<SessionViolation> CurrentLostTicketCaseAsync(long sessionId)
+    {
+        var unsaved = pmsContext.ChangeTracker.Entries<SessionViolation>()
+            .Where(e => e.State == EntityState.Added && e.Entity.SessionId == sessionId && e.Entity.ViolationType == ViolationType.LostTicket)
+            .Select(e => e.Entity)
+            .OrderByDescending(v => v.ReportedAt)
+            .FirstOrDefault();
+        return unsaved ?? await pmsContext.SessionViolations
+            .Where(v => v.SessionId == sessionId && v.ViolationType == ViolationType.LostTicket)
+            .OrderByDescending(v => v.ReportedAt).ThenByDescending(v => v.Id)
+            .FirstOrDefaultAsync();
+    }
+
     private async Task<int> CustomerIdAsync(string userId) =>
         await pmsContext.Customers.Where(c => c.UserId == userId).Select(c => (int?)c.Id).FirstOrDefaultAsync()
         ?? throw new NotFoundException("Customer profile not found.");
@@ -1035,6 +1088,14 @@ public class GateService(
         var zones = await pmsContext.Zones.AsNoTracking().Where(z => zoneIds.Contains(z.Id)).ToDictionaryAsync(z => z.Id, z => z.Name);
         var slots = await pmsContext.Slots.AsNoTracking().Where(s => slotIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Code);
         var codes = await pmsContext.Reservations.AsNoTracking().Where(r => reservationIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, r => r.ReservationCode);
+        var lostIds = sessions.Where(s => s.IsLostCard).Select(s => s.Id).Distinct().ToList();
+        var lostCases = lostIds.Count == 0
+            ? new Dictionary<long, SessionViolation>()
+            : (await pmsContext.SessionViolations.AsNoTracking()
+                    .Where(v => lostIds.Contains(v.SessionId) && v.ViolationType == ViolationType.LostTicket)
+                    .ToListAsync())
+                .GroupBy(v => v.SessionId)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(v => v.ReportedAt).ThenByDescending(v => v.Id).First());
         var overdueBefore = Now.AddHours(-Rules.OverdueHours);
 
         return sessions.Select(s => new SessionResponseModel
@@ -1064,6 +1125,11 @@ public class GateService(
             ExitTime = s.ExitTime is { } x ? Utc(x) : null,
             IsManualEntry = s.IsManualEntry,
             IsLostTicket = s.IsLostCard,
+            LostTicketStatus = lostCases.GetValueOrDefault(s.Id)?.Status,
+            LostTicketReportedBy = lostCases.GetValueOrDefault(s.Id)?.ReportedBy,
+            LostTicketReportedAt = lostCases.TryGetValue(s.Id, out var lost) ? Utc(lost.ReportedAt) : null,
+            LostTicketReason = lostCases.GetValueOrDefault(s.Id)?.Note,
+            LostTicketDecisionNote = lostCases.GetValueOrDefault(s.Id)?.DecisionNote,
             PlateMismatch = s.PlateMismatch,
             IsOverdue = SessionStatus.Inside.Contains(s.Status) && s.EntryTime < overdueBefore,
             ZeroFeeReason = s.ZeroFeeReason,
