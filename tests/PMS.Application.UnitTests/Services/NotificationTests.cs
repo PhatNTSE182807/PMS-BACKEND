@@ -100,6 +100,19 @@ public class NotificationTests : IDisposable
         return session;
     }
 
+    // ---- Notification types ----
+
+    [Fact]
+    public void NotificationTypes_All_Should_List_Every_Type_Once()
+    {
+        NotificationTypes.All.Should().Equal(
+            NotificationTypes.VehicleApproved,
+            NotificationTypes.VehicleRejected,
+            NotificationTypes.CheckIn,
+            NotificationTypes.CheckOut);
+        NotificationTypes.All.Should().OnlyHaveUniqueItems();
+    }
+
     // ---- NotificationService ----
 
     [Fact]
