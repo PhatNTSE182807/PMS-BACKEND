@@ -213,6 +213,39 @@ public class InternalBranchTests
     }
 
     [Fact]
+    public async Task Deposit_Should_Use_The_Amount_Set_For_The_Vehicle_Type()
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+        t.Options.Reservations.DepositByVehicleType["CAR_7"] = 50_000;
+
+        Invoke(t.Reservations, "DepositFor", "CAR_7").Should().Be(50_000m);
+    }
+
+    [Fact]
+    public void Lot_Mapping_Should_Count_Zones_And_Slots()
+    {
+        var lot = new ParkingLot
+        {
+            Status = "Active",
+            Zones = new List<Zone>
+            {
+                new() { Slots = new List<Slot> { new(), new(), new() } },
+                new() { Slots = null }
+            }
+        };
+
+        var model = (PMS.Application.Models.ParkingLot.ParkingLotResponseModel)Invoke(typeof(ParkingLotService), "MapToResponseModel", lot, true);
+
+        model.TotalZones.Should().Be(2);
+        model.TotalSlots.Should().Be(3);
+
+        var noZones = (PMS.Application.Models.ParkingLot.ParkingLotResponseModel)Invoke(typeof(ParkingLotService), "MapToResponseModel",
+            new ParkingLot { Status = "Active", Zones = null }, false);
+        noZones.TotalZones.Should().Be(0);
+        noZones.TotalSlots.Should().Be(0);
+    }
+
+    [Fact]
     public void Truncate_Should_Cut_Long_Notes_Only()
     {
         Invoke(typeof(ReservationService), "Truncate", (string)null).Should().BeNull();
