@@ -305,6 +305,12 @@ Keep this list current; it is the first place to look when code and SRS disagree
   `Einvoice`, `OtpCode`…). They are out of scope in v1.4: do not extend them for new features.
 - The user wallet (`WalletController`, `Wallet*` entities) is a team addition: the SRS lists an
   internal wallet as out of scope (2.5), but it is in active use for payments.
+- Lot staffing (team decision, 2026-10-26): a lot has exactly one Manager (`ParkingLots.ManagerUserId`)
+  and any number of Staff. Assigning a lot that another *active* Manager runs is refused; a deactivated
+  Manager's lot can be handed over. An `Active` lot without an active Manager **and** at least one active
+  Staff is reported as `Maintenance` (`LotStaffing`, worked out on every read; `StoredStatus` keeps the
+  Admin's value): customers can still see it on the public list and 3D map, but bookings are refused. A
+  new lot therefore starts in maintenance until its Manager adds Staff.
 - Bookings have two modes (`BookingMode`): `PayAsYouGo` follows the SRS (arrival time only);
   `Scheduled` also takes a departure time, which the SRS does not have.
 - Vehicle verification has no "needs more info", "disputed" or "revoked" state yet (section 5).

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers;
+using PMS.Application.Helpers.Parking;
 using PMS.Application.Models.Layout;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
@@ -32,7 +33,7 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
         {
             ParkingLotId = lot.Id,
             ParkingLotName = lot.Name,
-            LotStatus = lot.Status,
+            LotStatus = LotStaffing.EffectiveStatus(lot, await LotStaffing.IsStaffedAsync(pmsContext, lot.Id)),
             Version = layout.Version,
             TemplateId = layout.TemplateId,
             PublishedAt = layout.PublishedAt,
@@ -140,7 +141,7 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
         {
             ParkingLotId = lot.Id,
             ParkingLotName = lot.Name,
-            LotStatus = lot.Status,
+            LotStatus = LotStaffing.EffectiveStatus(lot, await LotStaffing.IsStaffedAsync(pmsContext, lot.Id)),
             Version = layout.Version,
             Detail = level,
             Floors = floors

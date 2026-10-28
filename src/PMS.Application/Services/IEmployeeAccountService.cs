@@ -18,7 +18,10 @@ public interface IEmployeeAccountService
 
     Task<EmployeeAccountResponseModel> SetManagerStatusAsync(string managerId, bool isActive);
 
-    /// <summary>Replaces the Manager's lots. A lot that had another Manager is taken over by this one.</summary>
+    /// <summary>
+    /// Replaces the Manager's lots. A lot has one Manager: a lot run by another active Manager is refused;
+    /// a lot whose Manager is deactivated is handed over.
+    /// </summary>
     Task<EmployeeAccountResponseModel> AssignManagerLotsAsync(string managerId, AssignParkingLotsModel model);
 
     /* Manager -> Staff (always scoped to the lots the calling Manager manages) */

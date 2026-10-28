@@ -32,7 +32,20 @@ public class ParkingLotResponseModel
 
     public string Phone { get; set; }
 
+    /// <summary>
+    /// What everyone sees: an Active lot without an active Manager and Staff is reported as Maintenance.
+    /// <see cref="StoredStatus"/> keeps the status the Admin set.
+    /// </summary>
     public string Status { get; set; }
+
+    /// <summary>The status saved on the lot (Active, Maintenance, TemporarilyClosed, Inactive).</summary>
+    public string StoredStatus { get; set; }
+
+    /// <summary>True when the lot has an active Manager and at least one active Staff member.</summary>
+    public bool IsStaffed { get; set; }
+
+    /// <summary>True when customers can book it: open and staffed.</summary>
+    public bool IsBookable { get; set; }
 
     public DateTime? ClosedFrom { get; set; }
 

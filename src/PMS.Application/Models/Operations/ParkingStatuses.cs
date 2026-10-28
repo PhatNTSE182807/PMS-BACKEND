@@ -76,6 +76,15 @@ public static class SlotStatus
     public const string Maintenance = "Maintenance";
 }
 
+/// <summary>Parking lot states (ParkingLots.Status).</summary>
+public static class LotStatus
+{
+    public const string Active = "Active";
+    public const string Maintenance = "Maintenance";
+    public const string TemporarilyClosed = "TemporarilyClosed";
+    public const string Inactive = "Inactive";
+}
+
 public static class SessionType
 {
     public const string WalkIn = "WalkIn";

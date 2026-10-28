@@ -72,7 +72,24 @@ public class EmployeeAccountService(
         if (missing.Count > 0)
             throw new NotFoundException($"Parking lot {missing[0]} does not exist.");
 
-        // One Manager per lot: assigning takes the lot over; the lot's Staff stay and report to the new Manager
+        // One Manager per lot: a lot run by another active Manager must be released by that Manager first.
+        // A lot whose Manager was deactivated can be handed over; its Staff stay and report to the new Manager.
+        var otherManagerIds = lots
+            .Where(p => p.ManagerUserId != null && p.ManagerUserId != user.Id)
+            .Select(p => p.ManagerUserId)
+            .Distinct()
+            .ToList();
+        if (otherManagerIds.Count > 0)
+        {
+            var activeOthers = await pmsContext.Employees
+                .Where(e => otherManagerIds.Contains(e.UserId) && e.Status == "Active")
+                .ToDictionaryAsync(e => e.UserId, e => e.FullName);
+            var taken = lots.FirstOrDefault(p => p.ManagerUserId != null && activeOthers.ContainsKey(p.ManagerUserId));
+            if (taken != null)
+                throw new BadRequestException(
+                    $"{taken.Name} already has a Manager ({activeOthers[taken.ManagerUserId]}). A lot can only have one Manager: remove it from that Manager first.");
+        }
+
         var now = DateTime.UtcNow;
         foreach (var lot in lots.Where(p => p.ManagerUserId != user.Id))
         {

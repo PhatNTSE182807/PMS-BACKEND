@@ -31,8 +31,11 @@ public class ReservationService(
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(p => p.Id == model.ParkingLotId && !p.IsDeleted)
                   ?? throw new NotFoundException("Parking lot not found.");
-        if (lot.Status != "Active")
+        if (lot.Status != LotStatus.Active)
             throw new BadRequestException("The lot is not taking reservations right now.");
+        // Nobody would be there to receive the car: a lot needs an active Manager and Staff before it takes bookings
+        if (!await LotStaffing.IsStaffedAsync(pmsContext, lot.Id))
+            throw new BadRequestException("This lot is under maintenance: it has no Manager and Staff on duty yet, so it cannot take bookings.");
 
         var vehicle = await pmsContext.Vehicles.AsNoTracking()
                           .FirstOrDefaultAsync(v => v.Id == model.VehicleId && v.CustomerId == customer.Id && v.IsActive)

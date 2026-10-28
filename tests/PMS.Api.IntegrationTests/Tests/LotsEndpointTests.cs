@@ -37,7 +37,10 @@ public class LotsEndpointTests
         CheckResponse.Succeeded(apiResult);
         apiResult.Result.Code.Should().Be(model.Code);
         apiResult.Result.Name.Should().Be(model.Name);
-        apiResult.Result.Status.Should().Be("Active");
+        // Saved as Active, shown as Maintenance until the lot has a Manager and Staff
+        apiResult.Result.StoredStatus.Should().Be("Active");
+        apiResult.Result.Status.Should().Be("Maintenance");
+        apiResult.Result.IsBookable.Should().BeFalse();
     }
 
     [Fact]

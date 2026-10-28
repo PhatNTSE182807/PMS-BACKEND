@@ -138,12 +138,34 @@ public class EmployeeAccountServiceTests
     }
 
     [Fact]
-    public async Task AssignManagerLotsAsync_Should_Take_Over_And_Release_Lots()
+    public async Task AssignManagerLotsAsync_Should_Assign_Free_Lots_And_Release_The_Others()
     {
-        var result = await _sut.AssignManagerLotsAsync(ManagerId, new AssignParkingLotsModel { ParkingLotIds = [2, 3] });
+        var result = await _sut.AssignManagerLotsAsync(ManagerId, new AssignParkingLotsModel { ParkingLotIds = [3] });
 
-        result.ParkingLots.Select(l => l.Id).Should().BeEquivalentTo([2, 3]);
+        result.ParkingLots.Select(l => l.Id).Should().BeEquivalentTo([3]);
         (await _pmsContext.ParkingLots.FindAsync(1)).ManagerUserId.Should().BeNull();
+        (await _pmsContext.ParkingLots.FindAsync(3)).ManagerUserId.Should().Be(ManagerId);
+    }
+
+    [Fact]
+    public async Task AssignManagerLotsAsync_Should_Refuse_A_Lot_That_Already_Has_An_Active_Manager()
+    {
+        var act = () => _sut.AssignManagerLotsAsync(ManagerId, new AssignParkingLotsModel { ParkingLotIds = [2] });
+
+        await act.Should().ThrowAsync<BadRequestException>().WithMessage("*only have one Manager*");
+        (await _pmsContext.ParkingLots.FindAsync(2)).ManagerUserId.Should().Be(OtherManagerId);
+        (await _pmsContext.ParkingLots.FindAsync(1)).ManagerUserId.Should().Be(ManagerId);
+    }
+
+    [Fact]
+    public async Task AssignManagerLotsAsync_Should_Hand_Over_The_Lot_Of_A_Deactivated_Manager()
+    {
+        (await _pmsContext.Employees.SingleAsync(e => e.UserId == OtherManagerId)).Status = "Inactive";
+        await _pmsContext.SaveChangesAsync();
+
+        var result = await _sut.AssignManagerLotsAsync(ManagerId, new AssignParkingLotsModel { ParkingLotIds = [1, 2] });
+
+        result.ParkingLots.Select(l => l.Id).Should().BeEquivalentTo([1, 2]);
         (await _pmsContext.ParkingLots.FindAsync(2)).ManagerUserId.Should().Be(ManagerId);
     }
 

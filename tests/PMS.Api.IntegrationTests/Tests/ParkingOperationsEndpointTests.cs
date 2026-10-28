@@ -358,6 +358,8 @@ public class ParkingOperationsEndpointTests : IDisposable
         var manager = await NewUserAsync(users, "Manager", tag);
         var lot = new ParkingLot { Code = $"OPS-{tag}", Name = "Ops lot", Address = "1 Ops St", Status = "Active", TimeZoneId = "SE Asia Standard Time", ManagerUserId = manager.Id, CreatedAt = DateTime.UtcNow };
         db.ParkingLots.Add(lot);
+        // A lot takes bookings only with an active Manager and Staff on duty
+        db.Employees.Add(new Employee { UserId = manager.Id, EmployeeCode = $"M-{manager.Id[..8]}", FullName = "Manager", Status = "Active", Position = "Manager", CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
         await LotTemplates.ApplyAsync(db, lot, "L3S20", manager.Id);
 

@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers;
+using PMS.Application.Helpers.Parking;
+using PMS.Application.Models.Operations;
 using PMS.Application.Models.ParkingLot;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
@@ -22,9 +24,15 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             query = query.Where(p => !p.IsDeleted);
         }
 
-        if (!string.IsNullOrWhiteSpace(status))
+        // The status filter matches what the list shows: an open lot without people on duty counts as Maintenance
+        var statusFilter = string.IsNullOrWhiteSpace(status) ? null : status.Trim();
+        if (statusFilter == LotStatus.Active || statusFilter == LotStatus.Maintenance)
         {
-            query = query.Where(p => p.Status == status);
+            query = query.Where(p => p.Status == LotStatus.Active || p.Status == statusFilter);
+        }
+        else if (statusFilter != null)
+        {
+            query = query.Where(p => p.Status == statusFilter);
         }
 
         if (!string.IsNullOrWhiteSpace(searchTerm))
@@ -44,13 +52,16 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
 
-        return lots.Select(MapToResponseModel);
+        var staffed = await LotStaffing.StaffedLotIdsAsync(pmsContext, lots.Select(p => p.Id));
+        var models = lots.Select(p => MapToResponseModel(p, staffed.Contains(p.Id)));
+        return statusFilter == null ? models.ToList() : models.Where(m => m.Status == statusFilter).ToList();
     }
 
     public async Task<IEnumerable<PublicParkingLotResponseModel>> GetPublicLotsAsync(string searchTerm = null)
     {
         var query = pmsContext.ParkingLots
-            .Where(p => !p.IsDeleted && p.Status == "Active");
+            // Lots under maintenance stay visible so customers can look at them; they just cannot be booked
+            .Where(p => !p.IsDeleted && (p.Status == LotStatus.Active || p.Status == LotStatus.Maintenance));
 
         if (!string.IsNullOrWhiteSpace(searchTerm))
         {
@@ -66,25 +77,38 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         var lots = await query
             .OrderBy(p => p.Name)
             .ToListAsync();
+        var staffed = await LotStaffing.StaffedLotIdsAsync(pmsContext, lots.Select(p => p.Id));
 
-        return lots.Select(p => new PublicParkingLotResponseModel
+        return lots.Select(p =>
         {
-            Id = p.Id,
-            Code = p.Code,
-            Name = p.Name,
-            Address = p.Address,
-            City = p.City,
-            District = p.District,
-            OpenTime = p.OpenTime,
-            CloseTime = p.CloseTime,
-            Is24Hours = p.Is24Hours,
-            Capacity = p.Capacity,
-            LayoutTemplate = p.LayoutTemplate,
-            ImageUrl = p.ImageUrl,
-            Description = p.Description,
-            Phone = p.Phone,
-            Status = p.Status
-        });
+            var isStaffed = staffed.Contains(p.Id);
+            var effective = LotStaffing.EffectiveStatus(p, isStaffed);
+            var bookable = effective == LotStatus.Active;
+            return new PublicParkingLotResponseModel
+            {
+                Id = p.Id,
+                Code = p.Code,
+                Name = p.Name,
+                Address = p.Address,
+                City = p.City,
+                District = p.District,
+                OpenTime = p.OpenTime,
+                CloseTime = p.CloseTime,
+                Is24Hours = p.Is24Hours,
+                Capacity = p.Capacity,
+                LayoutTemplate = p.LayoutTemplate,
+                ImageUrl = p.ImageUrl,
+                Description = p.Description,
+                Phone = p.Phone,
+                Status = effective,
+                IsBookable = bookable,
+                MaintenanceNotice = bookable
+                    ? null
+                    : !isStaffed && p.Status == LotStatus.Active
+                        ? LotStaffing.UnstaffedNotice
+                        : p.MaintenanceNotice ?? "This lot is under maintenance and cannot take bookings right now."
+            };
+        }).ToList();
     }
 
     public async Task<ParkingLotResponseModel> GetByIdAsync(int id)
@@ -97,7 +121,7 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         if (lot == null)
             throw new NotFoundException($"Parking lot with ID {id} was not found.");
 
-        return MapToResponseModel(lot);
+        return await ToResponseAsync(lot);
     }
 
     public async Task<ParkingLotResponseModel> CreateAsync(CreateParkingLotModel model, string createdBy = null)
@@ -111,6 +135,10 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
 
         if (codeExists)
             throw new BadRequestException($"Parking lot with code '{codeNormalized}' already exists.");
+
+        var managerUserId = string.IsNullOrWhiteSpace(model.ManagerUserId) ? null : model.ManagerUserId.Trim();
+        if (managerUserId != null)
+            await EnsureActiveManagerAsync(managerUserId);
 
         var lot = new ParkingLot
         {
@@ -126,7 +154,7 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             Description = model.Description?.Trim(),
             Phone = model.Phone?.Trim(),
             Status = "Active",
-            ManagerUserId = model.ManagerUserId,
+            ManagerUserId = managerUserId,
             TimeZoneId = !string.IsNullOrWhiteSpace(model.TimeZoneId) ? model.TimeZoneId : "SE Asia Standard Time",
             IsDeleted = false,
             CreatedAt = DateTime.UtcNow,
@@ -139,7 +167,8 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         // Zones, slots, capacity and the published 3D layout all come from the chosen model
         await LotTemplates.ApplyAsync(pmsContext, lot, model.LayoutTemplate, createdBy);
 
-        return MapToResponseModel(lot);
+        // A new lot has no Staff yet, so it is shown as Maintenance until its Manager adds some
+        return await ToResponseAsync(lot);
     }
 
     public async Task<ParkingLotResponseModel> ApplyTemplateAsync(int id, string templateId, string userId)
@@ -175,8 +204,14 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         lot.Description = model.Description?.Trim();
         lot.Phone = model.Phone?.Trim();
 
+        // One Manager per lot: picking a Manager here replaces the current one; an empty value removes it
         if (model.ManagerUserId != null)
-            lot.ManagerUserId = model.ManagerUserId;
+        {
+            var managerUserId = string.IsNullOrWhiteSpace(model.ManagerUserId) ? null : model.ManagerUserId.Trim();
+            if (managerUserId != null && managerUserId != lot.ManagerUserId)
+                await EnsureActiveManagerAsync(managerUserId);
+            lot.ManagerUserId = managerUserId;
+        }
 
         if (!string.IsNullOrWhiteSpace(model.TimeZoneId))
             lot.TimeZoneId = model.TimeZoneId;
@@ -185,7 +220,7 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
 
         await pmsContext.SaveChangesAsync();
 
-        return MapToResponseModel(lot);
+        return await ToResponseAsync(lot);
     }
 
     public async Task<bool> UpdateStatusAsync(int id, UpdateParkingLotStatusModel model)
@@ -232,8 +267,20 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         return true;
     }
 
-    private static ParkingLotResponseModel MapToResponseModel(ParkingLot p)
+    private async Task EnsureActiveManagerAsync(string managerUserId)
     {
+        var isManager = await pmsContext.Employees.AnyAsync(e =>
+            e.UserId == managerUserId && e.Position == "Manager" && e.Status == "Active");
+        if (!isManager)
+            throw new BadRequestException("The selected Manager does not exist or is deactivated.");
+    }
+
+    private async Task<ParkingLotResponseModel> ToResponseAsync(ParkingLot lot) =>
+        MapToResponseModel(lot, await LotStaffing.IsStaffedAsync(pmsContext, lot.Id));
+
+    private static ParkingLotResponseModel MapToResponseModel(ParkingLot p, bool isStaffed)
+    {
+        var status = LotStaffing.EffectiveStatus(p, isStaffed);
         return new ParkingLotResponseModel
         {
             Id = p.Id,
@@ -250,7 +297,10 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             ImageUrl = p.ImageUrl,
             Description = p.Description,
             Phone = p.Phone,
-            Status = p.Status,
+            Status = status,
+            StoredStatus = p.Status,
+            IsStaffed = isStaffed,
+            IsBookable = status == LotStatus.Active,
             ClosedFrom = p.ClosedFrom,
             ClosedUntil = p.ClosedUntil,
             ClosureReason = p.ClosureReason,
