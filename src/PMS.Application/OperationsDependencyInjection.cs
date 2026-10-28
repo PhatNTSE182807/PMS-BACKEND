@@ -32,6 +32,7 @@ public static class OperationsDependencyInjection
         services.AddScoped<IPricingRuleService, PricingRuleService>();
         services.AddScoped<PlateListService>();
         services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<IRevenueReportService, RevenueReportService>();
         services.AddScoped<ReservationService>();
         services.AddScoped<IReservationService>(sp => sp.GetRequiredService<ReservationService>());
         services.AddScoped<GateService>();

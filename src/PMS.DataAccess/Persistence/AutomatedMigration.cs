@@ -331,6 +331,24 @@ public static partial class AutomatedMigration
                 CREATE NONCLUSTERED INDEX [IX_OtpCodes_UserId_Purpose] ON [dbo].[OtpCodes]([UserId] ASC, [Purpose] ASC);
             END
 
+            IF OBJECT_ID('dbo.RefreshTokens', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[RefreshTokens](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [UserId] [nvarchar](450) NOT NULL,
+                    [TokenHash] [nvarchar](200) NOT NULL,
+                    [DeviceInfo] [nvarchar](300) NULL,
+                    [IpAddress] [varchar](45) NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [ExpiresAt] [datetime2](3) NOT NULL,
+                    [RevokedAt] [datetime2](3) NULL,
+                    [RevokedReason] [nvarchar](200) NULL,
+                    [ReplacedByTokenHash] [nvarchar](200) NULL
+                );
+                CREATE NONCLUSTERED INDEX [IX_RefreshTokens_UserId] ON [dbo].[RefreshTokens]([UserId] ASC);
+                CREATE NONCLUSTERED INDEX [IX_RefreshTokens_ExpiresAt] ON [dbo].[RefreshTokens]([ExpiresAt] ASC);
+            END
+
             IF OBJECT_ID('dbo.AuditLogs', 'U') IS NULL
             BEGIN
                 CREATE TABLE [dbo].[AuditLogs](
