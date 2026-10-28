@@ -55,18 +55,21 @@ public class VehicleDocumentsEndpointTests : IDisposable
             await context.SaveChangesAsync();
         }
 
+        // A vehicle can only be registered once the Citizen ID is saved on the profile
+        var profile = await client.PutAsync("/api/users/profile", new JsonContent(new UpdateUserProfileModel { CitizenId = OwnCitizenId }));
+        profile.StatusCode.Should().Be(HttpStatusCode.OK, await profile.Content.ReadAsStringAsync());
+
         var response = await client.PostAsync("/api/users/profile/vehicles", new JsonContent(new CreateVehicleModel
         {
             LicensePlate = plate, VehicleTypeId = type.Id, Brand = "Porsche", Model = "Taycan 4S",
-            Color = "Gentian Blue Metallic", CitizenId = OwnCitizenId
+            Color = "Gentian Blue Metallic"
         }));
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         var vehicle = (await ResponseHelper.GetApiResultAsync<VehicleResponseModel>(response)).Result;
 
         // The account data Staff compare the papers with
         var customer = await context.Vehicles.Where(v => v.Id == vehicle.VehicleId).Select(v => v.Customer).SingleAsync();
         customer.FullName = "Nguyễn Tấn Phát";
-        customer.CitizenId = OwnCitizenId;
         await context.SaveChangesAsync();
 
         return (client, vehicle.VehicleId);
@@ -263,7 +266,7 @@ public class VehicleDocumentsEndpointTests : IDisposable
         var again = await client.PostAsync("/api/users/profile/vehicles", new JsonContent(new CreateVehicleModel
         {
             LicensePlate = "51K-992.88", VehicleTypeId = typeId, Brand = "Porsche", Model = "Taycan 4S",
-            Color = "Gentian Blue Metallic", CitizenId = OwnCitizenId
+            Color = "Gentian Blue Metallic"
         }));
         again.StatusCode.Should().Be(HttpStatusCode.OK, await again.Content.ReadAsStringAsync());
         (await RejectedAsync(client)).Should().BeEmpty();
