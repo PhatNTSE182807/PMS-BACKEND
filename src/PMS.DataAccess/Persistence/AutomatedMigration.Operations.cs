@@ -38,6 +38,7 @@ public static partial class AutomatedMigration
         ("ParkingSessions", "HasPlate", "[bit] NOT NULL DEFAULT 1"),
         ("ParkingSessions", "IsManualEntry", "[bit] NOT NULL DEFAULT 0"),
         ("ParkingSessions", "ManualEntryReason", "[nvarchar](500) NULL"),
+        ("ParkingSessions", "NoPlateReason", "[nvarchar](500) NULL"),
         ("ParkingSessions", "IsManualExit", "[bit] NOT NULL DEFAULT 0"),
         ("ParkingSessions", "ManualExitReason", "[nvarchar](500) NULL"),
         ("ParkingSessions", "EntryConfirmedAt", "[datetime2](3) NULL"),

@@ -312,7 +312,7 @@ public class ReservationService(
             payment.Status = PaymentStatus.Expired;
     }
 
-    public async Task<GateReservationLookupModel> LookupForGateAsync(int lotId, string code, string qr)
+    public async Task<GateReservationLookupModel> LookupForGateAsync(int lotId, string code, string qr, string plate = null)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
 
@@ -333,9 +333,27 @@ public class ReservationService(
             if (reservation != null && reservation.ParkingLotId != lotId)
                 throw new BadRequestException("This reservation is for another parking lot.");
         }
+        else if (!string.IsNullOrWhiteSpace(plate))
+        {
+            // The customer forgot the code: find the booking of this plate in this lot. A booking that can
+            // still check in comes first, then the one closest to now, so the Staff sees why an old one cannot.
+            var normalized = ParkingText.NormalizePlate(plate);
+            if (normalized.Length == 0)
+                throw new BadRequestException("Type a valid plate.");
+            var candidates = await pmsContext.Reservations.AsNoTracking()
+                .Where(r => r.ParkingLotId == lotId)
+                .Join(pmsContext.Vehicles.Where(v => v.PlateNormalized == normalized), r => r.VehicleId, v => v.Id, (r, v) => r)
+                .ToListAsync();
+            reservation = candidates
+                .OrderBy(r => r.Status == ReservationStatus.Confirmed ? 0 : 1)
+                .ThenBy(r => Math.Abs((r.StartTime - Now).Ticks))
+                .FirstOrDefault();
+            if (reservation == null)
+                throw new NotFoundException("No reservation found for this plate in this lot.");
+        }
         else
         {
-            throw new BadRequestException("Scan the reservation QR or type its code.");
+            throw new BadRequestException("Scan the reservation QR, type its code or type the plate.");
         }
 
         if (reservation == null)
