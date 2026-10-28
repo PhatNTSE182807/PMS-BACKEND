@@ -60,13 +60,16 @@ public class VehiclesEndpointTests
         // Arrange
         var client = await _factory.CreateDefaultClientAsync();
         var vehicleTypeId = await SeedVehicleTypeAsync();
-        var model = new CreateVehicleModel { LicensePlate = "29-B1 123.45", VehicleTypeId = vehicleTypeId, CitizenId = "079123456789" };
+        // A vehicle takes the Citizen ID saved on the profile, so save it first
+        var profile = await client.PutAsync("/api/users/profile", new JsonContent(new UpdateUserProfileModel { CitizenId = "079123456789" }));
+        profile.StatusCode.Should().Be(HttpStatusCode.OK, await profile.Content.ReadAsStringAsync());
+        var model = new CreateVehicleModel { LicensePlate = "29-B1 123.45", VehicleTypeId = vehicleTypeId };
 
         // Act
         var apiResponse = await client.PostAsync("/api/users/profile/vehicles", new JsonContent(model));
 
         // Assert
-        apiResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        apiResponse.StatusCode.Should().Be(HttpStatusCode.OK, await apiResponse.Content.ReadAsStringAsync());
         var response = await ResponseHelper.GetApiResultAsync<VehicleResponseModel>(apiResponse);
         CheckResponse.Succeeded(response);
         response.Result.LicensePlate.Should().Be("29-B1 123.45");
