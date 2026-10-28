@@ -182,7 +182,7 @@ public class ParkingJobs(
                 pmsContext.SessionViolations.Add(new SessionViolation
                 {
                     SessionId = session.Id,
-                    ViolationType = "Abandoned",
+                    ViolationType = ViolationType.Abandoned,
                     Note = $"Vehicle abandoned for over {options.Gate.AbandonedDays} days",
                     ReportedBy = "System",
                     ReportedAt = Now

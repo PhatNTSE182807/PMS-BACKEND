@@ -20,4 +20,17 @@ public partial class SessionViolation
     public DateTime ReportedAt { get; set; }
 
     public bool IsResolved { get; set; }
+
+    /// <summary>Lost-ticket cases: Pending, Approved or Rejected (LostTicketCaseStatus).</summary>
+    public string Status { get; set; }
+
+    /// <summary>Lost-ticket cases: Conditional (on the spot) or Manager (LostTicketApproval).</summary>
+    public string ApprovalMode { get; set; }
+
+    /// <summary>User id of who approved or rejected the case.</summary>
+    public string DecidedBy { get; set; }
+
+    public DateTime? DecidedAt { get; set; }
+
+    public string DecisionNote { get; set; }
 }

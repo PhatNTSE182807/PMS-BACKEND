@@ -136,6 +136,20 @@ public class SessionResponseModel
 
     public bool IsLostTicket { get; set; }
 
+    /// <summary>Latest lost-ticket case: Pending, Approved or Rejected; null without a case (or an old one with no status).</summary>
+    public string LostTicketStatus { get; set; }
+
+    /// <summary>User id of who reported the latest lost-ticket case; that account cannot decide it.</summary>
+    public string LostTicketReportedBy { get; set; }
+
+    public DateTime? LostTicketReportedAt { get; set; }
+
+    /// <summary>Why the ticket was reported lost (what the Staff checked).</summary>
+    public string LostTicketReason { get; set; }
+
+    /// <summary>The Manager's remarks or rejection reason.</summary>
+    public string LostTicketDecisionNote { get; set; }
+
     public bool PlateMismatch { get; set; }
 
     public bool IsOverdue { get; set; }

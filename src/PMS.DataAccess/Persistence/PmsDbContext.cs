@@ -1030,6 +1030,15 @@ public partial class PmsDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(30)
                 .IsUnicode(false);
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .IsUnicode(false);
+            entity.Property(e => e.ApprovalMode)
+                .HasMaxLength(20)
+                .IsUnicode(false);
+            entity.Property(e => e.DecidedBy).HasMaxLength(450);
+            entity.Property(e => e.DecidedAt).HasPrecision(3);
+            entity.Property(e => e.DecisionNote).HasMaxLength(500);
         });
 
         modelBuilder.Entity<Shift>(entity =>

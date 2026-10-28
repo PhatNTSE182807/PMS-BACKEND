@@ -140,3 +140,35 @@ public static class PlateListType
     public const string Whitelist = "Whitelist";
     public const string Blacklist = "Blacklist";
 }
+
+/// <summary>SessionViolations.ViolationType values.</summary>
+public static class ViolationType
+{
+    /// <summary>A lost ticket / card case (one row per report).</summary>
+    public const string LostTicket = "LostTicket";
+    /// <summary>The vehicle stayed past the abandoned threshold (BR-20).</summary>
+    public const string Abandoned = "Abandoned";
+}
+
+/// <summary>
+/// State of a lost-ticket case (SessionViolations.Status). Rows written before these columns existed have no
+/// status: they are treated as having no recorded decision.
+/// </summary>
+public static class LostTicketCaseStatus
+{
+    /// <summary>Waiting for a Manager (the session is LostTicketPending).</summary>
+    public const string Pending = "Pending";
+    /// <summary>Approved, directly by a Manager or on the spot under BR-13: the fee and fine can be paid.</summary>
+    public const string Approved = "Approved";
+    /// <summary>Rejected: the vehicle stays in the lot until a new case is approved (SRS 4.2.4).</summary>
+    public const string Rejected = "Rejected";
+}
+
+/// <summary>How a lost-ticket case was approved (SessionViolations.ApprovalMode).</summary>
+public static class LostTicketApproval
+{
+    /// <summary>BR-13: the Staff checked photos, papers and ID and applied the standard fine; the Manager reviews it later.</summary>
+    public const string Conditional = "Conditional";
+    /// <summary>BR-14: a Manager of the lot (or an Admin) decides; never the person who reported it.</summary>
+    public const string Manager = "Manager";
+}

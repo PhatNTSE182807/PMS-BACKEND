@@ -54,6 +54,13 @@ public static partial class AutomatedMigration
         ("ParkingSessions", "CreatedAt", "[datetime2](3) NULL"),
         ("ParkingSessions", "UpdatedAt", "[datetime2](3) NULL"),
 
+        // Lost-ticket cases: decision and approval mode (FR-OPS-05, BR-13, BR-14)
+        ("SessionViolations", "Status", "[varchar](20) NULL"),
+        ("SessionViolations", "ApprovalMode", "[varchar](20) NULL"),
+        ("SessionViolations", "DecidedBy", "[nvarchar](450) NULL"),
+        ("SessionViolations", "DecidedAt", "[datetime2](3) NULL"),
+        ("SessionViolations", "DecisionNote", "[nvarchar](500) NULL"),
+
         ("Invoices", "ReservationId", "[bigint] NULL"),
 
         ("Payments", "Purpose", "[varchar](20) NULL"),

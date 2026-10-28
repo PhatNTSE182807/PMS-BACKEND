@@ -314,6 +314,13 @@ Keep this list current; it is the first place to look when code and SRS disagree
 - Bookings have two modes (`BookingMode`): `PayAsYouGo` follows the SRS (arrival time only);
   `Scheduled` also takes a departure time, which the SRS does not have.
 - Vehicle verification has no "needs more info", "disputed" or "revoked" state yet (section 5).
+- Lost tickets (FR-OPS-05) have no `LostTicketCase` table: each report is a `SessionViolations` row
+  (`ViolationType = LostTicket`) with `Status` (Pending / Approved / Rejected), `ApprovalMode`
+  (Conditional / Manager), `DecidedBy`, `DecidedAt` and `DecisionNote`. The reporter can never decide
+  the case, and a rejected case blocks every payment point and the exit until a new case is approved.
+  Not built yet: the 10-minute approval deadline with escalation to Admin (BR-14), the Manager's 24-hour
+  review of conditional approvals (BR-13; those rows keep `IsResolved = false`), a stored BR-13 checklist
+  (only the `ConditionsMet` flag), and locking the lost ticket QR.
 - Some older code comments quote the Vietnamese SRS terms (e.g. in `ParkingStatuses.cs`).
   Translate them to English when you touch those lines; do not add new ones.
 - Not built yet in the API (as of 2026-10-24): pricing management, reports, the approval queue
