@@ -213,6 +213,8 @@ dotnet test tests/PMS.Application.UnitTests
 ```
 
 `docs/API_DOCUMENTATION.md` lists the endpoints; Swagger runs at `/swagger` in Development.
+In Development the API also seeds demo accounts (password `Demo@123`) and a month of parking
+activity for manual testing: see `docs/DEMO_DATA.md`.
 If a requirement has no controller in the table in section 3 it is not built yet: check the
 frontend, which may be running on mock data (`src/mocks`, `useDemo*` hooks).
 
@@ -261,6 +263,9 @@ git checkout features/<name>               # keep working on the branch afterwar
   Controllers stay thin; rules live in services and validators.
 - Status values are string constants in `ParkingStatuses.cs` — reuse them, do not inline strings.
 - Migrations: add with EF Core in `PMS.DataAccess`; never edit an applied migration.
+- Demo data (`Helpers/DemoData/DemoDataSeed`, `"Seed:DemoData"`): when a feature changes how sessions,
+  bookings, payments or wallets are written, update the seed the same way so the demo stays consistent
+  (`DemoDataSeedTests` checks the counters, ledgers and payments).
 - Tests: `tests/PMS.Application.UnitTests` (services, validators) and
   `tests/PMS.Api.IntegrationTests` (`WebApplicationFactory`). Coverage:
   `dotnet test tests/PMS.Application.UnitTests --settings coverlet.runsettings --collect:"XPlat Code Coverage" --results-directory TestResults`
