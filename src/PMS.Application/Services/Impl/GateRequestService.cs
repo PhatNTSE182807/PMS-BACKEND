@@ -347,7 +347,7 @@ public class GateRequestService(
 
         if (session == null) return "The parking session no longer exists.";
         if (session.Status != SessionStatus.Paid) return "Not paid yet: take the fee at the POS before opening the barrier.";
-        if (session.ExitWindowEndsAt != null && Now > session.ExitWindowEndsAt) return "The exit window has passed: an extra fee is due.";
+        if (session.ExitWindowEndsAt is { } windowEnd && Now > windowEnd) return "The exit window has passed: an extra fee is due.";
         return null;
     }
 }

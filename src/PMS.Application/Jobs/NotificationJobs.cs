@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using PMS.Application.Helpers.Parking;
 using PMS.Application.Models.Notifications;
 using PMS.Application.Models.Operations;
 using PMS.Application.Models.VehicleDocuments;
@@ -33,8 +34,6 @@ public class NotificationJobs(
 
     /// <summary>Unread ones are kept longer, but not forever.</summary>
     public const int UnreadRetentionDays = 180;
-
-    private const string FallbackTimeZone = "SE Asia Standard Time";
 
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -198,25 +197,10 @@ public class NotificationJobs(
     /// <summary>"10:32, 23/10/2026" in the lot's own time zone (Vietnam by default).</summary>
     private static string LocalTime(DateTime utc, ParkingLot lot)
     {
-        var zone = FindZone(lot?.TimeZoneId) ?? FindZone(FallbackTimeZone);
-        var local = zone == null
-            ? DateTime.SpecifyKind(utc, DateTimeKind.Utc).AddHours(7)
-            : TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone);
+        // Falls back to Vietnam time (UTC+7) when the lot's zone is unknown on this server
+        var zone = ParkingText.FindTimeZone(lot?.TimeZoneId);
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone);
         return local.ToString("HH:mm, dd/MM/yyyy", CultureInfo.InvariantCulture);
-    }
-
-    private static TimeZoneInfo FindZone(string id)
-    {
-        if (string.IsNullOrWhiteSpace(id))
-            return null;
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(id);
-        }
-        catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
-        {
-            return null;
-        }
     }
 
     private static string Duration(int minutes) =>
