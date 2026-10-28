@@ -128,6 +128,15 @@ public class GateService(
         var gate = await ResolveGateAsync(lotId, model.GateId, "In");
         var alerts = new List<GateAlertModel>();
         var overrides = new List<string>();
+        // A typed plate with the "no plate" flag would skip the duplicate and blacklist checks for a vehicle we can identify
+        if (model.NoPlate && ParkingText.NormalizePlate(model.PlateNumber?.Trim().ToUpperInvariant() ?? string.Empty).Length > 0)
+            throw new BadRequestException("A plate is entered: clear it to enter without a plate, or untick the plate-less option.");
+        var noPlateReason = model.NoPlateReason?.Trim();
+        if (model.NoPlate && string.IsNullOrEmpty(noPlateReason))
+            throw new BadRequestException("Give the reason the vehicle has no plate.");
+        if (noPlateReason?.Length > 500)
+            throw new BadRequestException("The no-plate reason is too long (500 characters at most).");
+
         var plate = model.NoPlate ? string.Empty : model.PlateNumber?.Trim().ToUpperInvariant() ?? string.Empty;
         var normalized = ParkingText.NormalizePlate(plate);
         var confidence = NormalizeConfidence(model.AnprConfidence);
@@ -288,6 +297,7 @@ public class GateService(
                 VehicleTypeId = vehicleTypeId,
                 HasPlate = !model.NoPlate,
                 IsManualEntry = model.IsManual,
+                NoPlateReason = model.NoPlate ? noPlateReason : null,
                 ManualEntryReason = model.IsManual ? model.ManualReason.Trim() : null,
                 OverrideNote = overrides.Count > 0 ? $"{string.Join("; ", overrides)}: {model.OverrideReason.Trim()}" : null,
                 CreatedAt = Now,
@@ -1063,6 +1073,7 @@ public class GateService(
             ExitWindowEndsAt = s.ExitWindowEndsAt is { } w ? Utc(w) : null,
             ExitTime = s.ExitTime is { } x ? Utc(x) : null,
             IsManualEntry = s.IsManualEntry,
+            NoPlateReason = s.NoPlateReason,
             IsLostTicket = s.IsLostCard,
             PlateMismatch = s.PlateMismatch,
             IsOverdue = SessionStatus.Inside.Contains(s.Status) && s.EntryTime < overdueBefore,

@@ -43,6 +43,7 @@ public partial class PmsDbContext
 
             entity.Property(e => e.SessionType).HasMaxLength(20).IsUnicode(false);
             entity.Property(e => e.ManualEntryReason).HasMaxLength(500);
+            entity.Property(e => e.NoPlateReason).HasMaxLength(500);
             entity.Property(e => e.ManualExitReason).HasMaxLength(500);
             entity.Property(e => e.EntryConfirmedAt).HasPrecision(3);
             entity.Property(e => e.DepositApplied).HasColumnType("decimal(18, 2)");
