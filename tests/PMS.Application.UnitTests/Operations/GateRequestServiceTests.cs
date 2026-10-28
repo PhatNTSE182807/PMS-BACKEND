@@ -332,5 +332,10 @@ public class GateRequestServiceTests
         var queue = await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut);
 
         queue.Single(r => r.Id == request.Id).Problem.Should().StartWith("The exit window has passed");
+
+        // Still inside the window: nothing stops the barrier
+        session.ExitWindowEndsAt = t.Now.AddMinutes(10);
+        await t.Db.SaveChangesAsync();
+        (await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut)).Single(r => r.Id == request.Id).Problem.Should().BeNull();
     }
 }

@@ -209,7 +209,7 @@ public class MappingBranchTests
     }
 
     [Fact]
-    public void LocalVehicleDocumentStorage_Should_Accept_Absolute_Roots_And_Refuse_Escapes()
+    public async System.Threading.Tasks.Task LocalVehicleDocumentStorage_Should_Accept_Absolute_Roots_And_Refuse_Escapes()
     {
         var root = Path.Combine(Path.GetTempPath(), $"pms-storage-{Guid.NewGuid():N}");
         try
@@ -225,8 +225,8 @@ public class MappingBranchTests
             FluentActions.Invoking(() => storage.OpenRead("../outside.bin")).Should().Throw<InvalidOperationException>();
 
             // A folder that still holds another file is kept
-            var first = storage.SaveAsync(new MemoryStream([1]), "same").GetAwaiter().GetResult();
-            var second = storage.SaveAsync(new MemoryStream([2]), "same").GetAwaiter().GetResult();
+            var first = await storage.SaveAsync(new MemoryStream([1]), "same");
+            var second = await storage.SaveAsync(new MemoryStream([2]), "same");
             storage.Delete(first);
             Directory.Exists(Path.Combine(root, "same")).Should().BeTrue();
             storage.Delete(second);
