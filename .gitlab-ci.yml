@@ -98,10 +98,21 @@ docker-image:
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
     - if: $CI_COMMIT_TAG
+  # The image is always built, so a broken Dockerfile fails the pipeline.
+  # It is only pushed when the GitLab instance has a Container Registry ($CI_REGISTRY is set);
+  # git.fsoft-academy.edu.vn has none today, so the login and push steps are skipped there.
   before_script:
-    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - |
+      if [ -n "$CI_REGISTRY" ]; then
+        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      else
+        echo "No Container Registry on this GitLab instance: the image is built but not pushed."
+        # $IMAGE_NAME would be "/pms-api", which is not a valid image name
+        IMAGE_NAME="pms-api"
+      fi
+      export IMAGE_NAME
   script:
-    - docker pull "$IMAGE_NAME:$CI_COMMIT_REF_SLUG" || true
+    - if [ -n "$CI_REGISTRY" ]; then docker pull "$IMAGE_NAME:$CI_COMMIT_REF_SLUG" || true; fi
     - >
       docker build
       --cache-from "$IMAGE_NAME:$CI_COMMIT_REF_SLUG"
@@ -111,9 +122,13 @@ docker-image:
       -t "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
       -t "$IMAGE_NAME:$CI_COMMIT_REF_SLUG"
       .
-    - docker push "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
-    - docker push "$IMAGE_NAME:$CI_COMMIT_REF_SLUG"
     - |
+      if [ -z "$CI_REGISTRY" ]; then
+        echo "Image $IMAGE_NAME:$CI_COMMIT_SHORT_SHA built; push skipped."
+        exit 0
+      fi
+      docker push "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+      docker push "$IMAGE_NAME:$CI_COMMIT_REF_SLUG"
       if [ "$CI_COMMIT_BRANCH" = "main" ]; then
         docker tag "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA" "$IMAGE_NAME:latest"
         docker push "$IMAGE_NAME:latest"

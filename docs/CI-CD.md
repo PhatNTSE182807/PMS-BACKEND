@@ -6,7 +6,7 @@ Pipeline được định nghĩa trong [`.gitlab-ci.yml`](../.gitlab-ci.yml).
 |--------|------------------------------------|-----------------------------------|-------|
 | build  | `build`                            | mọi push / merge request          | `dotnet restore` + `dotnet build` (Release) |
 | test   | `unit-tests`, `integration-tests`  | mọi push / merge request          | Chạy test, xuất báo cáo JUnit + Cobertura (tab *Tests* và coverage trong MR). Integration test dùng in-memory DB nên không cần SQL Server |
-| docker | `docker-image`                     | push lên `develop`, `main`, tag   | Build `Dockerfile`, push lên GitLab Container Registry (cần runner `privileged`) |
+| docker | `docker-image`                     | push lên `develop`, `main`, tag   | Build `Dockerfile` (cần runner `privileged`); chỉ push lên GitLab Container Registry khi server có registry. `git.fsoft-academy.edu.vn` hiện không bật registry nên job chỉ build để kiểm tra Dockerfile |
 | deploy | `deploy-azure`                     | **tự động** khi push lên `production` (sau khi test pass) | `dotnet publish` → zip deploy lên Azure App Service → chờ `/swagger` trả 200 |
 
 Quy trình release: merge `develop` → `production` (hoặc `git push origin develop:production`). Test fail thì không deploy.
