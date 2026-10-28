@@ -273,6 +273,49 @@ public class GateRequestServiceTests
     }
 
     [Fact]
+    public async Task Waiting_CheckIn_Request_Should_Explain_Why_The_Barrier_Would_Not_Open()
+    {
+        var (t, _, _, reservation) = await BookedAsync();
+        // No real-time notifier: the service still works
+        var service = new GateRequestService(t.Db, t.Gates, new LotScopeService(t.Db, t.Claims), t.Options, t.Clock);
+        var request = await service.RequestCheckInAsync(t.CustomerUserId, reservation.Id);
+        var entity = t.Db.Reservations.Single(r => r.Id == reservation.Id);
+        async Task<string> ProblemAsync() => (await service.GetMineAsync(t.CustomerUserId)).Single(r => r.Id == request.Id).Problem;
+
+        entity.Status = ReservationStatus.Cancelled;
+        await t.Db.SaveChangesAsync();
+        (await ProblemAsync()).Should().Be("The booking is Cancelled.");
+
+        entity.Status = ReservationStatus.Confirmed;
+        entity.StartTime = t.Now.AddHours(2);
+        await t.Db.SaveChangesAsync();
+        (await ProblemAsync()).Should().StartWith("Too early");
+
+        entity.StartTime = t.Now.AddHours(-2);
+        entity.EndTime = t.Now.AddMinutes(-1);
+        await t.Db.SaveChangesAsync();
+        (await ProblemAsync()).Should().StartWith("The hold has ended");
+
+        t.Db.Reservations.Remove(entity);
+        await t.Db.SaveChangesAsync();
+        (await ProblemAsync()).Should().Be("The booking no longer exists.");
+    }
+
+    [Fact]
+    public async Task Waiting_CheckOut_Request_Should_Explain_A_Missing_Session()
+    {
+        var (t, service, _, reservation) = await BookedAsync();
+        var sessionId = await ParkedAsync(t, reservation);
+        var request = await service.RequestCheckOutAsync(t.CustomerUserId, sessionId);
+
+        t.Db.ParkingSessions.Remove(t.Db.ParkingSessions.Single(s => s.Id == sessionId));
+        await t.Db.SaveChangesAsync();
+
+        (await service.GetMineAsync(t.CustomerUserId)).Single(r => r.Id == request.Id).Problem
+            .Should().Be("The parking session no longer exists.");
+    }
+
+    [Fact]
     public async Task Waiting_CheckOut_Request_Should_Warn_When_The_Exit_Window_Has_Passed()
     {
         var (t, service, _, reservation) = await BookedAsync();

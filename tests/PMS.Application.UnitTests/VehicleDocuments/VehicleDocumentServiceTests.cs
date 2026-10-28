@@ -353,6 +353,77 @@ public class VehicleDocumentServiceTests : IDisposable
         _vehicle.IsActive.Should().BeFalse();
     }
 
+    /// <summary>Calls the private review mapping, which old rows can reach with related records missing.</summary>
+    private VehicleVerificationReviewModel ToReviewModel(VehicleVerification verification) =>
+        (VehicleVerificationReviewModel)typeof(VehicleDocumentService)
+            .GetMethod("ToReviewModel", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, [verification, _options]);
+
+    [Fact]
+    public void Review_Model_Should_Survive_Missing_Vehicle_Customer_And_Type()
+    {
+        var orphan = ToReviewModel(new VehicleVerification { Status = VehicleVerificationStatus.Rejected });
+        orphan.LicensePlate.Should().BeNull();
+        orphan.CustomerName.Should().BeNull();
+        orphan.VehicleType.Should().BeNull();
+        orphan.Brand.Should().BeNull();
+        orphan.FilesDeleteAt.Should().BeNull();
+
+        var deletedAt = DateTime.UtcNow;
+        var noCustomer = ToReviewModel(new VehicleVerification
+        {
+            Status = VehicleVerificationStatus.Approved,
+            Vehicle = new Vehicle { PlateNumber = "30A-000.01", Brand = "Kia" },
+            DecidedAt = deletedAt.AddDays(-40),
+            FilesDeletedAt = deletedAt
+        });
+        noCustomer.LicensePlate.Should().Be("30A-000.01");
+        noCustomer.Brand.Should().Be("Kia");
+        noCustomer.CustomerName.Should().BeNull();
+        noCustomer.CustomerCitizenId.Should().BeNull();
+        noCustomer.CustomerDateOfBirth.Should().BeNull();
+        noCustomer.VehicleType.Should().BeNull();
+        noCustomer.MissingDocuments.Should().BeEmpty();
+        noCustomer.FilesDeleteAt.Should().Be(deletedAt);
+    }
+
+    [Fact]
+    public async Task OpenFileAsync_Should_Name_A_File_Stored_Without_A_Name()
+    {
+        var model = await _sut.UploadAsync(UserId, _vehicle.Id, "CitizenId", "Front", new MemoryStream(Png), null, Png.Length);
+        model.Documents[0].FileName.Should().BeEmpty();
+        _context.VehicleDocuments.Single().OriginalFileName = null;
+        await _context.SaveChangesAsync();
+
+        var file = await _sut.OpenFileAsync(UserId, _vehicle.Id, model.Documents[0].DocumentId);
+        file.Content.Dispose();
+
+        file.FileName.Should().Be("CitizenId-Front");
+    }
+
+    [Fact]
+    public async Task ReviewAsync_Reject_Should_Not_Touch_A_Vehicle_Already_Removed()
+    {
+        var submitted = await SubmittedAsync();
+        _vehicle.IsActive = false;
+        await _context.SaveChangesAsync();
+
+        var review = await _sut.ReviewAsync(StaffId, submitted.VerificationId, new ReviewVehicleVerificationModel { Approve = false, Note = "Duplicate" });
+
+        review.Status.Should().Be(VehicleVerificationStatus.Rejected);
+        _vehicle.IsDefault.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ReviewAsync_Reject_Of_The_Only_Vehicle_Should_Leave_No_Default()
+    {
+        var submitted = await SubmittedAsync();
+
+        await _sut.ReviewAsync(StaffId, submitted.VerificationId, new ReviewVehicleVerificationModel { Approve = false, Note = "Blurry" });
+
+        _context.Vehicles.Count(v => v.IsDefault).Should().Be(0);
+    }
+
     // ---- Rejected notices ----
 
     [Fact]
