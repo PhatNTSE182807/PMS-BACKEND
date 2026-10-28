@@ -21,6 +21,9 @@ public partial class ParkingSession
 
     public string ManualEntryReason { get; set; }
 
+    /// <summary>Why a vehicle entered without a plate (unreadable or missing); null when it has a plate. Not a device failure, so it is not a manual entry.</summary>
+    public string NoPlateReason { get; set; }
+
     public bool IsManualExit { get; set; }
 
     public string ManualExitReason { get; set; }

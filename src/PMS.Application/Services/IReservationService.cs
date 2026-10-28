@@ -31,5 +31,5 @@ public interface IReservationService
     Task<IReadOnlyList<ReservationResponseModel>> GetForLotAsync(int lotId, string status, DateTime? fromUtc, DateTime? toUtc);
 
     /// <summary>Entry lane: the booking behind a scanned QR or typed code, its vehicle and whether it can check in now.</summary>
-    Task<GateReservationLookupModel> LookupForGateAsync(int lotId, string code, string qr);
+    Task<GateReservationLookupModel> LookupForGateAsync(int lotId, string code, string qr, string plate = null);
 }

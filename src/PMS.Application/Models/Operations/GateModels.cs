@@ -14,6 +14,9 @@ public class CheckInModel
     /// <summary>The plate cannot be read or is missing: no ANPR, no duplicate-plate rule; ticket and photo only (FR-OPS-10).</summary>
     public bool NoPlate { get; set; }
 
+    /// <summary>Required with <see cref="NoPlate"/>: why the plate is unreadable or missing. Not a device failure (that is <see cref="IsManual"/>).</summary>
+    public string NoPlateReason { get; set; }
+
     /// <summary>Vehicle type of the lane; defaults to the reservation's vehicle.</summary>
     public int? VehicleTypeId { get; set; }
 
@@ -133,6 +136,8 @@ public class SessionResponseModel
     public DateTime? ExitTime { get; set; }
 
     public bool IsManualEntry { get; set; }
+
+    public string NoPlateReason { get; set; }
 
     public bool IsLostTicket { get; set; }
 

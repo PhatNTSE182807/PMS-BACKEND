@@ -44,10 +44,13 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> GetReservationsAsync(int lotId, [FromQuery] string status = null, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null) =>
         Ok(ApiResult<IReadOnlyList<ReservationResponseModel>>.Success(await reservationService.GetForLotAsync(lotId, status, from?.ToUniversalTime(), to?.ToUniversalTime())));
 
-    /// <summary>Entry lane: the reservation behind a scanned QR or typed code, with the booked vehicle to fill the form.</summary>
+    /// <summary>
+    /// Entry lane: the reservation behind a scanned QR, a typed code or, when the customer has no code, the vehicle's
+    /// plate (QR, then code, then plate); returns the reservation code and the booked vehicle to fill the form.
+    /// </summary>
     [HttpGet("lots/{lotId:int}/reservations/lookup")]
-    public async Task<IActionResult> LookupReservationAsync(int lotId, [FromQuery] string code = null, [FromQuery] string qr = null) =>
-        Ok(ApiResult<GateReservationLookupModel>.Success(await reservationService.LookupForGateAsync(lotId, code, qr)));
+    public async Task<IActionResult> LookupReservationAsync(int lotId, [FromQuery] string code = null, [FromQuery] string qr = null, [FromQuery] string plate = null) =>
+        Ok(ApiResult<GateReservationLookupModel>.Success(await reservationService.LookupForGateAsync(lotId, code, qr, plate)));
 
     /// <summary>Whitelist / Blacklist in force for the lot (read only for Staff).</summary>
     [HttpGet("lots/{lotId:int}/plate-lists")]

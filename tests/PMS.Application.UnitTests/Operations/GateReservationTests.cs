@@ -100,6 +100,41 @@ public class GateReservationTests
         after.CanCheckIn.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("51A-123.45")]
+    [InlineData("51a12345")]
+    [InlineData(" 51A 123 45 ")]
+    public async Task Lookup_By_Plate_Returns_The_Reservation_Code_Whatever_The_Plate_Format(string typed)
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+        var (reservation, _) = await t.ConfirmedReservationAsync(arrivalInMinutes: 5);
+
+        var found = await t.Reservations.LookupForGateAsync(t.Lot.Id, null, null, typed);
+
+        found.Reservation.Code.Should().Be(reservation.Code);
+        found.CanCheckIn.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Lookup_By_Plate_Without_A_Booking_Is_Not_Found()
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+
+        var act = () => t.Reservations.LookupForGateAsync(t.Lot.Id, null, null, "30X-000.01");
+
+        await act.Should().ThrowAsync<NotFoundException>().WithMessage("*plate*");
+    }
+
+    [Fact]
+    public async Task Lookup_Without_Code_QR_Or_Plate_Is_Refused()
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+
+        var act = () => t.Reservations.LookupForGateAsync(t.Lot.Id, null, null, null);
+
+        await act.Should().ThrowAsync<BadRequestException>();
+    }
+
     [Fact]
     public async Task Lookup_Says_Too_Early_Before_The_Window()
     {
