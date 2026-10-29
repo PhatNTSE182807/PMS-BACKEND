@@ -810,7 +810,9 @@ public class GateService(
 
         var breakdown = session.SessionType == SessionType.Whitelist
             ? new FeeBreakdown((int)Math.Ceiling((Now - session.EntryTime).TotalMinutes), 0, false, [])
-            : FeeCalculator.Calculate(tariff, Utc(session.EntryTime), Now, timeZone);
+            : options.Simulation is { Enabled: true } simulation
+                ? FeeCalculator.CalculateSimulated(tariff, Utc(session.EntryTime), Now, timeZone, simulation.BlockSeconds)
+                : FeeCalculator.Calculate(tariff, Utc(session.EntryTime), Now, timeZone);
         var deposit = session.ReservationId != null ? await paymentService.DepositHeldAsync(session.ReservationId.Value) : 0;
         var exitWindowMissed = session.ExitWindowEndsAt != null && Now > session.ExitWindowEndsAt && session.PaidAmount > 0;
         var lostFee = session.IsLostCard ? tariff.LostTicketFee : 0;
@@ -936,7 +938,7 @@ public class GateService(
         }
 
         // BR-02: check-in window
-        var from = reservation.StartTime.AddMinutes(-options.Reservations.EarlyArrivalMinutes);
+        var from = reservation.StartTime.Add(-options.EarlyArrivalTime);
         if (Now < from || Now > reservation.EndTime)
         {
             alerts.Add(Block("RESERVATION_OUTSIDE_WINDOW",

@@ -563,7 +563,7 @@ public class PaymentService(
         session.Status = SessionStatus.Paid;
         session.UpdatedAt = Now;
         session.ExitWindowEndsAt = payment.Channel is PaymentChannel.App or PaymentChannel.Kiosk
-            ? Now.AddMinutes(parkingOptions.Gate.ExitWindowMinutes)
+            ? Now.Add(parkingOptions.ExitWindowTime)
             : null;
     }
 

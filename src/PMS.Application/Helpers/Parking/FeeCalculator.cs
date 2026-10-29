@@ -116,6 +116,46 @@ public static class FeeCalculator
     }
 
     /// <summary>
+    /// Parking simulation (Admin demo mode): every block of the tariff lasts <paramref name="blockSeconds"/>
+    /// instead of its minutes, the block prices stay the same and there is no daily cap. The first block is
+    /// owed from entry, as in <see cref="Calculate"/>. "DayNight" prices each block by the local time it
+    /// starts at; "PerEntry" charges the entry fee once.
+    /// </summary>
+    public static FeeBreakdown CalculateSimulated(Tariff tariff, DateTime entryUtc, DateTime exitUtc, TimeZoneInfo timeZone, int blockSeconds)
+    {
+        ArgumentNullException.ThrowIfNull(tariff);
+        timeZone ??= TimeZoneInfo.Utc;
+        blockSeconds = Math.Max(1, blockSeconds);
+
+        var seconds = exitUtc <= entryUtc ? 0 : (exitUtc - entryUtc).TotalSeconds;
+        var duration = (int)Math.Ceiling(seconds / 60d);
+        var entryLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(entryUtc, DateTimeKind.Utc), timeZone);
+
+        int blocks;
+        decimal amount;
+        if (string.Equals(tariff.ChargeModel, "PerEntry", StringComparison.OrdinalIgnoreCase))
+        {
+            (blocks, amount) = (1, tariff.EntryFee);
+        }
+        else
+        {
+            blocks = Math.Max(1, (int)Math.Ceiling(seconds / blockSeconds));
+            amount = tariff.EntryFee;
+            var cursor = entryLocal;
+            for (var i = 0; i < blocks; i++)
+            {
+                amount += i == 0 && tariff.FirstBlockMinutes is > 0 && tariff.FirstBlockPrice is { } firstPrice
+                    ? firstPrice
+                    : BlockPrice(tariff, cursor);
+                cursor = cursor.AddSeconds(blockSeconds);
+            }
+        }
+
+        var day = new FeeDay(DateOnly.FromDateTime(entryLocal), duration, blocks, amount, false);
+        return new FeeBreakdown(duration, RoundUp(amount), false, [day]);
+    }
+
+    /// <summary>
     /// Settles a stay at the exit: the fee (plus a lost-ticket fine and the BR-10 late charge when the Exit
     /// Window was missed) minus the deposit and what was paid already. A deposit larger than the fee leaves
     /// a residual that is refunded (BR-03); money paid earlier is never refunded here.

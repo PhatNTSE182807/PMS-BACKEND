@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
+using PMS.Application.Helpers.Parking;
 using PMS.Application.Models.Operations;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
@@ -17,7 +18,7 @@ public class GateRequestService(
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
-    private int EarlyArrivalMinutes => options.Reservations.EarlyArrivalMinutes;
+    private TimeSpan EarlyArrival => options.EarlyArrivalTime;
 
     /* ------------------------------------------------------------------ customer */
 
@@ -32,8 +33,8 @@ public class GateRequestService(
             throw new BadRequestException(reservation.Status == ReservationStatus.CheckedIn
                 ? "This booking has already checked in."
                 : $"This booking is {reservation.Status} and cannot check in.");
-        if (Now < reservation.StartTime.AddMinutes(-EarlyArrivalMinutes))
-            throw new BadRequestException($"Too early: check-in opens {EarlyArrivalMinutes} minutes before your arrival time.");
+        if (Now < reservation.StartTime.Add(-EarlyArrival))
+            throw new BadRequestException($"Too early: check-in opens {ParkingText.Duration(EarlyArrival)} before your arrival time.");
         if (Now > reservation.EndTime)
             throw new BadRequestException("The hold has ended; the vehicle can only enter as a walk-in at the lane.");
 
@@ -316,7 +317,7 @@ public class GateRequestService(
                 ReservationCode = reservation?.ReservationCode,
                 ReservationStatus = reservation?.Status,
                 ArrivalTime = reservation?.StartTime,
-                CheckInFrom = reservation?.StartTime.AddMinutes(-EarlyArrivalMinutes),
+                CheckInFrom = reservation?.StartTime.Add(-EarlyArrival),
                 CheckInUntil = reservation?.EndTime,
                 SlotCode = slotId != null ? slots.GetValueOrDefault(slotId.Value) : null,
                 SessionId = session?.Id,
@@ -340,7 +341,7 @@ public class GateRequestService(
         {
             if (reservation == null) return "The booking no longer exists.";
             if (reservation.Status != ReservationStatus.Confirmed) return $"The booking is {reservation.Status}.";
-            if (Now < reservation.StartTime.AddMinutes(-EarlyArrivalMinutes)) return "Too early: the check-in window has not opened.";
+            if (Now < reservation.StartTime.Add(-EarlyArrival)) return "Too early: the check-in window has not opened.";
             if (Now > reservation.EndTime) return "The hold has ended: only a walk-in entry is possible.";
             return null;
         }
