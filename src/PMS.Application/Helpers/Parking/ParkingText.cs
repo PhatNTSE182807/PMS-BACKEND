@@ -23,6 +23,15 @@ public static class ParkingText
         return $"{prefix}{utcNow:yyMMddHHmmss}{new string(random)}";
     }
 
+    /// <summary>"15 minutes", "1 minute" or, for a simulated duration that is not whole minutes, "15 seconds".</summary>
+    public static string Duration(TimeSpan span)
+    {
+        var seconds = (int)Math.Round(span.TotalSeconds);
+        if (seconds % 60 == 0)
+            return seconds == 60 ? "1 minute" : $"{seconds / 60} minutes";
+        return seconds == 1 ? "1 second" : $"{seconds} seconds";
+    }
+
     /// <summary>The lot's time zone (Windows or IANA id), falling back to Vietnam time.</summary>
     public static TimeZoneInfo FindTimeZone(string id) => FirstTimeZone(id, "SE Asia Standard Time", "Asia/Ho_Chi_Minh");
 

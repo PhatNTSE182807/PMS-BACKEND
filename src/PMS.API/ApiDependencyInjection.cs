@@ -81,6 +81,9 @@ public static class ApiDependencyInjection
                 config.UseSqlServerStorage(hangfireConn);
         });
         services.AddHangfireServer();
+
+        // Parking simulation: booking deadlines in seconds
+        services.AddHostedService<PMS.API.Jobs.ParkingSimulationTicker>();
     }
 
     public static void UseRealtimeAndJobs(this WebApplication app)

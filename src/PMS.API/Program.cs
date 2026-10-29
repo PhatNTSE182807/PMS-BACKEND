@@ -46,6 +46,9 @@ await PMS.Application.Helpers.ParkingLotDataSeed.SeedParkingLotsAsync(pmsContext
 // Demo accounts and parking data for manual testing, when "Seed:DemoData" is true (docs/DEMO_DATA.md)
 await PMS.Application.Helpers.DemoData.DemoDataSeed.SeedIfEnabledAsync(scope.ServiceProvider);
 
+// The Admin's parking simulation survives a restart
+await scope.ServiceProvider.GetRequiredService<PMS.Application.Services.IParkingSimulationService>().LoadAsync();
+
 app.UseSwagger();
 app.UseSwaggerUI(c => { c.SwaggerEndpoint("/swagger/v1/swagger.json", "XXIV Parking V1"); });
 

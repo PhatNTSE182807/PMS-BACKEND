@@ -29,6 +29,32 @@ public class ParkingOptions
     /// <summary>Calendar days for daily caps and VNPay dates (BR-22); the lot's own time zone wins when set.</summary>
     public string TimeZoneId { get; set; } = "SE Asia Standard Time";
 
+    /// <summary>Admin demo mode (seconds instead of minutes and hours); replaced as a whole when the Admin saves it.</summary>
+    public ParkingSimulationSettings Simulation { get; set; } = new();
+
+    /// <summary>True while the parking simulation is on.</summary>
+    public bool IsSimulating => Simulation is { Enabled: true };
+
+    /// <summary>How long a booking holds the bay after its arrival time.</summary>
+    public TimeSpan HoldTime(bool withDeposit) => Simulation is { Enabled: true } s
+        ? TimeSpan.FromSeconds(withDeposit ? s.DepositHoldSeconds : s.HoldSeconds)
+        : TimeSpan.FromMinutes(Reservations.HoldMinutesFor(withDeposit));
+
+    /// <summary>Time to pay the deposit after booking (BR-06).</summary>
+    public TimeSpan DepositPaymentTime => Pick(s => s.DepositPaymentSeconds, Reservations.DepositMinutes);
+
+    /// <summary>Check-in opens this long before the arrival time (BR-02).</summary>
+    public TimeSpan EarlyArrivalTime => Pick(s => s.EarlyArrivalSeconds, Reservations.EarlyArrivalMinutes);
+
+    /// <summary>Full refund and changes allowed until this long before arrival (BR-04).</summary>
+    public TimeSpan CancelRefundTime => Pick(s => s.CancelRefundSeconds, Reservations.CancelRefundMinutes);
+
+    /// <summary>Time to leave after prepaying (BR-10).</summary>
+    public TimeSpan ExitWindowTime => Pick(s => s.ExitWindowSeconds, Gate.ExitWindowMinutes);
+
+    private TimeSpan Pick(Func<ParkingSimulationSettings, int> seconds, int minutes) =>
+        Simulation is { Enabled: true } s ? TimeSpan.FromSeconds(seconds(s)) : TimeSpan.FromMinutes(minutes);
+
     /// <summary>The tariffs in force: the configured ones, or the SRS defaults.</summary>
     public IReadOnlyList<DefaultTariff> EffectiveTariffs => Tariffs is { Length: > 0 } ? Tariffs : DefaultTariffs;
 
