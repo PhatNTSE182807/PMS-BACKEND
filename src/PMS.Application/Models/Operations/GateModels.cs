@@ -336,3 +336,31 @@ public class StaffSessionHistoryPageModel
     public int PageSize { get; set; }
     public int TotalCount { get; set; }
 }
+
+/// <summary>One parking-fee payment taken at a lot (counter, exit lane, app or wallet).</summary>
+public class StaffPaymentHistoryItemModel
+{
+    public long Id { get; set; }
+    public string Code { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public long? SessionId { get; set; }
+    public string SessionCode { get; set; }
+    public string PlateNumber { get; set; }
+    /// <summary>Cash, Wallet, VNPay or MoMo.</summary>
+    public string Method { get; set; }
+    /// <summary>Lane, Kiosk (counter) or App.</summary>
+    public string Channel { get; set; }
+    public decimal Amount { get; set; }
+    public string Status { get; set; }
+    /// <summary>The Staff who took a cash payment; null for online payments.</summary>
+    public string CollectedByName { get; set; }
+}
+
+/// <summary>A page of a lot's payment history, newest first.</summary>
+public class StaffPaymentHistoryPageModel
+{
+    public IReadOnlyList<StaffPaymentHistoryItemModel> Items { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+}
