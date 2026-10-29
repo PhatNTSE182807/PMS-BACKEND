@@ -30,19 +30,57 @@ public class ParkingJobs(
 
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
+    /// <summary>
+    /// The minutely run and the simulation tick touch the same bookings; one at a time per API process,
+    /// so a booking is never ended (and its bay released) twice.
+    /// </summary>
+    private static readonly SemaphoreSlim DeadlineLock = new(1, 1);
+
     /// <summary>Everything that must happen within a minute of its deadline.</summary>
     public async Task<ParkingJobRun> RunMinutelyAsync()
     {
-        var expired = await ExpireUnpaidReservationsAsync();
-        var noShows = await MarkNoShowsAsync();
-        // Bookings made ahead lock their bay shortly before arrival
-        await reservations.ActivateDueHoldsAsync();
-        var reminders = await SendRemindersAsync();
-        var cancelled = await CancelUnconfirmedEntriesAsync();
-        var released = await ReleaseStalePaymentRequestsAsync();
-        var checkedPayments = await payments.CheckPendingPaymentsAsync();
-        var refunds = await payments.RetryPendingRefundsAsync();
-        return new ParkingJobRun(expired, noShows, reminders, cancelled, released, checkedPayments, refunds);
+        await DeadlineLock.WaitAsync();
+        try
+        {
+            var expired = await ExpireUnpaidReservationsAsync();
+            var noShows = await MarkNoShowsAsync();
+            // Bookings made ahead lock their bay shortly before arrival
+            await reservations.ActivateDueHoldsAsync();
+            var reminders = await SendRemindersAsync();
+            var cancelled = await CancelUnconfirmedEntriesAsync();
+            var released = await ReleaseStalePaymentRequestsAsync();
+            var checkedPayments = await payments.CheckPendingPaymentsAsync();
+            var refunds = await payments.RetryPendingRefundsAsync();
+            return new ParkingJobRun(expired, noShows, reminders, cancelled, released, checkedPayments, refunds);
+        }
+        finally
+        {
+            DeadlineLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Parking simulation: deadlines measured in seconds cannot wait for the minutely run, so the API calls
+    /// this every second or so. It ends unpaid and no-show bookings and locks bays that are due; it does
+    /// nothing (and returns null) while the simulation is off.
+    /// </summary>
+    public async Task<ParkingJobRun> RunSimulationTickAsync()
+    {
+        if (!options.IsSimulating)
+            return null;
+
+        await DeadlineLock.WaitAsync();
+        try
+        {
+            var expired = await ExpireUnpaidReservationsAsync();
+            var noShows = await MarkNoShowsAsync();
+            await reservations.ActivateDueHoldsAsync();
+            return new ParkingJobRun(expired, noShows, 0, 0, 0, 0, 0);
+        }
+        finally
+        {
+            DeadlineLock.Release();
+        }
     }
 
     /// <summary>BR-06 / 4.2.5: the deposit was not paid in time → Expired, slot back to Available.</summary>

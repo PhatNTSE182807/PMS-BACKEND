@@ -17,6 +17,9 @@ public interface IGateService
 
     Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize);
 
+    /// <summary>Parking-fee payments taken at the lot, newest first; <paramref name="method"/> "Cash" keeps cash only.</summary>
+    Task<StaffPaymentHistoryPageModel> GetPaymentHistoryAsync(int lotId, string method, string plate, int page, int pageSize);
+
     Task<SessionResponseModel> GetSessionAsync(long sessionId);
 
     /// <summary>Find the open session of a plate, a ticket QR or a session code at an exit lane.</summary>

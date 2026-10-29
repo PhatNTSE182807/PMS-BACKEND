@@ -33,6 +33,7 @@ public class LotsController(
     [HttpGet("/api/public/lots")]
     [HttpGet("/api/public/parking-lots")]
     [AllowAnonymous]
+    [EnableRateLimiting(ApiDependencyInjection.PublicLayoutRateLimit)]
     public async Task<IActionResult> GetPublicLotsAsync([FromQuery] string searchTerm = null)
     {
         return Ok(ApiResult<IEnumerable<PublicParkingLotResponseModel>>.Success(

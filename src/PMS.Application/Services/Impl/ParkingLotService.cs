@@ -78,14 +78,29 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             .OrderBy(p => p.Name)
             .ToListAsync();
         var staffed = await LotStaffing.StaffedLotIdsAsync(pmsContext, lots.Select(p => p.Id));
+        var bays = await PublicBaysAsync(lots.Select(p => p.Id).ToList());
 
         return lots.Select(p =>
         {
             var isStaffed = staffed.Contains(p.Id);
             var effective = LotStaffing.EffectiveStatus(p, isStaffed);
             var bookable = effective == LotStatus.Active;
+            var lotBays = bays.Where(b => b.LotId == p.Id).ToList();
             return new PublicParkingLotResponseModel
             {
+                TotalBays = lotBays.Sum(b => b.Total),
+                FreeBays = lotBays.Sum(b => b.Free),
+                BaysByVehicle = lotBays
+                    .Where(b => b.VehicleType != null)
+                    .GroupBy(b => b.VehicleType)
+                    .OrderBy(g => g.Key)
+                    .Select(g => new PublicLotBaysModel
+                    {
+                        VehicleType = g.Key,
+                        TotalBays = g.Sum(b => b.Total),
+                        FreeBays = g.Sum(b => b.Free)
+                    })
+                    .ToList(),
                 Id = p.Id,
                 Code = p.Code,
                 Name = p.Name,
@@ -110,6 +125,40 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             };
         }).ToList();
     }
+
+    /// <summary>
+    /// Free / total bays per active zone of the lots, with the zone's vehicle family (CAR or MOTORBIKE,
+    /// from its bays; null when it has none). The zone counter is used when there is one, the slots otherwise.
+    /// </summary>
+    private async Task<List<(int LotId, string VehicleType, int Total, int Free)>> PublicBaysAsync(List<int> lotIds)
+    {
+        var zones = await pmsContext.Zones.AsNoTracking()
+            .Where(z => lotIds.Contains(z.ParkingLotId) && z.IsActive)
+            .Select(z => new
+            {
+                z.ParkingLotId,
+                Counter = z.ZoneCounter,
+                TypeCode = z.Slots.Where(s => s.IsActive).Select(s => s.VehicleType.Code).FirstOrDefault(),
+                SlotTotal = z.Slots.Count(s => s.IsActive),
+                SlotFree = z.Slots.Count(s => s.IsActive && s.Status == SlotStatus.Available)
+            })
+            .ToListAsync();
+
+        return zones.Select(z => (
+            z.ParkingLotId,
+            PublicVehicleFamily(z.TypeCode),
+            z.Counter?.TotalCapacity ?? z.SlotTotal,
+            z.Counter?.AvailableSpaces ?? z.SlotFree)).ToList();
+    }
+
+    /// <summary>Public name of a vehicle family: all cars share bays; anything else is left out of the breakdown.</summary>
+    private static string PublicVehicleFamily(string vehicleTypeCode) =>
+        ParkingInventory.Family(vehicleTypeCode) switch
+        {
+            "car" => "CAR",
+            "two-wheel" => "MOTORBIKE",
+            _ => null
+        };
 
     public async Task<ParkingLotResponseModel> GetByIdAsync(int id)
     {

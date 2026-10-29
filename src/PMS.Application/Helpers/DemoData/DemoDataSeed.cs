@@ -28,8 +28,22 @@ public sealed partial class DemoDataSeed
 {
     public const string ConfigKey = "Seed:DemoData";
 
-    /// <summary>Password of every demo account.</summary>
+    /// <summary>Password of the demo customers (and, before 2026-10-29, of every demo account).</summary>
     public const string Password = "Demo@123";
+
+    /// <summary>Password of the demo Managers.</summary>
+    public const string ManagerPassword = "Manager123@";
+
+    /// <summary>Password of the demo Staff.</summary>
+    public const string StaffPassword = "Staff123@";
+
+    /// <summary>The demo password of an account with this role ("Manager", "Staff", or a customer).</summary>
+    public static string PasswordFor(string role) => role switch
+    {
+        "Manager" => ManagerPassword,
+        "Staff" => StaffPassword,
+        _ => Password
+    };
 
     public const string MarkerAction = "DemoDataSeeded";
 
@@ -148,7 +162,7 @@ public sealed partial class DemoDataSeed
         if (transaction != null)
             await transaction.CommitAsync();
 
-        logger?.LogInformation("Demo data seeded. Every demo account uses the password {Password}; see docs/DEMO_DATA.md.", Password);
+        logger?.LogInformation("Demo data seeded. Passwords: Managers {ManagerPassword}, Staff {StaffPassword}, customers {Password}; see docs/DEMO_DATA.md.", ManagerPassword, StaffPassword, Password);
     }
 
     /* ---- shared state ------------------------------------------------------------------------- */

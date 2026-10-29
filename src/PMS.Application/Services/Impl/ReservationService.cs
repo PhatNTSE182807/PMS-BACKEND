@@ -85,12 +85,12 @@ public class ReservationService(
                 ZoneId = slot.ZoneId,
                 SlotId = slot.Id,
                 StartTime = arrival,
-                EndTime = arrival.AddMinutes(Rules.HoldMinutesFor(withDeposit)),
+                EndTime = arrival.Add(options.HoldTime(withDeposit)),
                 BookingMode = mode,
                 DepartureTime = departure,
                 SlotHeldAt = holdNow ? Now : null,
                 DepositAmount = withDeposit ? DepositFor(vehicleType.Code) : 0,
-                DepositDueAt = withDeposit ? Now.AddMinutes(Rules.DepositMinutes) : null,
+                DepositDueAt = withDeposit ? Now.Add(options.DepositPaymentTime) : null,
                 Status = withDeposit ? ReservationStatus.PendingDeposit : ReservationStatus.Confirmed,
                 ConfirmedAt = withDeposit ? null : Now,
                 CreatedAt = Now
@@ -127,8 +127,8 @@ public class ReservationService(
         ParkingStateMachines.EnsureReservation(reservation.Status, ReservationStatus.Confirmed);
         if (reservation.Status != ReservationStatus.Confirmed)
             throw new BadRequestException("Only confirmed reservations can be changed.");
-        if (Now > reservation.StartTime.AddMinutes(-Rules.CancelRefundMinutes))
-            throw new BadRequestException($"Changes close {Rules.CancelRefundMinutes} minutes before arrival; the deadline has passed.");
+        if (Now > reservation.StartTime.Add(-options.CancelRefundTime))
+            throw new BadRequestException($"Changes close {ParkingText.Duration(options.CancelRefundTime)} before arrival; the deadline has passed.");
 
         // The new window: anything not sent keeps its current value; pay-as-you-go has no departure
         var mode = model.BookingMode ?? reservation.BookingMode ?? BookingMode.PayAsYouGo;
@@ -175,7 +175,7 @@ public class ReservationService(
                 Log(reservation.Id, "ArrivalChanged", reservation.StartTime.ToString("O"), arrival.ToString("O"), userId);
                 reservation.StartTime = arrival;
                 // Keep the hold length of the booking type: 30 minutes with a deposit, 15 without
-                reservation.EndTime = arrival.AddMinutes(Rules.HoldMinutesFor(reservation.DepositAmount > 0));
+                reservation.EndTime = arrival.Add(options.HoldTime(reservation.DepositAmount > 0));
                 reservation.ReminderSentAt = null;
                 reservation.HoldReminderSentAt = null;
             }
@@ -230,7 +230,7 @@ public class ReservationService(
         if (reservation.Status != ReservationStatus.Confirmed)
             throw new BadRequestException("The QR code is issued once the deposit is paid.");
 
-        var validFrom = reservation.StartTime.AddMinutes(-Rules.EarlyArrivalMinutes);
+        var validFrom = reservation.StartTime.Add(-options.EarlyArrivalTime);
         return new ReservationQrModel
         {
             ReservationId = reservation.Id,
@@ -370,7 +370,7 @@ public class ReservationService(
             .Select(s => s.SessionCode)
             .FirstOrDefaultAsync();
 
-        var from = reservation.StartTime.AddMinutes(-Rules.EarlyArrivalMinutes);
+        var from = reservation.StartTime.Add(-options.EarlyArrivalTime);
         string problem = null;
         if (reservation.Status != ReservationStatus.Confirmed)
             problem = reservation.Status == ReservationStatus.CheckedIn
@@ -480,7 +480,7 @@ public class ReservationService(
 
     /// <summary>BR-04: full refund up to H minutes before arrival, nothing after.</summary>
     private decimal RefundIfCancelledNow(Reservation reservation) =>
-        reservation.Status == ReservationStatus.Confirmed && Now <= reservation.StartTime.AddMinutes(-Rules.CancelRefundMinutes)
+        reservation.Status == ReservationStatus.Confirmed && Now <= reservation.StartTime.Add(-options.CancelRefundTime)
             ? reservation.DepositAmount - reservation.RefundAmount
             : 0;
 
@@ -507,7 +507,7 @@ public class ReservationService(
     /// </summary>
     private async Task EnsureSlotFreeForAsync(int slotId, DateTime arrival, DateTime? departure, long? except)
     {
-        var from = arrival.AddMinutes(-Rules.EarlyArrivalMinutes);
+        var from = arrival.Add(-options.EarlyArrivalTime);
         var others = await pmsContext.Reservations.AsNoTracking()
             .Where(r => r.SlotId == slotId && r.Id != except && ReservationStatus.Active.Contains(r.Status))
             .Select(r => new { r.StartTime, r.DepartureTime, r.BookingMode })
@@ -515,7 +515,7 @@ public class ReservationService(
 
         foreach (var other in others)
         {
-            var otherFrom = other.StartTime.AddMinutes(-Rules.EarlyArrivalMinutes);
+            var otherFrom = other.StartTime.Add(-options.EarlyArrivalTime);
             DateTime? otherTo = other.BookingMode == BookingMode.Scheduled ? other.DepartureTime : null;
             var overlaps = (departure == null || otherFrom < departure) && (otherTo == null || from < otherTo);
             if (overlaps)
@@ -673,7 +673,7 @@ public class ReservationService(
             var slot = r.SlotId != null ? slots.GetValueOrDefault(r.SlotId.Value) : null;
             var lot = lots.GetValueOrDefault(r.ParkingLotId);
             var vehicle = vehicles.GetValueOrDefault(r.VehicleId);
-            var changeable = r.Status == ReservationStatus.Confirmed && Now <= r.StartTime.AddMinutes(-Rules.CancelRefundMinutes);
+            var changeable = r.Status == ReservationStatus.Confirmed && Now <= r.StartTime.Add(-options.CancelRefundTime);
             models.Add(new ReservationResponseModel
             {
                 Id = r.Id,
@@ -694,11 +694,12 @@ public class ReservationService(
                 BookingMode = r.BookingMode ?? BookingMode.PayAsYouGo,
                 DepartureTime = r.DepartureTime is { } departure ? Utc(departure) : null,
                 IsSlotHeld = r.SlotHeldAt != null && ReservationStatus.Active.Contains(r.Status),
-                CheckInFrom = Utc(r.StartTime.AddMinutes(-Rules.EarlyArrivalMinutes)),
+                CheckInFrom = Utc(r.StartTime.Add(-options.EarlyArrivalTime)),
                 CheckInUntil = Utc(r.EndTime),
                 DepositAmount = r.DepositAmount,
                 HasDeposit = r.DepositAmount > 0,
                 HoldMinutes = (int)(r.EndTime - r.StartTime).TotalMinutes,
+                HoldSeconds = (int)(r.EndTime - r.StartTime).TotalSeconds,
                 DepositDueAt = r.DepositDueAt is { } due ? Utc(due) : null,
                 RefundAmount = r.RefundAmount,
                 CancelReason = r.CancelReason,

@@ -137,6 +137,52 @@ public class ParkingLotServiceTests
     }
 
     [Fact]
+    public async Task GetPublicLotsAsync_Should_Return_Live_Free_And_Total_Bays_Per_Vehicle_Family()
+    {
+        var car = _context.VehicleTypes.Single(v => v.Code == "CAR_4");
+        var motorbike = _context.VehicleTypes.Single(v => v.Code == "MOTORBIKE");
+        var lot = new ParkingLot { Code = "L1", Name = "A Lot", Address = "A1", Status = "Active" };
+        var empty = new ParkingLot { Code = "L2", Name = "B Lot", Address = "A2", Status = "Active" };
+        _context.ParkingLots.AddRange(lot, empty);
+        await _context.SaveChangesAsync();
+
+        // Car zone with a counter: the counter wins over the slots
+        var carZone = new Zone { ParkingLotId = lot.Id, Code = "C", Name = "Cars", IsActive = true };
+        carZone.Slots.Add(new Slot { Code = "C1", VehicleTypeId = car.Id, Status = "Occupied", IsActive = true, RowVersion = [1] });
+        carZone.ZoneCounter = new ZoneCounter { TotalCapacity = 20, AvailableSpaces = 15, OccupiedSpaces = 5 };
+        // Motorbike zone without a counter: active slots count, inactive ones do not
+        var bikeZone = new Zone { ParkingLotId = lot.Id, Code = "M", Name = "Bikes", IsActive = true };
+        bikeZone.Slots.Add(new Slot { Code = "M1", VehicleTypeId = motorbike.Id, Status = "Available", IsActive = true, RowVersion = [1] });
+        bikeZone.Slots.Add(new Slot { Code = "M2", VehicleTypeId = motorbike.Id, Status = "Occupied", IsActive = true, RowVersion = [1] });
+        bikeZone.Slots.Add(new Slot { Code = "M3", VehicleTypeId = motorbike.Id, Status = "Available", IsActive = false, RowVersion = [1] });
+        // A zone without bays of a known type counts in the totals only
+        var openZone = new Zone { ParkingLotId = lot.Id, Code = "X", Name = "Open area", IsActive = true };
+        openZone.ZoneCounter = new ZoneCounter { TotalCapacity = 4, AvailableSpaces = 1 };
+        // Inactive zones are left out
+        var closedZone = new Zone { ParkingLotId = lot.Id, Code = "Z", Name = "Closed", IsActive = false };
+        closedZone.ZoneCounter = new ZoneCounter { TotalCapacity = 50, AvailableSpaces = 50 };
+        _context.Zones.AddRange(carZone, bikeZone, openZone, closedZone);
+        await _context.SaveChangesAsync();
+
+        var result = (await _sut.GetPublicLotsAsync()).ToList();
+
+        var withBays = result.Single(l => l.Code == "L1");
+        withBays.TotalBays.Should().Be(26);
+        withBays.FreeBays.Should().Be(17);
+        withBays.BaysByVehicle.Should().BeEquivalentTo(
+            [
+                new PublicLotBaysModel { VehicleType = "CAR", TotalBays = 20, FreeBays = 15 },
+                new PublicLotBaysModel { VehicleType = "MOTORBIKE", TotalBays = 2, FreeBays = 1 }
+            ],
+            o => o.WithStrictOrdering());
+
+        var noZones = result.Single(l => l.Code == "L2");
+        noZones.TotalBays.Should().Be(0);
+        noZones.FreeBays.Should().Be(0);
+        noZones.BaysByVehicle.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_Lot_Is_Bookable_Only_With_An_Active_Manager_And_Active_Staff()
     {
         var lot = new ParkingLot { Code = "L1", Name = "Lot", Address = "A1", Status = "Active", ManagerUserId = "manager-1" };

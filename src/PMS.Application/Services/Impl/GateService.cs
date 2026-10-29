@@ -79,6 +79,59 @@ public class GateService(
         };
     }
 
+    public async Task<StaffPaymentHistoryPageModel> GetPaymentHistoryAsync(int lotId, string method, string plate, int page, int pageSize)
+    {
+        await lotScope.EnsureCanOperateAsync(lotId);
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+
+        // Parking fees actually collected at this lot (refunds and deposits are not counter payments)
+        var query = pmsContext.Payments.AsNoTracking()
+            .Where(p => p.ParkingLotId == lotId && p.Purpose == PaymentPurpose.ParkingFee && p.SessionId != null
+                        && (p.Status == PaymentStatus.Succeeded || p.Status == PaymentStatus.Refunded || p.Status == PaymentStatus.RefundPending));
+        if (string.Equals(method, PaymentMethod.Cash, StringComparison.OrdinalIgnoreCase))
+            query = query.Where(p => p.PaymentMethod == PaymentMethod.Cash);
+        var normalized = ParkingText.NormalizePlate(plate);
+        if (normalized.Length > 0)
+            query = query.Where(p => pmsContext.ParkingSessions.Any(s => s.Id == p.SessionId && s.EntryPlateNormalized.Contains(normalized)));
+
+        var count = await query.CountAsync();
+        var payments = await query.OrderByDescending(p => p.PaidAt ?? p.CreatedAt).ThenByDescending(p => p.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+
+        var sessionIds = payments.Select(p => p.SessionId!.Value).Distinct().ToList();
+        var sessions = await pmsContext.ParkingSessions.AsNoTracking().Where(s => sessionIds.Contains(s.Id))
+            .Select(s => new { s.Id, s.SessionCode, s.EntryPlateNumber }).ToDictionaryAsync(s => s.Id);
+        var staffIds = payments.Where(p => p.CollectedByUserId != null).Select(p => p.CollectedByUserId).Distinct().ToList();
+        var staff = await pmsContext.Employees.AsNoTracking().Where(e => staffIds.Contains(e.UserId))
+            .Select(e => new { e.UserId, e.FullName }).ToDictionaryAsync(e => e.UserId, e => e.FullName);
+
+        return new StaffPaymentHistoryPageModel
+        {
+            Items = payments.Select(p =>
+            {
+                var session = sessions.GetValueOrDefault(p.SessionId!.Value);
+                return new StaffPaymentHistoryItemModel
+                {
+                    Id = p.Id,
+                    Code = p.PaymentCode,
+                    PaidAt = p.PaidAt is { } paid ? Utc(paid) : null,
+                    SessionId = p.SessionId,
+                    SessionCode = session?.SessionCode,
+                    PlateNumber = session?.EntryPlateNumber,
+                    Method = p.PaymentMethod == PaymentMethod.Online ? p.GatewayProvider ?? p.PaymentMethod : p.PaymentMethod,
+                    Channel = p.Channel,
+                    Amount = p.Amount,
+                    Status = p.Status,
+                    CollectedByName = p.CollectedByUserId != null ? staff.GetValueOrDefault(p.CollectedByUserId) : null
+                };
+            }).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = count
+        };
+    }
+
     public async Task<SessionResponseModel> GetSessionAsync(long sessionId) =>
         await ToModelAsync(await ScopedSessionAsync(sessionId));
 
@@ -810,7 +863,9 @@ public class GateService(
 
         var breakdown = session.SessionType == SessionType.Whitelist
             ? new FeeBreakdown((int)Math.Ceiling((Now - session.EntryTime).TotalMinutes), 0, false, [])
-            : FeeCalculator.Calculate(tariff, Utc(session.EntryTime), Now, timeZone);
+            : options.Simulation is { Enabled: true } simulation
+                ? FeeCalculator.CalculateSimulated(tariff, Utc(session.EntryTime), Now, timeZone, simulation.BlockSeconds)
+                : FeeCalculator.Calculate(tariff, Utc(session.EntryTime), Now, timeZone);
         var deposit = session.ReservationId != null ? await paymentService.DepositHeldAsync(session.ReservationId.Value) : 0;
         var exitWindowMissed = session.ExitWindowEndsAt != null && Now > session.ExitWindowEndsAt && session.PaidAmount > 0;
         var lostFee = session.IsLostCard ? tariff.LostTicketFee : 0;
@@ -936,7 +991,7 @@ public class GateService(
         }
 
         // BR-02: check-in window
-        var from = reservation.StartTime.AddMinutes(-options.Reservations.EarlyArrivalMinutes);
+        var from = reservation.StartTime.Add(-options.EarlyArrivalTime);
         if (Now < from || Now > reservation.EndTime)
         {
             alerts.Add(Block("RESERVATION_OUTSIDE_WINDOW",

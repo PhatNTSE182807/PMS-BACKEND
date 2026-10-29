@@ -100,6 +100,9 @@ public class ReservationResponseModel
     /// <summary>Minutes the slot is held after the arrival time: 30 with a deposit, 15 without.</summary>
     public int HoldMinutes { get; set; }
 
+    /// <summary>The same hold in seconds (a simulated hold can be shorter than a minute).</summary>
+    public int HoldSeconds { get; set; }
+
     /// <summary>Pay the deposit before this or the reservation expires (BR-06).</summary>
     public DateTime? DepositDueAt { get; set; }
 

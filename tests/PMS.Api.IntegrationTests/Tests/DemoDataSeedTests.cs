@@ -72,9 +72,29 @@ public class DemoDataSeedTests(DemoDataFixture fixture) : IClassFixture<DemoData
     public async Task Deactivated_Demo_Staff_Cannot_Sign_In()
     {
         var response = await _factory.CreateClient().PostAsync("/api/users/authenticate",
-            Json(new { username = "staff.conghoa2", password = DemoDataSeed.Password }));
+            Json(new { username = "staff.conghoa2", password = DemoDataSeed.StaffPassword }));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_Demo_Manager_Still_On_The_Old_Shared_Password_Gets_The_Manager_Password()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<PMS.DataAccess.Identity.ApplicationUser>>();
+            var manager = await users.FindByNameAsync("mgr.spare");
+            await users.ResetPasswordAsync(manager!, await users.GeneratePasswordResetTokenAsync(manager!), DemoDataSeed.Password);
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+            await DemoDataSeed.SeedAsync(scope.ServiceProvider);
+
+        var client = _factory.CreateClient();
+        (await client.PostAsync("/api/users/authenticate", Json(new { username = "mgr.spare", password = DemoDataSeed.Password })))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await client.PostAsync("/api/users/authenticate", Json(new { username = "mgr.spare", password = DemoDataSeed.ManagerPassword })))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -238,11 +258,15 @@ public class DemoDataSeedTests(DemoDataFixture fixture) : IClassFixture<DemoData
         return await scope.ServiceProvider.GetRequiredService<PmsDbContext>().ParkingLots.Where(l => l.Code == code).Select(l => l.Id).SingleAsync();
     }
 
-    /// <summary>Signs in through the API with the demo password (email for customers, username for internal accounts).</summary>
+    /// <summary>Managers (mgr.*) use the Manager password; other internal accounts are Staff.</summary>
+    private static string InternalPassword(string userName) =>
+        DemoDataSeed.PasswordFor(userName.StartsWith("mgr.") ? "Manager" : "Staff");
+
+    /// <summary>Signs in through the API with the demo password of the account (email for customers, username for internal accounts).</summary>
     private async Task<JToken> AuthenticateAsync(string login)
     {
         var response = await _factory.CreateClient().PostAsync("/api/users/authenticate",
-            Json(login.Contains('@') ? new { email = login, password = DemoDataSeed.Password } : (object)new { username = login, password = DemoDataSeed.Password }));
+            Json(login.Contains('@') ? new { email = login, password = DemoDataSeed.Password } : (object)new { username = login, password = InternalPassword(login) }));
         response.StatusCode.Should().Be(HttpStatusCode.OK, login);
         return (await Body(response))["result"]!;
     }

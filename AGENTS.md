@@ -213,7 +213,7 @@ dotnet test tests/PMS.Application.UnitTests
 ```
 
 `docs/API_DOCUMENTATION.md` lists the endpoints; Swagger runs at `/swagger` in Development.
-In Development the API also seeds demo accounts (password `Demo@123`) and a month of parking
+In Development the API also seeds demo accounts (passwords: Managers `Manager123@`, Staff `Staff123@`, customers `Demo@123`) and a month of parking
 activity for manual testing: see `docs/DEMO_DATA.md`.
 If a requirement has no controller in the table in section 3 it is not built yet: check the
 frontend, which may be running on mock data (`src/mocks`, `useDemo*` hooks).
@@ -279,6 +279,14 @@ git checkout features/<name>               # keep working on the branch afterwar
 
 Keep this list current; it is the first place to look when code and SRS disagree.
 
+- Parking simulation (team addition, 2026-10-29, for demos): the Admin screen `/admin/simulation`
+  (`AdminSimulationController`, `api/admin/simulation`, saved in `SystemSettings` key `Parking.Simulation`)
+  runs every lot in seconds. While it is on, one pricing block of every rule lasts N seconds at the same
+  block price with **no daily cap** (`FeeCalculator.CalculateSimulated`), and the deposit / no-deposit
+  holds, deposit deadline, early check-in, free-cancellation deadline and exit window are seconds
+  (`ParkingOptions.HoldTime`, `DepositPaymentTime`, `EarlyArrivalTime`, `CancelRefundTime`,
+  `ExitWindowTime`). `ParkingSimulationTicker` runs the deadline checks every second. Turning it off
+  restores the normal rules and the Manager's pricing; bookings made while it was on keep their short times.
 - No free period (team decision, 2026-10-25): the first block (the first hour by default, or the rule's
   first block) is owed as soon as the vehicle enters, so a stay is never charged 0 VND. This replaces
   BR-09 / BR-22's grace period: `FeeCalculator` ignores `GraceMinutes` and the pricing page no longer
