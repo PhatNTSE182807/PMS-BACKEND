@@ -213,7 +213,7 @@ dotnet test tests/PMS.Application.UnitTests
 ```
 
 `docs/API_DOCUMENTATION.md` lists the endpoints; Swagger runs at `/swagger` in Development.
-In Development the API also seeds demo accounts (password `Demo@123`) and a month of parking
+In Development the API also seeds demo accounts (passwords: Managers `Manager123@`, Staff `Staff123@`, customers `Demo@123`) and a month of parking
 activity for manual testing: see `docs/DEMO_DATA.md`.
 If a requirement has no controller in the table in section 3 it is not built yet: check the
 frontend, which may be running on mock data (`src/mocks`, `useDemo*` hooks).

@@ -40,7 +40,9 @@ can empty that folder at the same time.
 
 ## Accounts
 
-Every demo account uses the password **`Demo@123`**. Internal accounts sign in with the username,
+Demo passwords: Managers **`Manager123@`**, Staff **`Staff123@`**, customers **`Demo@123`**. Demo
+Managers and Staff that still had `Demo@123` from an older seed are moved to their new password on the
+next start. Internal accounts sign in with the username,
 customers with the email (either works). Emails use `example.com`, so no mail is ever delivered.
 
 The Admin comes from the base seed: `systemadmin` / `admin@gmail.com`, password `Admin123@`.

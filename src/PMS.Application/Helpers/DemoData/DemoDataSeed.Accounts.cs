@@ -189,9 +189,21 @@ public sealed partial class DemoDataSeed
     private async Task<ApplicationUser> EnsureUserAsync(string userName, string phone, string role, bool isActive)
     {
         var email = EmailOf(userName);
+        var password = PasswordFor(role);
         var user = await userManager.FindByNameAsync(userName) ?? await userManager.FindByEmailAsync(email);
         if (user != null)
+        {
+            // Managers and Staff created before they got their own passwords still use the customers' one
+            if (password != Password && await userManager.CheckPasswordAsync(user, Password))
+            {
+                var token = await userManager.GeneratePasswordResetTokenAsync(user);
+                var reset = await userManager.ResetPasswordAsync(user, token, password);
+                if (!reset.Succeeded)
+                    logger?.LogWarning("Demo data: could not change the password of '{UserName}': {Errors}",
+                        userName, string.Join("; ", reset.Errors.Select(e => e.Description)));
+            }
             return user;
+        }
 
         user = new ApplicationUser
         {
@@ -202,7 +214,7 @@ public sealed partial class DemoDataSeed
             Role = role,
             IsActive = isActive
         };
-        var result = await userManager.CreateAsync(user, Password);
+        var result = await userManager.CreateAsync(user, password);
         if (!result.Succeeded)
             throw new InvalidOperationException(
                 $"Demo data: could not create '{userName}': {string.Join("; ", result.Errors.Select(e => e.Description))}");
