@@ -34,6 +34,11 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> GetHistoryAsync(int lotId, [FromQuery] string plate = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 10) =>
         Ok(ApiResult<StaffSessionHistoryPageModel>.Success(await gateService.GetHistoryAsync(lotId, plate, page, pageSize)));
 
+    /// <summary>Parking-fee payments taken at an authorised lot, newest first; method=Cash keeps cash only.</summary>
+    [HttpGet("lots/{lotId:int}/payments")]
+    public async Task<IActionResult> GetPaymentHistoryAsync(int lotId, [FromQuery] string method = null, [FromQuery] string plate = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 10) =>
+        Ok(ApiResult<StaffPaymentHistoryPageModel>.Success(await gateService.GetPaymentHistoryAsync(lotId, method, plate, page, pageSize)));
+
     /// <summary>Exit lane: find the open session by plate, ticket QR or session code.</summary>
     [HttpGet("lots/{lotId:int}/sessions/lookup")]
     public async Task<IActionResult> LookupAsync(int lotId, [FromQuery] string plate = null, [FromQuery] string ticket = null, [FromQuery] string code = null) =>
