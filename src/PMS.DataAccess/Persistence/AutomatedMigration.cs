@@ -33,6 +33,7 @@ public static partial class AutomatedMigration
                 await RemoveRejectedVehiclesAsync(pmsContext);
                 await EnsureGateRequestsTableAsync(pmsContext);
                 await EnsureNotificationsTableAsync(pmsContext);
+                await EnsureSystemSettingsTableAsync(pmsContext);
             }
 
             var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
@@ -452,6 +453,27 @@ public static partial class AutomatedMigration
     }
 
     /// <summary>Check-in / check-out requests from the customer app (dbo.GateRequests). Idempotent.</summary>
+    /// <summary>Server-wide settings, one row per key (e.g. the Admin's parking simulation). Idempotent.</summary>
+    private static async Task EnsureSystemSettingsTableAsync(PmsDbContext pmsContext)
+    {
+        await pmsContext.Database.ExecuteSqlRawAsync(@"
+            IF OBJECT_ID(N'[dbo].[SystemSettings]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[SystemSettings](
+                    [Id] [int] IDENTITY(1,1) NOT NULL,
+                    [SettingKey] [nvarchar](100) NOT NULL,
+                    [SettingValue] [nvarchar](max) NULL,
+                    [ValueType] [varchar](20) NOT NULL CONSTRAINT [DF_SystemSettings_ValueType] DEFAULT ('string'),
+                    [Category] [nvarchar](50) NULL,
+                    [Description] [nvarchar](500) NULL,
+                    [UpdatedAt] [datetime2](3) NULL,
+                    [UpdatedBy] [nvarchar](450) NULL,
+                    CONSTRAINT [PK_SystemSettings] PRIMARY KEY CLUSTERED ([Id] ASC)
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [UX_SystemSettings_SettingKey] ON [dbo].[SystemSettings]([SettingKey] ASC);
+            END");
+    }
+
     private static async Task EnsureGateRequestsTableAsync(PmsDbContext pmsContext)
     {
         await pmsContext.Database.ExecuteSqlRawAsync(@"
