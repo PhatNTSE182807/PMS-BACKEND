@@ -27,7 +27,6 @@ public class ReservationService(
     public async Task<ReservationResponseModel> CreateAsync(string userId, CreateReservationModel model)
     {
         var customer = await CustomerAsync(userId);
-        var (arrival, departure, mode) = ValidateTimes(model.BookingMode, model.ArrivalTime, model.DepartureTime);
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(p => p.Id == model.ParkingLotId && !p.IsDeleted)
                   ?? throw new NotFoundException("Parking lot not found.");
@@ -55,6 +54,12 @@ public class ReservationService(
         if (vehicleType == null || !Rules.ReservableVehicleTypeCodes.Contains(vehicleType.Code, StringComparer.OrdinalIgnoreCase))
             throw new BadRequestException("This vehicle type cannot be reserved.");
 
+        // A motorbike claims the bay for right now: no arrival time to pick, no deposit, pay at check-out
+        var instant = Rules.IsInstant(vehicleType.Code);
+        var (arrival, departure, mode) = instant
+            ? (ToUtcMinute(Now), (DateTime?)null, BookingMode.PayAsYouGo)
+            : ValidateTimes(model.BookingMode, model.ArrivalTime, model.DepartureTime);
+
         // Per account and per plate, so a double click or a second tab cannot slip past BR-07
         var reservation = await WithBookingLockAsync([$"customer:{customer.Id}", $"plate:{vehicle.PlateNormalized}"], () =>
             ParkingInventory.WithSlotLockAsync([model.SlotId], async () =>
@@ -62,7 +67,7 @@ public class ReservationService(
             await EnsureBookingLimitsAsync(customer.Id, vehicle);
 
             // A booking close to arrival locks the bay now; one further ahead only books its time window
-            var holdNow = ShouldHoldNow(arrival);
+            var holdNow = instant || ShouldHoldNow(arrival);
             var slot = await LoadSlotForLotAsync(model.SlotId, lot.Id, mustBeFreeNow: holdNow);
             if (!ParkingInventory.Compatible(types, slot.VehicleTypeId, vehicle.VehicleTypeId))
                 throw new BadRequestException("This slot is for another vehicle type.");
@@ -73,7 +78,7 @@ public class ReservationService(
 
             // With a deposit the booking waits for the payment and then holds the slot 30 minutes after
             // arrival; without one it is confirmed at once and holds the slot only 15 minutes.
-            var withDeposit = model.PayDeposit;
+            var withDeposit = model.PayDeposit && !instant;
             var created = new Reservation
             {
                 ReservationCode = ParkingText.NewCode("RSV", Now),
