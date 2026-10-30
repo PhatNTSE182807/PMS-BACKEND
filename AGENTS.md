@@ -324,6 +324,11 @@ Keep this list current; it is the first place to look when code and SRS disagree
   Staff is reported as `Maintenance` (`LotStaffing`, worked out on every read; `StoredStatus` keeps the
   Admin's value): customers can still see it on the public list and 3D map, but bookings are refused. A
   new lot therefore starts in maintenance until its Manager adds Staff.
+- Motorbikes park at once (team decision, 2026-10-30): BR-01 allows cars only, but `MOTORBIKE` is now
+  in `ReservableVehicleTypeCodes` and in `InstantVehicleTypeCodes`. For these types `CreateAsync` ignores
+  the times and the deposit: the arrival is now, pay-as-you-go, no deposit, `Confirmed` at once and the bay
+  is held now for `HoldMinutes`. The customer app then sends a check-in request, so Staff sees the plate
+  at the entry lane; the fee is paid at check-out. Cars still book ahead as before.
 - Bookings have two modes (`BookingMode`): `PayAsYouGo` follows the SRS (arrival time only);
   `Scheduled` also takes a departure time, which the SRS does not have.
 - Vehicle verification has no "needs more info", "disputed" or "revoked" state yet (section 5).
