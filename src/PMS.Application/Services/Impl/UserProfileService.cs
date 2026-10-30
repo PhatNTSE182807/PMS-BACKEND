@@ -45,6 +45,7 @@ public class UserProfileService : IUserProfileService
         if (user == null)
             throw new NotFoundException("User not found.");
 
+        var employee = await _pmsContext.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.UserId == user.Id);
         var customer = await GetOrCreateCustomerAsync(user);
 
         var vehicles = await _pmsContext.Vehicles
@@ -57,7 +58,7 @@ public class UserProfileService : IUserProfileService
             .ToListAsync();
         await WithPapersAsync(vehicles);
 
-        var isUserActive = user.IsActive && customer.IsActive;
+        var isUserActive = user.IsActive && (employee != null ? employee.Status == "Active" : customer.IsActive);
         var status = "Active";
         if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow)
         {
@@ -68,20 +69,27 @@ public class UserProfileService : IUserProfileService
             status = "Inactive";
         }
 
+        var fullName = employee?.FullName;
+        if (string.IsNullOrWhiteSpace(fullName))
+            fullName = customer.FullName;
+        if (string.IsNullOrWhiteSpace(fullName))
+            fullName = user.UserName;
+
         return new UserProfileResponseModel
         {
             UserId = user.Id,
-            FullName = customer.FullName,
-            PhoneNumber = !string.IsNullOrWhiteSpace(customer.Phone) ? customer.Phone : user.PhoneNumber,
-            Email = !string.IsNullOrWhiteSpace(customer.Email) ? customer.Email : user.Email,
+            FullName = fullName,
+            PhoneNumber = !string.IsNullOrWhiteSpace(employee?.Phone) ? employee.Phone : (!string.IsNullOrWhiteSpace(customer.Phone) ? customer.Phone : user.PhoneNumber),
+            Email = !string.IsNullOrWhiteSpace(employee?.Email) ? employee.Email : (!string.IsNullOrWhiteSpace(customer.Email) ? customer.Email : user.Email),
             AvatarUrl = customer.AvatarUrl,
             CitizenId = customer.CitizenId,
             IsActive = isUserActive,
             Status = status,
             HasPassword = !string.IsNullOrEmpty(user.PasswordHash),
             Role = user.Role,
-            CreatedAt = customer.CreatedAt,
-            UpdatedAt = customer.UpdatedAt,
+            EmployeeCode = employee?.EmployeeCode,
+            CreatedAt = employee?.CreatedAt ?? customer.CreatedAt,
+            UpdatedAt = employee?.UpdatedAt ?? customer.UpdatedAt,
             Vehicles = vehicles
         };
     }

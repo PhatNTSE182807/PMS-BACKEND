@@ -296,7 +296,7 @@ public class UserService(
             };
         }
 
-        return BuildLoginResponse(user);
+        return await BuildLoginResponseAsync(user);
     }
 
     public async Task RequestLoginOtpAsync(RequestLoginOtpModel model)
@@ -356,7 +356,7 @@ public class UserService(
         // Codes are derived from the security stamp, so rotating it makes this code single-use
         await userManager.UpdateSecurityStampAsync(user);
 
-        return BuildLoginResponse(user);
+        return await BuildLoginResponseAsync(user);
     }
 
     public async Task<LoginResponseModel> LoginWithGoogleAsync(GoogleLoginModel model)
@@ -390,7 +390,7 @@ public class UserService(
             await userManager.UpdateAsync(user);
         }
 
-        return BuildLoginResponse(user);
+        return await BuildLoginResponseAsync(user);
     }
 
     private static bool IsInternalRole(string role) => role is "Admin" or "Manager" or "Staff";
@@ -450,15 +450,35 @@ public class UserService(
         return userName;
     }
 
-    private LoginResponseModel BuildLoginResponse(ApplicationUser user)
+    private async Task<LoginResponseModel> BuildLoginResponseAsync(ApplicationUser user)
     {
+        string fullName = null;
+        string employeeCode = null;
+
+        if (pmsContext != null)
+        {
+            var employee = await pmsContext.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.UserId == user.Id);
+            if (employee != null)
+            {
+                fullName = employee.FullName;
+                employeeCode = employee.EmployeeCode;
+            }
+            else
+            {
+                var customer = await pmsContext.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.UserId == user.Id);
+                fullName = customer?.FullName;
+            }
+        }
+
         return new LoginResponseModel
         {
             UserId = user.Id,
             Username = user.UserName,
+            FullName = !string.IsNullOrWhiteSpace(fullName) ? fullName : user.UserName,
             Email = user.Email,
             PhoneNumber = user.PhoneNumber,
             Role = user.Role,
+            EmployeeCode = employeeCode,
             Token = JwtHelper.GenerateToken(user, configuration),
             RequiresTwoFactor = false,
             TwoFactorToken = null,
@@ -553,20 +573,7 @@ public class UserService(
         if (verifiedUser == null || !verifiedUser.IsActive)
             throw new BadRequestException("Account is inactive or deactivated. Please contact an administrator.");
 
-        var token = JwtHelper.GenerateToken(verifiedUser, configuration);
-
-        return new LoginResponseModel
-        {
-            UserId = verifiedUser.Id,
-            Username = verifiedUser.UserName,
-            Email = verifiedUser.Email,
-            PhoneNumber = verifiedUser.PhoneNumber,
-            Role = verifiedUser.Role,
-            Token = token,
-            RequiresTwoFactor = false,
-            TwoFactorToken = null,
-            Destination = null
-        };
+        return await BuildLoginResponseAsync(verifiedUser);
     }
 
     public async Task<ResendTwoFactorResponseModel> ResendTwoFactorOtpAsync(ResendTwoFactorModel model)
