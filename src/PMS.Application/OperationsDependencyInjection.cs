@@ -29,6 +29,9 @@ public static class OperationsDependencyInjection
         services.AddScoped<ParkingInventory>();
         services.AddScoped<LotScopeService>();
         services.AddScoped<TariffProvider>();
+        services.AddScoped<ILotPriceNotifier, LotPriceNotifier>();
+        services.AddScoped<DeferredPriceService>();
+        services.AddScoped<LotOccupancy>();
         services.AddScoped<IPricingRuleService, PricingRuleService>();
         services.AddScoped<PlateListService>();
         services.AddScoped<IPaymentService, PaymentService>();
@@ -42,6 +45,7 @@ public static class OperationsDependencyInjection
         services.AddScoped<IGateRequestService, GateRequestService>();
         services.AddScoped<IParkingSimulationService, ParkingSimulationService>();
         services.AddScoped<ParkingJobs>();
+        services.AddScoped<PriceUpdateJobs>();
 
         return services;
     }

@@ -20,6 +20,7 @@ public class ParkingJobs(
     ParkingOptions options,
     ReservationService reservations,
     GateService gates,
+    LotOccupancy occupancy,
     IPaymentService payments,
     ParkingInventory inventory,
     TimeProvider clock,
@@ -165,6 +166,10 @@ public class ParkingJobs(
             await gates.CancelPendingEntryAsync(session, "No sensor signal: the vehicle turned around");
 
         await SaveAndFlushAsync();
+
+        // Each of these sessions counted a vehicle in at the entry lane; none got in, so count them out
+        foreach (var lot in stale.GroupBy(s => s.ParkingLotId))
+            await occupancy.ReleaseAsync(lot.Key, lot.Count());
         return stale.Count;
     }
 

@@ -1,0 +1,141 @@
+using System.Globalization;
+using PMS.DataAccess.Persistence.Entities;
+
+namespace PMS.Application.Models.Pricing;
+
+/// <summary>
+/// The charging fields of a pricing rule: everything that decides what a customer pays. A Manager's change to
+/// these waits for an empty lot; the other fields of the rule (name, zone, vehicle type, priority, validity,
+/// status) take effect at once. Stored as JSON in <see cref="PendingPriceChange.ProposedValuesJson"/>.
+/// </summary>
+public sealed record PricingRulePrices
+{
+    public string ChargeModel { get; init; } = "Block";
+
+    public decimal EntryFee { get; init; }
+
+    public int? FirstBlockMinutes { get; init; }
+
+    public decimal? FirstBlockPrice { get; init; }
+
+    public int? BlockMinutes { get; init; }
+
+    public decimal? BlockPrice { get; init; }
+
+    public TimeOnly? DayStartTime { get; init; }
+
+    public TimeOnly? NightStartTime { get; init; }
+
+    public decimal? DayPrice { get; init; }
+
+    public decimal? NightPrice { get; init; }
+
+    public decimal? MaxDailyFee { get; init; }
+
+    public int GraceMinutes { get; init; }
+
+    public decimal OvernightSurcharge { get; init; }
+
+    public int? OverstayAfterHours { get; init; }
+
+    public decimal OverstaySurchargePerDay { get; init; }
+
+    public decimal LostTicketFee { get; init; }
+
+    public decimal NoShowFee { get; init; }
+
+    public static PricingRulePrices From(PricingRule rule) => new()
+    {
+        ChargeModel = rule.ChargeModel,
+        EntryFee = rule.EntryFee,
+        FirstBlockMinutes = rule.FirstBlockMinutes,
+        FirstBlockPrice = rule.FirstBlockPrice,
+        BlockMinutes = rule.BlockMinutes,
+        BlockPrice = rule.BlockPrice,
+        DayStartTime = rule.DayStartTime,
+        NightStartTime = rule.NightStartTime,
+        DayPrice = rule.DayPrice,
+        NightPrice = rule.NightPrice,
+        MaxDailyFee = rule.MaxDailyFee,
+        GraceMinutes = rule.GraceMinutes,
+        OvernightSurcharge = rule.OvernightSurcharge,
+        OverstayAfterHours = rule.OverstayAfterHours,
+        OverstaySurchargePerDay = rule.OverstaySurchargePerDay,
+        LostTicketFee = rule.LostTicketFee,
+        NoShowFee = rule.NoShowFee
+    };
+
+    /// <summary>The charging fields of an update request, with the same defaults a saved rule gets.</summary>
+    public static PricingRulePrices From(UpdatePricingRuleModel model) => new()
+    {
+        ChargeModel = string.IsNullOrWhiteSpace(model.ChargeModel) ? "Block" : model.ChargeModel,
+        EntryFee = model.EntryFee,
+        FirstBlockMinutes = model.FirstBlockMinutes,
+        FirstBlockPrice = model.FirstBlockPrice,
+        BlockMinutes = model.BlockMinutes ?? 60,
+        BlockPrice = model.BlockPrice ?? 0,
+        DayStartTime = model.DayStartTime,
+        NightStartTime = model.NightStartTime,
+        DayPrice = model.DayPrice,
+        NightPrice = model.NightPrice,
+        MaxDailyFee = model.MaxDailyFee,
+        GraceMinutes = model.GraceMinutes,
+        OvernightSurcharge = model.OvernightSurcharge,
+        OverstayAfterHours = model.OverstayAfterHours,
+        OverstaySurchargePerDay = model.OverstaySurchargePerDay,
+        LostTicketFee = model.LostTicketFee,
+        NoShowFee = model.NoShowFee
+    };
+
+    public void ApplyTo(PricingRule rule)
+    {
+        rule.ChargeModel = ChargeModel;
+        rule.EntryFee = EntryFee;
+        rule.FirstBlockMinutes = FirstBlockMinutes;
+        rule.FirstBlockPrice = FirstBlockPrice;
+        rule.BlockMinutes = BlockMinutes;
+        rule.BlockPrice = BlockPrice;
+        rule.DayStartTime = DayStartTime;
+        rule.NightStartTime = NightStartTime;
+        rule.DayPrice = DayPrice;
+        rule.NightPrice = NightPrice;
+        rule.MaxDailyFee = MaxDailyFee;
+        rule.GraceMinutes = GraceMinutes;
+        rule.OvernightSurcharge = OvernightSurcharge;
+        rule.OverstayAfterHours = OverstayAfterHours;
+        rule.OverstaySurchargePerDay = OverstaySurchargePerDay;
+        rule.LostTicketFee = LostTicketFee;
+        rule.NoShowFee = NoShowFee;
+    }
+
+    /// <summary>The headline price in words, for notifications: "25,000 VND per 60 min".</summary>
+    public string Describe()
+    {
+        static string Money(decimal? value) => (value ?? 0).ToString("N0", CultureInfo.InvariantCulture);
+        var minutes = BlockMinutes ?? 60;
+
+        if (string.Equals(ChargeModel, "PerEntry", StringComparison.OrdinalIgnoreCase))
+            return $"{Money(EntryFee)} VND per entry";
+        if (string.Equals(ChargeModel, "DayNight", StringComparison.OrdinalIgnoreCase))
+            return $"{Money(DayPrice)} VND by day and {Money(NightPrice)} VND by night per {minutes} min";
+        return $"{Money(BlockPrice)} VND per {minutes} min";
+    }
+}
+
+/// <summary>A price change that is waiting for the lot to become empty.</summary>
+public class PendingPriceModel
+{
+    public PricingRulePrices Prices { get; set; }
+
+    /// <summary>The same price in words ("25,000 VND per 60 min").</summary>
+    public string Summary { get; set; }
+
+    /// <summary>1 for the first request; +1 each time the Manager replaced it before it was applied.</summary>
+    public int RevisionNo { get; set; }
+
+    public string RequestedBy { get; set; }
+
+    public DateTime RequestedAt { get; set; }
+
+    public DateTime? UpdatedAt { get; set; }
+}

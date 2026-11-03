@@ -62,6 +62,12 @@ public static partial class AutomatedMigration
         ("SessionViolations", "DecidedAt", "[datetime2](3) NULL"),
         ("SessionViolations", "DecisionNote", "[nvarchar](500) NULL"),
 
+        // Deferred price updates: the tariff copied at entry, and the lot's concurrency token
+        // (ParkingLots.OccupiedBays is added with its backfill below)
+        ("ParkingSessions", "PriceSnapshotJson", "[nvarchar](max) NULL"),
+        ("Reservations", "PriceSnapshotJson", "[nvarchar](max) NULL"),
+        ("ParkingLots", "RowVersion", "[rowversion] NOT NULL"),
+
         ("Invoices", "ReservationId", "[bigint] NULL"),
 
         ("Payments", "Purpose", "[varchar](20) NULL"),
@@ -154,6 +160,25 @@ public static partial class AutomatedMigration
                     CONSTRAINT [FK_PricingRuleHistories_PricingRules] FOREIGN KEY([PricingRuleId]) REFERENCES [dbo].[PricingRules] ([Id])
                 );
                 CREATE NONCLUSTERED INDEX [IX_PricingRuleHistories_PricingRuleId] ON [dbo].[PricingRuleHistories]([PricingRuleId] ASC);
+            END
+
+            -- A price change that waits for the lot to be empty: at most one per pricing rule
+            IF OBJECT_ID('dbo.PendingPriceChanges', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[PendingPriceChanges](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ParkingLotId] [int] NOT NULL,
+                    [PricingRuleId] [int] NOT NULL,
+                    [ProposedValuesJson] [nvarchar](max) NOT NULL,
+                    [RevisionNo] [int] NOT NULL DEFAULT 1,
+                    [RequestedBy] [nvarchar](450) NULL,
+                    [RequestedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [UpdatedAt] [datetime2](3) NULL,
+                    CONSTRAINT [FK_PendingPriceChanges_ParkingLots] FOREIGN KEY([ParkingLotId]) REFERENCES [dbo].[ParkingLots] ([Id]),
+                    CONSTRAINT [FK_PendingPriceChanges_PricingRules] FOREIGN KEY([PricingRuleId]) REFERENCES [dbo].[PricingRules] ([Id])
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_PendingPriceChanges_PricingRuleId] ON [dbo].[PendingPriceChanges]([PricingRuleId] ASC);
+                CREATE NONCLUSTERED INDEX [IX_PendingPriceChanges_ParkingLotId] ON [dbo].[PendingPriceChanges]([ParkingLotId] ASC);
             END
 
             IF OBJECT_ID('dbo.Reservations', 'U') IS NULL
@@ -326,6 +351,19 @@ public static partial class AutomatedMigration
         foreach (var (table, column, type) in AddedColumns)
             columns.AppendLine($"IF COL_LENGTH('dbo.{table}', '{column}') IS NULL ALTER TABLE [dbo].[{table}] ADD [{column}] {type};");
         await pmsContext.Database.ExecuteSqlRawAsync(columns.ToString());
+
+        // Vehicles inside each lot. Counted once, when the column is created; from then on every entry and exit
+        // moves it. EXEC defers compiling the UPDATE until the column exists.
+        var openStatuses = OpenSessionStatuses.Replace("'", "''");
+        await pmsContext.Database.ExecuteSqlRawAsync($@"
+            IF COL_LENGTH('dbo.ParkingLots', 'OccupiedBays') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[ParkingLots] ADD [OccupiedBays] [int] NOT NULL DEFAULT 0;
+                EXEC(N'UPDATE l SET l.[OccupiedBays] = (
+                           SELECT COUNT(*) FROM [dbo].[ParkingSessions] s
+                           WHERE s.[ParkingLotId] = l.[Id] AND s.[Status] IN ({openStatuses}))
+                       FROM [dbo].[ParkingLots] l');
+            END");
 
         // Bookings made before date-time booking: pay-as-you-go, and the active ones already hold their bay.
         // A bay can now carry several bookings at different times, so the old "one active booking per bay"
