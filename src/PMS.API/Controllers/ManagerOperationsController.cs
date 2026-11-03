@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PMS.Application.Models;
 using PMS.Application.Models.Operations;
+using PMS.Application.Models.ParkingLot;
 using PMS.Application.Services;
 using PMS.Application.Services.Impl;
 
@@ -10,8 +11,21 @@ namespace PMS.API.Controllers;
 /// <summary>Manager decisions on reservations and sessions of the lots they manage.</summary>
 [Route("api/manager")]
 [Authorize(Roles = "Manager,Admin")]
-public class ManagerOperationsController(IReservationService reservationService, IGateService gateService, PlateListService plateLists) : ApiController
+public class ManagerOperationsController(
+    IReservationService reservationService,
+    IGateService gateService,
+    PlateListService plateLists,
+    IParkingLotService parkingLots,
+    LotScopeService lotScope) : ApiController
 {
+    /// <summary>Live occupied and free bays of a lot the Manager runs: in total, per vehicle family and per zone.</summary>
+    [HttpGet("lots/{lotId:int}/occupancy")]
+    public async Task<IActionResult> GetOccupancyAsync(int lotId)
+    {
+        await lotScope.EnsureCanManageAsync(lotId);
+        return Ok(ApiResult<LotOccupancyModel>.Success(await parkingLots.GetOccupancyAsync(lotId)));
+    }
+
     [HttpGet("lots/{lotId:int}/reservations")]
     public async Task<IActionResult> GetReservationsAsync(int lotId, [FromQuery] string status = null, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null) =>
         Ok(ApiResult<IReadOnlyList<ReservationResponseModel>>.Success(await reservationService.GetForLotAsync(lotId, status, from?.ToUniversalTime(), to?.ToUniversalTime())));
