@@ -119,6 +119,41 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> CheckoutAsync(long id, [FromBody] CheckoutModel model) =>
         Ok(ApiResult<CheckoutResultModel>.Success(await gateService.CheckoutAsync(id, model)));
 
+    /// <summary>Lost ticket with the driver's Citizen ID and registration photos; the Staff then approves or refuses it.</summary>
+    [HttpPost("sessions/{id:long}/lost-ticket/papers")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 20 * 1024 * 1024)]
+    public async Task<IActionResult> ReportLostTicketWithPapersAsync(long id, [FromForm] string reason, IFormFile citizenId, IFormFile registration)
+    {
+        if (citizenId == null || registration == null)
+            return BadRequest(ApiResult<SessionResponseModel>.Failure(["Upload both the Citizen ID and the vehicle registration certificate."]));
+        await using var citizen = citizenId.OpenReadStream();
+        await using var papers = registration.OpenReadStream();
+        return Ok(ApiResult<SessionResponseModel>.Success(await gateService.ReportLostTicketWithPapersAsync(id, new LostTicketPapersModel
+        {
+            Reason = reason,
+            CitizenIdPhoto = citizen,
+            CitizenIdLength = citizenId.Length,
+            RegistrationPhoto = papers,
+            RegistrationLength = registration.Length
+        })));
+    }
+
+    /// <summary>The Staff compared the papers with the vehicle: approve (fine on the bill, vehicle stays) or refuse.</summary>
+    [HttpPost("sessions/{id:long}/lost-ticket/review")]
+    public async Task<IActionResult> ReviewLostTicketAsync(long id, [FromBody] LostTicketReviewModel model) =>
+        Ok(ApiResult<SessionResponseModel>.Success(await gateService.ReviewLostTicketAsync(id, model)));
+
+    /// <summary>A paper photo of the vehicle's lost-ticket case: citizen-id or registration.</summary>
+    [HttpGet("sessions/{id:long}/lost-ticket/papers/{kind}")]
+    public async Task<IActionResult> GetLostTicketPaperAsync(long id, string kind)
+    {
+        var (content, contentType) = await gateService.GetLostTicketPaperAsync(id, kind);
+        Response.Headers.CacheControl = "no-store";
+        return File(content, contentType);
+    }
+
     /// <summary>FR-OPS-05: lost ticket / card.</summary>
     [HttpPost("sessions/{id:long}/lost-ticket")]
     public async Task<IActionResult> LostTicketAsync(long id, [FromBody] LostTicketModel model) =>

@@ -152,6 +152,12 @@ public class SessionResponseModel
     /// <summary>Why the ticket was reported lost (what the Staff checked).</summary>
     public string LostTicketReason { get; set; }
 
+    /// <summary>Who has to decide the open case: Staff (papers uploaded), Manager, or Conditional once approved on the spot.</summary>
+    public string LostTicketApprovalMode { get; set; }
+
+    /// <summary>The Staff uploaded the Citizen ID and registration photos for the latest case.</summary>
+    public bool LostTicketHasPapers { get; set; }
+
     /// <summary>The Manager's remarks or rejection reason.</summary>
     public string LostTicketDecisionNote { get; set; }
 
@@ -252,6 +258,29 @@ public class CheckoutResultModel
     public decimal DepositRefund { get; set; }
 
     public List<GateAlertModel> Alerts { get; set; } = [];
+}
+
+/// <summary>Lost ticket with the driver's papers: the Staff photographs the Citizen ID and the registration certificate.</summary>
+public class LostTicketPapersModel
+{
+    public string Reason { get; set; }
+
+    public Stream CitizenIdPhoto { get; set; }
+
+    public long CitizenIdLength { get; set; }
+
+    public Stream RegistrationPhoto { get; set; }
+
+    public long RegistrationLength { get; set; }
+}
+
+/// <summary>The Staff's decision after comparing the papers with the vehicle.</summary>
+public class LostTicketReviewModel
+{
+    public bool Approve { get; set; }
+
+    /// <summary>Required when refusing.</summary>
+    public string Note { get; set; }
 }
 
 public class LostTicketModel
