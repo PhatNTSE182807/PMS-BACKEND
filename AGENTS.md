@@ -367,6 +367,9 @@ Keep this list current; it is the first place to look when code and SRS disagree
   (`ViolationType = LostTicket`) with `Status` (Pending / Approved / Rejected), `ApprovalMode`
   (Conditional / Manager), `DecidedBy`, `DecidedAt` and `DecisionNote`. The reporter can never decide
   the case, and a rejected case blocks every payment point and the exit until a new case is approved.
+  Only walk-ins can report a lost ticket (team decision, 2026-11-03): a booked vehicle has no paper ticket
+  (booking QR, verified plate or exit pass), so the API refuses it. Staff start the case from Vehicles in the lot
+  (Lost ticket) or the Exceptions desk.
   Not built yet: the 10-minute approval deadline with escalation to Admin (BR-14), the Manager's 24-hour
   review of conditional approvals (BR-13; those rows keep `IsResolved = false`), a stored BR-13 checklist
   (only the `ConditionsMet` flag), and locking the lost ticket QR.
