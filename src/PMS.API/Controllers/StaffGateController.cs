@@ -13,8 +13,23 @@ namespace PMS.API.Controllers;
 /// </summary>
 [Route("api/staff")]
 [Authorize(Roles = "Staff,Manager,Admin")]
-public class StaffGateController(IGateService gateService, IReservationService reservationService, PlateListService plateLists) : ApiController
+public class StaffGateController(IGateService gateService, IReservationService reservationService, PlateListService plateLists, CashDrawerService cashDrawers) : ApiController
 {
+    /// <summary>The signed-in Staff's cash drawer of today at the lot: float, cash taken, expected banknotes (BR-12).</summary>
+    [HttpGet("lots/{lotId:int}/cash-drawer")]
+    public async Task<IActionResult> GetCashDrawerAsync(int lotId) =>
+        Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.GetCurrentAsync(lotId)));
+
+    /// <summary>Opens today's drawer with the counted float.</summary>
+    [HttpPost("lots/{lotId:int}/cash-drawer/open")]
+    public async Task<IActionResult> OpenCashDrawerAsync(int lotId, [FromBody] OpenCashDrawerModel model) =>
+        Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.OpenAsync(lotId, model)));
+
+    /// <summary>Closes the drawer with the blind banknote count; a large difference needs a reason.</summary>
+    [HttpPost("lots/{lotId:int}/cash-drawer/close")]
+    public async Task<IActionResult> CloseCashDrawerAsync(int lotId, [FromBody] CloseCashDrawerModel model) =>
+        Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.CloseAsync(lotId, model)));
+
     [HttpGet("lots/{lotId:int}/gates")]
     public async Task<IActionResult> GetGatesAsync(int lotId) =>
         Ok(ApiResult<IReadOnlyList<GateResponseModel>>.Success(await gateService.GetGatesAsync(lotId)));

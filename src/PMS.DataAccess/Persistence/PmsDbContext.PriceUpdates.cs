@@ -12,6 +12,8 @@ public partial class PmsDbContext
 {
     public virtual DbSet<PendingPriceChange> PendingPriceChanges { get; set; }
 
+    public virtual DbSet<DailyCashClose> DailyCashCloses { get; set; }
+
     private static void ConfigurePriceUpdates(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ParkingLot>(entity =>
@@ -35,6 +37,32 @@ public partial class PmsDbContext
         modelBuilder.Entity<Reservation>(entity =>
         {
             entity.Property(e => e.PriceSnapshotJson).HasColumnType("nvarchar(max)");
+        });
+
+        modelBuilder.Entity<DailyCashClose>(entity =>
+        {
+            entity.ToTable("DailyCashCloses");
+            entity.HasIndex(e => new { e.ParkingLotId, e.StaffUserId, e.BusinessDate, e.CloseNo }, "IX_DailyCashCloses_Drawer").IsUnique();
+            entity.Property(e => e.StaffUserId).IsRequired().HasMaxLength(450);
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(20).IsUnicode(false);
+            entity.Property(e => e.FloatJson).HasMaxLength(400);
+            entity.Property(e => e.CountedJson).HasMaxLength(400);
+            entity.Property(e => e.FloatTotal).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.CountedTotal).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.ExpectedTotal).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.Difference).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.DifferenceReason).HasMaxLength(500);
+            entity.Property(e => e.ConfirmedBy).HasMaxLength(450);
+            entity.Property(e => e.ConfirmNote).HasMaxLength(500);
+            entity.Property(e => e.OpenedAt).HasPrecision(3);
+            entity.Property(e => e.ClosedAt).HasPrecision(3);
+            entity.Property(e => e.ConfirmedAt).HasPrecision(3);
+        });
+
+        modelBuilder.Entity<Payment>(entity =>
+        {
+            entity.Property(e => e.CashReceivedJson).HasMaxLength(400);
+            entity.Property(e => e.CashChangeJson).HasMaxLength(400);
         });
 
         modelBuilder.Entity<PendingPriceChange>(entity =>

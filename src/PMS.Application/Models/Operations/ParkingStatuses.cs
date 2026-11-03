@@ -111,6 +111,16 @@ public static class PaymentPurpose
     public const string WalletTopUp = "WalletTopUp";
 }
 
+/// <summary>Daily cash close of a Staff drawer (BR-12).</summary>
+public static class CashCloseStatus
+{
+    public const string Open = "Open";
+    public const string Closed = "Closed";
+    /// <summary>Closed with a difference over the threshold: the Staff gave a reason, a Manager must confirm it.</summary>
+    public const string HasDifference = "HasDifference";
+    public const string Confirmed = "Confirmed";
+}
+
 public static class PaymentMethod
 {
     public const string Cash = "Cash";
