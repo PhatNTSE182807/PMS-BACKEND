@@ -22,7 +22,8 @@ public class GateService(
     TimeProvider clock,
     IParkingRealtimeNotifier notifier = null,
     IUserNotificationPublisher notifications = null,
-    CashDrawerService cashDrawers = null) : IGateService
+    CashDrawerService cashDrawers = null,
+    IVehicleDocumentStorage paperStorage = null) : IGateService
 {
     /// <summary>Two lanes never open two sessions for one plate at the same time (NFR-14) inside this process.</summary>
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlateGates = new();
@@ -665,7 +666,11 @@ public class GateService(
         return new CheckoutResultModel { Session = await ToModelAsync(session), BarrierOpen = true, DepositRefund = refunded };
     }
 
-    public async Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model)
+    public Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model) =>
+        ReportLostTicketAsync(sessionId, model, LostTicketApproval.Manager);
+
+    /// <param name="pendingMode">Who decides a case that is not approved on the spot: the Manager, or the Staff after uploading papers.</param>
+    private async Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model, string pendingMode)
     {
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         // Lost tickets are for walk-ins with a paper ticket or card: a booked vehicle leaves with its booking QR,
@@ -700,7 +705,7 @@ public class GateService(
             ReportedBy = reporter,
             ReportedAt = Now,
             Status = LostTicketCaseStatus.Pending,
-            ApprovalMode = LostTicketApproval.Manager
+            ApprovalMode = pendingMode
         };
         pmsContext.SessionViolations.Add(lostCase);
 
@@ -711,10 +716,10 @@ public class GateService(
             lostCase.ApprovalMode = LostTicketApproval.Conditional;
             lostCase.DecidedBy = reporter;
             lostCase.DecidedAt = Now;
-            session.Status = SessionStatus.PendingPayment;
-            await QuoteAsync(session, null, null, mutate: true);
+            // The vehicle stays parked; the fine is added to its bill when it checks out
+            session.Status = SessionStatus.Active;
         }
-        else
+        else if (pendingMode == LostTicketApproval.Manager)
         {
             var (lotId, id, code) = (session.ParkingLotId, session.Id, session.SessionCode);
             inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "LOST_TICKET_APPROVAL", $"Lost ticket {code} needs a Manager's approval.", id) ?? Task.CompletedTask);
@@ -724,6 +729,100 @@ public class GateService(
         QueueSessionPush(session);
         await inventory.FlushAsync();
         return await ToModelAsync(session);
+    }
+
+    /// <summary>Photos of papers are kept small: a phone photo or a scan.</summary>
+    private const long MaxPaperBytes = 8 * 1024 * 1024;
+
+    /// <summary>
+    /// Lost ticket of a walk-in, with the driver's Citizen ID and vehicle registration photos. The case waits for the
+    /// Staff to compare the papers with the vehicle (ReviewLostTicketAsync); the vehicle cannot pay or leave meanwhile.
+    /// </summary>
+    public async Task<SessionResponseModel> ReportLostTicketWithPapersAsync(long sessionId, LostTicketPapersModel model)
+    {
+        if (paperStorage == null)
+            throw new BadRequestException("Uploading papers is not available.");
+        if (model?.CitizenIdPhoto == null || model.RegistrationPhoto == null)
+            throw new BadRequestException("Upload both the Citizen ID and the vehicle registration certificate.");
+
+        var citizen = await ReadPaperAsync(model.CitizenIdPhoto, model.CitizenIdLength, "Citizen ID");
+        var registration = await ReadPaperAsync(model.RegistrationPhoto, model.RegistrationLength, "registration certificate");
+        await ReportLostTicketAsync(sessionId, new LostTicketModel { Reason = model.Reason }, LostTicketApproval.Staff);
+
+        var lostCase = await CurrentLostTicketCaseAsync(sessionId);
+        var folder = $"lost-tickets/{sessionId}";
+        lostCase.CitizenIdPhotoPath = await paperStorage.SaveAsync(citizen, folder);
+        lostCase.RegistrationPhotoPath = await paperStorage.SaveAsync(registration, folder);
+        await pmsContext.SaveChangesAsync();
+        return await ToModelAsync(await ScopedSessionAsync(sessionId));
+    }
+
+    /// <summary>
+    /// The Staff compared the uploaded papers with the vehicle. Approved: the fine goes on the bill and the vehicle
+    /// stays parked until it checks out (a Manager reviews it later, BR-13). Refused: it stays and cannot leave until
+    /// a new case is approved (SRS 4.2.4).
+    /// </summary>
+    public async Task<SessionResponseModel> ReviewLostTicketAsync(long sessionId, LostTicketReviewModel model)
+    {
+        var session = await ScopedSessionAsync(sessionId, tracked: true);
+        if (session.Status != SessionStatus.LostTicketPending)
+            throw new BadRequestException("No lost-ticket case is waiting for this vehicle.");
+        var lostCase = await CurrentLostTicketCaseAsync(session.Id);
+        if (lostCase is not { Status: LostTicketCaseStatus.Pending, ApprovalMode: LostTicketApproval.Staff })
+            throw new BadRequestException("This lost-ticket case waits for a Manager, not for the papers check.");
+        var note = model?.Note?.Trim();
+        if (model?.Approve != true && string.IsNullOrEmpty(note))
+            throw new BadRequestException("Say why the papers do not match before refusing.");
+        if (note?.Length > 500)
+            throw new BadRequestException("The note is too long (500 characters at most).");
+
+        lostCase.Status = model.Approve ? LostTicketCaseStatus.Approved : LostTicketCaseStatus.Rejected;
+        lostCase.ApprovalMode = model.Approve ? LostTicketApproval.Conditional : LostTicketApproval.Staff;
+        lostCase.DecidedBy = lotScope.UserId;
+        lostCase.DecidedAt = Now;
+        lostCase.DecisionNote = string.IsNullOrEmpty(note) ? null : note;
+        // An approval is reviewed by the Manager later (BR-13); a refusal is final for this case
+        lostCase.IsResolved = !model.Approve;
+        session.Status = SessionStatus.Active;
+        session.UpdatedAt = Now;
+        await pmsContext.SaveChangesAsync();
+        QueueSessionPush(session);
+        await inventory.FlushAsync();
+        return await ToModelAsync(session);
+    }
+
+    /// <summary>One uploaded paper of the vehicle's latest lost-ticket case (citizen-id or registration), for the lot's Staff and Manager.</summary>
+    public async Task<(Stream Content, string ContentType)> GetLostTicketPaperAsync(long sessionId, string kind)
+    {
+        var session = await ScopedSessionAsync(sessionId);
+        var lostCase = await CurrentLostTicketCaseAsync(session.Id)
+                       ?? throw new NotFoundException("This vehicle has no lost-ticket case.");
+        var path = kind?.ToLowerInvariant() switch
+        {
+            "citizen-id" => lostCase.CitizenIdPhotoPath,
+            "registration" => lostCase.RegistrationPhotoPath,
+            _ => throw new BadRequestException("Ask for citizen-id or registration.")
+        } ?? throw new NotFoundException("No photo was uploaded for this case.");
+
+        var stream = paperStorage?.OpenRead(path) ?? throw new NotFoundException("The photo is no longer stored.");
+        var head = new byte[8];
+        var read = await stream.ReadAsync(head);
+        stream.Position = 0;
+        return (stream, VehicleDocumentService.DetectContentType(head.AsSpan(0, read)) ?? "application/octet-stream");
+    }
+
+    private static async Task<MemoryStream> ReadPaperAsync(Stream content, long length, string what)
+    {
+        if (length <= 0)
+            throw new BadRequestException($"The {what} file is empty.");
+        if (length > MaxPaperBytes)
+            throw new BadRequestException($"The {what} file is larger than 8 MB.");
+        var buffer = new MemoryStream();
+        await content.CopyToAsync(buffer);
+        if (VehicleDocumentService.DetectContentType(buffer.GetBuffer().AsSpan(0, (int)buffer.Length)) == null)
+            throw new BadRequestException($"The {what} must be a JPEG, PNG or PDF file.");
+        buffer.Position = 0;
+        return buffer;
     }
 
     public async Task<SessionResponseModel> DecideLostTicketAsync(long sessionId, bool approve, string reason)
@@ -750,16 +849,9 @@ public class GateService(
         lostCase.DecisionNote = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         lostCase.IsResolved = true;
 
-        if (approve)
-        {
-            session.Status = SessionStatus.PendingPayment;
-            await QuoteAsync(session, null, null, mutate: true);
-        }
-        else
-        {
-            // 4.2.4: the vehicle stays; the customer comes back with full papers and a new case
-            session.Status = SessionStatus.Active;
-        }
+        // Approved: the fine is on the bill and the vehicle stays until it checks out. Rejected (4.2.4): it stays
+        // in the lot until the customer comes back with full papers and a new case is approved.
+        session.Status = SessionStatus.Active;
 
         session.UpdatedAt = Now;
         await pmsContext.SaveChangesAsync();
@@ -1314,6 +1406,8 @@ public class GateService(
             LostTicketReportedBy = lostCases.GetValueOrDefault(s.Id)?.ReportedBy,
             LostTicketReportedAt = lostCases.TryGetValue(s.Id, out var lost) ? Utc(lost.ReportedAt) : null,
             LostTicketReason = lostCases.GetValueOrDefault(s.Id)?.Note,
+            LostTicketApprovalMode = lostCases.GetValueOrDefault(s.Id)?.ApprovalMode,
+            LostTicketHasPapers = lostCases.GetValueOrDefault(s.Id)?.CitizenIdPhotoPath != null,
             LostTicketDecisionNote = lostCases.GetValueOrDefault(s.Id)?.DecisionNote,
             PlateMismatch = s.PlateMismatch,
             IsOverdue = SessionStatus.Inside.Contains(s.Status) && s.EntryTime < overdueBefore,

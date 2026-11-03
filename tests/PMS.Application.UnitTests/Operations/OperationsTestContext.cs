@@ -100,7 +100,7 @@ public sealed class OperationsTestContext
         Prices = new DeferredPriceService(Db, Clock);
         Occupancy = new LotOccupancy(Db, Prices);
         Reservations = new ReservationService(Db, Options, Inventory, tariffs, Payments, Signer, scope, Clock);
-        Gates = new GateService(Db, Options, Inventory, tariffs, Occupancy, Payments, Signer, scope, Clock);
+        Gates = new GateService(Db, Options, Inventory, tariffs, Occupancy, Payments, Signer, scope, Clock, paperStorage: new InMemoryPaperStorage());
         Jobs = new ParkingJobs(Db, Options, Reservations, Gates, Occupancy, Payments, Inventory, Clock);
     }
 

@@ -64,6 +64,8 @@ public static partial class AutomatedMigration
         ("SessionViolations", "ApprovalMode", "[varchar](20) NULL"),
         ("SessionViolations", "DecidedBy", "[nvarchar](450) NULL"),
         ("SessionViolations", "DecidedAt", "[datetime2](3) NULL"),
+        ("SessionViolations", "CitizenIdPhotoPath", "[nvarchar](500) NULL"),
+        ("SessionViolations", "RegistrationPhotoPath", "[nvarchar](500) NULL"),
         ("SessionViolations", "DecisionNote", "[nvarchar](500) NULL"),
 
         // Deferred price updates: the tariff copied at entry, and the lot's concurrency token

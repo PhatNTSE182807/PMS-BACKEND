@@ -177,6 +177,9 @@ public static class LostTicketCaseStatus
 /// <summary>How a lost-ticket case was approved (SessionViolations.ApprovalMode).</summary>
 public static class LostTicketApproval
 {
+    /// <summary>The Staff uploaded the driver's Citizen ID and registration papers and has to approve or refuse the case.</summary>
+    public const string Staff = "Staff";
+
     /// <summary>BR-13: the Staff checked photos, papers and ID and applied the standard fine; the Manager reviews it later.</summary>
     public const string Conditional = "Conditional";
     /// <summary>BR-14: a Manager of the lot (or an Admin) decides; never the person who reported it.</summary>

@@ -61,6 +61,12 @@ public partial class PmsDbContext
             entity.Property(e => e.OverdueAt).HasPrecision(3);
         });
 
+        modelBuilder.Entity<SessionViolation>(entity =>
+        {
+            entity.Property(e => e.CitizenIdPhotoPath).HasMaxLength(500);
+            entity.Property(e => e.RegistrationPhotoPath).HasMaxLength(500);
+        });
+
         modelBuilder.Entity<Payment>(entity =>
         {
             entity.Property(e => e.CashReceivedJson).HasMaxLength(400);

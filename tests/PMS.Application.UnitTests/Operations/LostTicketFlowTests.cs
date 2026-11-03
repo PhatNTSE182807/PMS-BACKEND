@@ -1,3 +1,4 @@
+using System.IO;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -40,7 +41,7 @@ public class LostTicketFlowTests
         new() { Reason = "Paper ticket lost; registration and ID checked", ConditionsMet = conditionsMet };
 
     [Fact]
-    public async Task A_Manager_Approval_Sends_The_Session_To_Payment_With_The_Fine()
+    public async Task A_Manager_Approval_Leaves_The_Vehicle_Parked_With_The_Fine_On_Its_Bill()
     {
         var t = await new OperationsTestContext().SeedAsync();
         var id = await ParkedCarAsync(t);
@@ -55,7 +56,7 @@ public class LostTicketFlowTests
         t.ActAs(t.ManagerUserId, "Manager");
         var decided = await t.Gates.DecideLostTicketAsync(id, true, "Papers match the entry photo");
 
-        decided.Status.Should().Be(SessionStatus.PendingPayment);
+        decided.Status.Should().Be(SessionStatus.Active, "the vehicle stays until it checks out");
         decided.LostTicketStatus.Should().Be(LostTicketCaseStatus.Approved);
         decided.LostTicketDecisionNote.Should().Be("Papers match the entry photo");
         var lostCase = Cases(t, id).Single();
@@ -127,25 +128,78 @@ public class LostTicketFlowTests
         t.ActAs(AdminUserId, "Admin");
         var decided = await t.Gates.DecideLostTicketAsync(id, true, "Checked by Admin");
 
-        decided.Status.Should().Be(SessionStatus.PendingPayment);
+        decided.Status.Should().Be(SessionStatus.Active);
         Cases(t, id).Single().DecidedBy.Should().Be(AdminUserId);
     }
 
     [Fact]
-    public async Task A_Conditional_Approval_Goes_Straight_To_Payment_And_Waits_For_The_Manager_Review()
+    public async Task A_Conditional_Approval_Leaves_The_Vehicle_Parked_And_Waits_For_The_Manager_Review()
     {
         var t = await new OperationsTestContext().SeedAsync();
         var id = await ParkedCarAsync(t);
 
         var reported = await t.Gates.ReportLostTicketAsync(id, Report(conditionsMet: true));
 
-        reported.Status.Should().Be(SessionStatus.PendingPayment);
+        reported.Status.Should().Be(SessionStatus.Active);
         reported.LostTicketStatus.Should().Be(LostTicketCaseStatus.Approved);
-        reported.FinalFee.Should().BeGreaterThanOrEqualTo(CarLostTicketFee);
         var lostCase = Cases(t, id).Single();
         lostCase.ApprovalMode.Should().Be(LostTicketApproval.Conditional);
         lostCase.DecidedBy.Should().Be(t.StaffUserId);
         lostCase.IsResolved.Should().BeFalse("the Manager still reviews a conditional approval");
+
+        var quote = await t.Gates.RequestPaymentAsync(id, new CheckoutQuoteRequestModel());
+        quote.LostTicketFee.Should().Be(CarLostTicketFee, "the fine is added when the vehicle checks out");
+    }
+
+    private static LostTicketPapersModel Papers() => new()
+    {
+        Reason = "Paper ticket lost",
+        // The smallest valid JPEG and PNG headers are enough for the type check
+        CitizenIdPhoto = new MemoryStream([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0]),
+        CitizenIdLength = 8,
+        RegistrationPhoto = new MemoryStream([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+        RegistrationLength = 8
+    };
+
+    [Fact]
+    public async Task Papers_Wait_For_The_Staff_Who_Approves_And_The_Fine_Goes_On_The_Bill()
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+        var id = await ParkedCarAsync(t);
+
+        var reported = await t.Gates.ReportLostTicketWithPapersAsync(id, Papers());
+        reported.Status.Should().Be(SessionStatus.LostTicketPending);
+        reported.LostTicketApprovalMode.Should().Be(LostTicketApproval.Staff);
+        reported.LostTicketHasPapers.Should().BeTrue();
+        var (content, type) = await t.Gates.GetLostTicketPaperAsync(id, "citizen-id");
+        type.Should().Be("image/jpeg");
+        await content.DisposeAsync();
+
+        var approved = await t.Gates.ReviewLostTicketAsync(id, new LostTicketReviewModel { Approve = true });
+
+        approved.Status.Should().Be(SessionStatus.Active);
+        approved.LostTicketStatus.Should().Be(LostTicketCaseStatus.Approved);
+        Cases(t, id).Single().ApprovalMode.Should().Be(LostTicketApproval.Conditional);
+        var quote = await t.Gates.RequestPaymentAsync(id, new CheckoutQuoteRequestModel());
+        quote.LostTicketFee.Should().Be(CarLostTicketFee);
+    }
+
+    [Fact]
+    public async Task Refused_Papers_Keep_The_Vehicle_In_The_Lot()
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+        var id = await ParkedCarAsync(t);
+        await t.Gates.ReportLostTicketWithPapersAsync(id, Papers());
+
+        var noReason = () => t.Gates.ReviewLostTicketAsync(id, new LostTicketReviewModel { Approve = false });
+        await noReason.Should().ThrowAsync<BadRequestException>().WithMessage("*why the papers do not match*");
+
+        var refused = await t.Gates.ReviewLostTicketAsync(id, new LostTicketReviewModel { Approve = false, Note = "Name on the ID differs" });
+
+        refused.Status.Should().Be(SessionStatus.Active);
+        refused.LostTicketStatus.Should().Be(LostTicketCaseStatus.Rejected);
+        var quote = () => t.Gates.RequestPaymentAsync(id, new CheckoutQuoteRequestModel());
+        await quote.Should().ThrowAsync<BadRequestException>().WithMessage("*was rejected*");
     }
 
     [Fact]

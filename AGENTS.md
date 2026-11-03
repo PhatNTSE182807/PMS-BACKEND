@@ -143,7 +143,8 @@ String constants live in `src/PMS.Application/Models/Operations/ParkingStatuses.
   `PendingPayment` (fee requested at lane, counter or app; back to `Active` on cancel/timeout) →
   `Paid` (paid after deposit, or fee 0; back to `PendingPayment` when a pre-payment exceeds the
   exit window) → `Completed` (vehicle passed the barrier). Side paths: `Active → LostTicketPending
-  → PendingPayment` (approved) or back to `Active` (rejected); `Active → AbnormalClosed`
+  → Active` (approved: the fine is added at check-out; rejected: the vehicle stays until new papers
+  are approved); `Active → AbnormalClosed`
   (Maker-Checker); `Active → EmergencyExit` (Manager then waives or records debt). A turned-back
   car cancels the session (`Cancelled`) and the counter does not change. "Device failure" is not a
   state: it is the *manual* flag with a reason.
@@ -365,7 +366,7 @@ Keep this list current; it is the first place to look when code and SRS disagree
 - Vehicle verification has no "needs more info", "disputed" or "revoked" state yet (section 5).
 - Lost tickets (FR-OPS-05) have no `LostTicketCase` table: each report is a `SessionViolations` row
   (`ViolationType = LostTicket`) with `Status` (Pending / Approved / Rejected), `ApprovalMode`
-  (Conditional / Manager), `DecidedBy`, `DecidedAt` and `DecisionNote`. The reporter can never decide
+  (Conditional / Manager / Staff), `DecidedBy`, `DecidedAt` and `DecisionNote`. The reporter can never decide
   the case, and a rejected case blocks every payment point and the exit until a new case is approved.
   Only walk-ins can report a lost ticket (team decision, 2026-11-03): a booked vehicle has no paper ticket
   (booking QR, verified plate or exit pass), so the API refuses it. Staff start the case from Vehicles in the lot
@@ -373,6 +374,15 @@ Keep this list current; it is the first place to look when code and SRS disagree
   Not built yet: the 10-minute approval deadline with escalation to Admin (BR-14), the Manager's 24-hour
   review of conditional approvals (BR-13; those rows keep `IsResolved = false`), a stored BR-13 checklist
   (only the `ConditionsMet` flag), and locking the lost ticket QR.
+- Lost ticket papers (team decision, 2026-11-04): Lost ticket (Vehicles in the lot on the gate dashboard, or the
+  Exceptions desk after a plate lookup) opens a popup where the Staff uploads photos of the driver's Citizen ID and
+  vehicle registration certificate (JPEG / PNG / PDF, 8 MB each; `POST /api/staff/sessions/{id}/lost-ticket/papers`,
+  stored under `lost-tickets/{sessionId}`, paths on the `SessionViolations` row). The case waits with
+  `ApprovalMode = Staff` (no Manager alert) and the Exceptions screen shows the papers for the Staff to check and
+  approve or disapprove (`POST .../lost-ticket/review`; disapproving needs a note). The Staff at the counter decides
+  this case, unlike the Maker-Checker rule for the other lost-ticket paths. Every decision leaves the vehicle parked
+  (`Active`): an approval adds the lost-ticket fine to the bill at check-out; a disapproval keeps the vehicle in
+  until new papers are uploaded and approved.
 - Some older code comments quote the Vietnamese SRS terms (e.g. in `ParkingStatuses.cs`).
   Translate them to English when you touch those lines; do not add new ones.
 - Not built yet in the API (as of 2026-10-24): pricing management, reports, the approval queue
