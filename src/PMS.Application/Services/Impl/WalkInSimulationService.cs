@@ -42,6 +42,7 @@ public class WalkInSimulationService(
         if (model.MinStayHours <= 0 || model.MaxStayHours < model.MinStayHours || model.MaxStayHours > MaxStayHours)
             throw new BadRequestException($"The stay must be more than 0 and at most {MaxStayHours} hours, the shortest no longer than the longest.");
 
+        await EnsureOpenAsync(model.LotId);
         var types = await pmsContext.VehicleTypes.AsNoTracking().Where(t => t.IsActive).ToListAsync();
         var carTypes = types.Where(t => t.Code.StartsWith("CAR", StringComparison.OrdinalIgnoreCase)).ToList();
         var motorbike = types.FirstOrDefault(t => t.Code == "MOTORBIKE");
@@ -181,6 +182,7 @@ public class WalkInSimulationService(
     /// </summary>
     public async Task<BookedBayTakenModel> OccupyBookedBayAsync(int lotId, long? reservationId)
     {
+        await EnsureOpenAsync(lotId);
         var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
         var booking = await pmsContext.Reservations.AsNoTracking()
             .Where(r => r.ParkingLotId == lotId && r.Status == ReservationStatus.Confirmed && r.SlotId != null
@@ -227,6 +229,21 @@ public class WalkInSimulationService(
     }
 
     // ---- helpers ----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Simulated traffic only goes to lots that are open: not under maintenance, closed, or open without a
+    /// Manager and Staff on duty (those show as maintenance to everyone).
+    /// </summary>
+    private async Task EnsureOpenAsync(int lotId)
+    {
+        var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(p => p.Id == lotId && !p.IsDeleted)
+                  ?? throw new NotFoundException("Parking lot not found.");
+        var status = LotStaffing.EffectiveStatus(lot, await LotStaffing.IsStaffedAsync(pmsContext, lotId));
+        if (status != LotStatus.Active)
+            throw new BadRequestException(status == LotStatus.Maintenance
+                ? $"{lot.Name} is under maintenance: simulated vehicles cannot enter it."
+                : $"{lot.Name} is not open: simulated vehicles cannot enter it.");
+    }
 
     private async Task<WalkInCheckOutResultModel> LeaveEachAsync(IEnumerable<(long Id, string Plate, string ActAs)> sessions)
     {
