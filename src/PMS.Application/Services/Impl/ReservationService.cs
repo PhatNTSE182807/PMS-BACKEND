@@ -14,6 +14,7 @@ public class ReservationService(
     PmsDbContext pmsContext,
     ParkingOptions options,
     ParkingInventory inventory,
+    TariffProvider tariffs,
     IPaymentService paymentService,
     ParkingTokenSigner signer,
     LotScopeService lotScope,
@@ -79,8 +80,12 @@ public class ReservationService(
             // With a deposit the booking waits for the payment and then holds the slot 30 minutes after
             // arrival; without one it is confirmed at once and holds the slot only 15 minutes.
             var withDeposit = model.PayDeposit && !instant;
+
+            // Booking locks the price: the customer pays the tariff in force now, not whatever the lot charges on arrival
+            var tariff = await tariffs.ForAsync(lot.Id, slot.ZoneId, vehicle.VehicleTypeId, Now);
             var created = new Reservation
             {
+                PriceSnapshotJson = TariffSnapshot.Write(tariff),
                 ReservationCode = ParkingText.NewCode("RSV", Now),
                 CustomerId = customer.Id,
                 UserId = userId,

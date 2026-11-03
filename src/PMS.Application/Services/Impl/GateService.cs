@@ -15,6 +15,7 @@ public class GateService(
     ParkingOptions options,
     ParkingInventory inventory,
     TariffProvider tariffs,
+    LotOccupancy occupancy,
     IPaymentService paymentService,
     ParkingTokenSigner signer,
     LotScopeService lotScope,
@@ -315,7 +316,7 @@ public class GateService(
             : await VerifiedOwnerAsync(normalized);
 
         // Lock on the vehicle when it is known (a reservation may come with another plate), else on the plate
-        var session = await WithPlateLockAsync(vehicleId != null ? $"vehicle:{vehicleId}" : normalized, async () =>
+        var session = await WithPlateLockAsync(vehicleId != null ? $"vehicle:{vehicleId}" : normalized, () => LotConcurrency.RunAsync(pmsContext, async () =>
         {
             if (await pmsContext.ParkingSessions.AnyAsync(s => SessionStatus.Open.Contains(s.Status)
                     && ((normalized.Length > 0 && s.HasPlate && s.EntryPlateNormalized == normalized)
@@ -326,7 +327,16 @@ public class GateService(
             if (reservation != null && await pmsContext.Reservations.AnyAsync(r => r.Id == reservation.Id && r.Status != ReservationStatus.Confirmed))
                 throw new ConflictException("This reservation has already checked in.");
 
-            var tariff = await tariffs.ForAsync(lotId, reservation?.ZoneId, vehicleTypeId, Now);
+            // Concurrency: count the vehicle in (this reads the lot row and remembers its RowVersion) BEFORE the
+            // price is read, and save the session and the counter together. If a price becomes live or another
+            // vehicle enters between our read and our save, SaveChangesAsync throws DbUpdateConcurrencyException,
+            // RunAsync drops the unsaved session and runs this block again, so the session never keeps a price
+            // that was replaced while it was being created.
+            await occupancy.StageEntryAsync(lotId);
+
+            // A booking locked its price when it was made: the booked vehicle keeps it whatever the lot charges now
+            var tariff = TariffSnapshot.Read(reservation?.PriceSnapshotJson)
+                         ?? await tariffs.ForAsync(lotId, reservation?.ZoneId, vehicleTypeId, Now);
             var created = new ParkingSession
             {
                 SessionCode = ParkingText.NewCode("SS", Now),
@@ -345,6 +355,7 @@ public class GateService(
                 SlotId = slotId,
                 PricingRuleId = tariff.RuleId,
                 PricingRuleVersion = tariff.Version,
+                PriceSnapshotJson = TariffSnapshot.Write(tariff),
                 Status = SessionStatus.PendingEntry,
                 SessionType = reservation != null ? SessionType.Reservation : whitelisted ? SessionType.Whitelist : SessionType.WalkIn,
                 VehicleTypeId = vehicleTypeId,
@@ -359,7 +370,7 @@ public class GateService(
             pmsContext.ParkingSessions.Add(created);
             await pmsContext.SaveChangesAsync();
             return created;
-        });
+        }));
 
         QueueSessionPush(session);
         await inventory.FlushAsync();
@@ -423,6 +434,8 @@ public class GateService(
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         await CancelPendingEntryAsync(session, "Vehicle turned around / cancelled by Staff");
         await pmsContext.SaveChangesAsync();
+        // The session counted the vehicle in when it was created; it never got in, so count it out again
+        await occupancy.ReleaseAsync(session.ParkingLotId);
         await inventory.FlushAsync();
         return await ToModelAsync(session);
     }
@@ -563,6 +576,11 @@ public class GateService(
         }
 
         await pmsContext.SaveChangesAsync();
+
+        // The session is Completed: count the vehicle out. When it was the last one, the prices that waited for an
+        // empty lot become live here (see LotOccupancy.ReleaseAsync for the concurrency handling).
+        await occupancy.ReleaseAsync(session.ParkingLotId);
+
         QueueSessionPush(session);
         await inventory.FlushAsync();
         // Bell notification with the check-out time, duration and fee
@@ -587,7 +605,7 @@ public class GateService(
         }
         ParkingStateMachines.EnsureSession(session.Status, SessionStatus.LostTicketPending);
 
-        var tariff = await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
+        var tariff = await TariffOfAsync(session);
         var reporter = lotScope.UserId;
         session.IsLostCard = true;
         session.Status = SessionStatus.LostTicketPending;
@@ -699,6 +717,8 @@ public class GateService(
         }
 
         await pmsContext.SaveChangesAsync();
+        // An abnormal close frees the bay like a normal exit, and may be the one that empties the lot
+        await occupancy.ReleaseAsync(session.ParkingLotId);
         QueueSessionPush(session);
         await inventory.FlushAsync();
         if (session.CustomerId != null)
@@ -769,7 +789,7 @@ public class GateService(
         {
             // A read-only quote: looking at the fee never changes the session
             var quote = await QuoteAsync(session, null, null, mutate: false);
-            var tariff = await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
+            var tariff = await TariffOfAsync(session);
             var lot = lots.GetValueOrDefault(session.ParkingLotId);
             var vehicle = session.VehicleId != null ? vehicles.GetValueOrDefault(session.VehicleId.Value) : null;
             var booking = session.ReservationId != null ? bookings.GetValueOrDefault(session.ReservationId.Value) : null;
@@ -859,7 +879,7 @@ public class GateService(
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstAsync(p => p.Id == session.ParkingLotId);
         var timeZone = ParkingText.FindTimeZone(lot.TimeZoneId ?? options.TimeZoneId);
-        var tariff = await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
+        var tariff = await TariffOfAsync(session);
 
         var breakdown = session.SessionType == SessionType.Whitelist
             ? new FeeBreakdown((int)Math.Ceiling((Now - session.EntryTime).TotalMinutes), 0, false, [])
@@ -938,6 +958,14 @@ public class GateService(
     }
 
     // ---- helpers ----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The tariff a stay is charged with: the copy taken at entry, so a price change after the vehicle came in
+    /// (or after the booking was made) never touches it. Sessions from before the copy existed use the live rule.
+    /// </summary>
+    private async Task<Tariff> TariffOfAsync(ParkingSession session) =>
+        TariffSnapshot.Read(session.PriceSnapshotJson)
+        ?? await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
 
     private async Task<Reservation> FindReservationAsync(int lotId, CheckInModel model, string normalized, List<GateAlertModel> alerts, List<string> overrides)
     {

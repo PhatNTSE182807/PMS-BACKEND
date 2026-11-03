@@ -148,6 +148,11 @@ public sealed partial class DemoDataSeed
         await SeedWalletsAsync();
         await SeedNotificationsAsync();
 
+        // Vehicles inside each lot: the live counter must match the open sessions that were just written
+        await db.SaveChangesAsync();
+        foreach (var info in lots.Values)
+            info.Lot.OccupiedBays = await db.ParkingSessions.CountAsync(s => s.ParkingLotId == info.Id && SessionStatus.Open.Contains(s.Status));
+
         db.AuditLogs.Add(new AuditLog
         {
             UserId = adminId,
@@ -316,6 +321,7 @@ public sealed partial class DemoDataSeed
             SlotId = slot?.Id,
             PricingRuleId = tariff.RuleId,
             PricingRuleVersion = tariff.Version,
+            PriceSnapshotJson = TariffSnapshot.Write(tariff),
             Status = SessionStatus.Active,
             SessionType = sessionType,
             VehicleTypeId = types[typeCode].Id,

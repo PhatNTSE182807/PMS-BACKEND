@@ -24,6 +24,9 @@ public partial class PmsDbContext
         // Customer notifications (vehicle approved / rejected, check-in, check-out) live in PmsDbContext.Notifications.cs
         ConfigureNotifications(modelBuilder);
 
+        // Deferred price updates (lot occupancy, price copied at entry, pending changes) live in PmsDbContext.PriceUpdates.cs
+        ConfigurePriceUpdates(modelBuilder);
+
         modelBuilder.Entity<ParkingLot>()
             .Property(e => e.LayoutTemplate)
             .HasMaxLength(30)

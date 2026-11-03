@@ -29,7 +29,7 @@ public class PricingRuleServiceTests
         t.ActAs(ManagerUserId, "Manager");
         var scope = new LotScopeService(t.Db, t.Claims);
         var tariffs = new TariffProvider(t.Db, t.Options);
-        var service = new PricingRuleService(t.Db, scope, tariffs, t.Options, t.Clock);
+        var service = new PricingRuleService(t.Db, scope, tariffs, t.Prices, t.Options, t.Clock);
 
         return (t, service);
     }

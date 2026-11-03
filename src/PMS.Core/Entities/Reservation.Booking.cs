@@ -12,6 +12,12 @@ public partial class Reservation
     /// <summary>Identity user who booked (dbo.Users.Id).</summary>
     public string UserId { get; set; }
 
+    /// <summary>
+    /// The tariff in force when the booking was made, as JSON. Booking locks the price: the check-in
+    /// copies this onto the session whatever the lot's price is by then. Null on older bookings.
+    /// </summary>
+    public string PriceSnapshotJson { get; set; }
+
     public int? VehicleTypeId { get; set; }
 
     /// <summary>The slot is held until then; an unpaid deposit after it expires the booking (BR-06).</summary>

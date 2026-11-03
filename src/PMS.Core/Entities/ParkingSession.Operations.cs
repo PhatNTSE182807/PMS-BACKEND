@@ -34,6 +34,13 @@ public partial class ParkingSession
     /// <summary>Version of the pricing rule in force at entry (BR-22).</summary>
     public int? PricingRuleVersion { get; set; }
 
+    /// <summary>
+    /// The tariff (price fields of the rule) in force at the moment of entry, as JSON. The fee is worked out
+    /// from this copy, never from the lot's live rule, so a later price change cannot touch a stay in progress.
+    /// Null on sessions created before this column existed: they are still priced from the live rule.
+    /// </summary>
+    public string PriceSnapshotJson { get; set; }
+
     /// <summary>Reservation deposit deducted from the fee at check-out (FR-RSV-07).</summary>
     public decimal DepositApplied { get; set; }
 

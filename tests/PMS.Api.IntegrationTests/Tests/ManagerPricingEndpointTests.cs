@@ -1,15 +1,23 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Newtonsoft.Json;
 using PMS.API;
+using PMS.API.Middleware;
+using PMS.Application.Exceptions;
 using PMS.Api.IntegrationTests.Common;
 using PMS.Api.IntegrationTests.Helpers;
 using PMS.Application.Helpers;
@@ -247,6 +255,166 @@ public class ManagerPricingEndpointTests
         apiResult.Result.VersionNo.Should().Be(2);
         apiResult.Result.BlockPrice.Should().Be(30_000);
         apiResult.Result.Name.Should().Be("Version 2 Rule");
+    }
+
+    private static async Task<PricingRuleModel> CreateCarRuleAsync(HttpClient client, ParkingLot lot, VehicleType carType, decimal blockPrice)
+    {
+        var response = await client.PostAsync($"/api/manager/lots/{lot.Id}/pricing-rules", new JsonContent(new CreatePricingRuleModel
+        {
+            Name = "Car hourly",
+            VehicleTypeId = carType.Id,
+            ChargeModel = "Block",
+            BlockMinutes = 60,
+            BlockPrice = blockPrice,
+            Status = "Active"
+        }));
+        return (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(response)).Result;
+    }
+
+    private static UpdatePricingRuleModel PriceChange(PricingRuleModel rule, decimal blockPrice) => new()
+    {
+        Name = rule.Name,
+        VehicleTypeId = rule.VehicleTypeId,
+        ChargeModel = "Block",
+        BlockMinutes = 60,
+        BlockPrice = blockPrice,
+        EffectiveFrom = rule.EffectiveFrom,
+        Status = "Active",
+        Reason = "Price review"
+    };
+
+    private async Task SetOccupiedBaysAsync(int lotId, int bays)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
+        (await db.ParkingLots.SingleAsync(l => l.Id == lotId)).OccupiedBays = bays;
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task UpdatePricingRule_WhenLotIsEmpty_AppliesThePriceAtOnce()
+    {
+        var (client, lot, carType) = await CreateManagerWithLotAsync();
+        var rule = await CreateCarRuleAsync(client, lot, carType, 20_000);
+
+        var response = await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 30_000)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(response)).Result;
+        result.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Applied);
+        result.BlockPrice.Should().Be(30_000);
+        result.PendingPrice.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpdatePricingRule_WhenVehiclesAreInside_KeepsThePriceAndReturnsThePendingOne()
+    {
+        var (client, lot, carType) = await CreateManagerWithLotAsync();
+        var rule = await CreateCarRuleAsync(client, lot, carType, 20_000);
+        await SetOccupiedBaysAsync(lot.Id, 2);
+
+        var response = await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 30_000)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(response)).Result;
+        result.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Pending);
+        result.BlockPrice.Should().Be(20_000, "customers keep paying the live price");
+        result.VersionNo.Should().Be(1);
+        result.PendingPrice.Should().NotBeNull();
+        result.PendingPrice.Prices.BlockPrice.Should().Be(30_000);
+        result.PendingPrice.RevisionNo.Should().Be(1);
+
+        // The waiting price is still there on the next read, and a second request overwrites it
+        var read = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(await client.GetAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}"))).Result;
+        read.PendingPrice.Prices.BlockPrice.Should().Be(30_000);
+        var again = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(
+            await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 35_000))))).Result;
+        again.PendingPrice.Prices.BlockPrice.Should().Be(35_000);
+        again.PendingPrice.RevisionNo.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task UpdatePricingRule_WhenPriceIsTheLiveOne_ReturnsUnchanged()
+    {
+        var (client, lot, carType) = await CreateManagerWithLotAsync();
+        var rule = await CreateCarRuleAsync(client, lot, carType, 20_000);
+        await SetOccupiedBaysAsync(lot.Id, 1);
+        await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 30_000)));
+
+        var response = await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 20_000)));
+
+        var result = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(response)).Result;
+        result.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Unchanged);
+        result.PendingPrice.Should().BeNull("asking for the live price withdraws the waiting one");
+    }
+
+    [Fact]
+    public async Task UpdatePricingRule_WhenRuleIsSharedByTheWholeSystem_ReturnsBadRequestForManager()
+    {
+        var (client, lot, carType) = await CreateManagerWithLotAsync();
+        var rule = await CreateCarRuleAsync(client, lot, carType, 20_000);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
+            (await db.PricingRules.SingleAsync(r => r.Id == rule.Id)).ParkingLotId = null;
+            await db.SaveChangesAsync();
+        }
+
+        var response = await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 30_000)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var apiResult = await ResponseHelper.GetApiResultAsync<string>(response);
+        apiResult.Succeeded.Should().BeFalse();
+        apiResult.Errors.Should().ContainSingle().Which.Should().Contain("shared pricing rule");
+    }
+
+    [Fact]
+    public async Task UpdatePricingRule_WhenRuleDoesNotExist_ReturnsNotFound()
+    {
+        var (client, lot, carType) = await CreateManagerWithLotAsync();
+        var rule = await CreateCarRuleAsync(client, lot, carType, 20_000);
+
+        var response = await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/99999", new JsonContent(PriceChange(rule, 30_000)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Swagger_DescribesTheUpdateEndpointAndItsErrorCodes()
+    {
+        var response = await _factory.CreateUnauthorizedClient().GetAsync("/swagger/v1/swagger.json");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var doc = JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
+        var put = doc["paths"]!["/api/manager/lots/{lotId}/pricing-rules/{id}"]!["put"]!;
+        put["responses"]!.AsObject().Select(r => r.Key).Should().Contain(["200", "400", "404", "409"]);
+        put["description"]!.GetValue<string>().Should().Contain("priceUpdateStatus");
+        put["responses"]!["409"]!["description"]!.GetValue<string>().Should().Contain("retry");
+
+        var schema = doc["components"]!["schemas"]!["PricingRuleModel"]!["properties"]!;
+        schema["priceUpdateStatus"]!["description"]!.GetValue<string>().Should().Contain("Pending");
+        schema["pendingPrice"].Should().NotBeNull();
+    }
+
+    [Theory]
+    [InlineData(typeof(ConflictException), HttpStatusCode.Conflict)]
+    [InlineData(typeof(BadRequestException), HttpStatusCode.BadRequest)]
+    public async Task ExceptionMiddleware_MapsBusinessErrorsToTheirStatusCode(Type exceptionType, HttpStatusCode expected)
+    {
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+        var middleware = new ExceptionHandlingMiddleware(
+            _ => throw (Exception)Activator.CreateInstance(exceptionType, "The lot is busy")!,
+            NullLogger<ExceptionHandlingMiddleware>.Instance);
+
+        await middleware.Invoke(context);
+
+        context.Response.StatusCode.Should().Be((int)expected);
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        var apiResult = JsonConvert.DeserializeObject<ApiResult<string>>(body);
+        apiResult!.Succeeded.Should().BeFalse();
+        apiResult.Errors.Should().ContainSingle("The lot is busy");
     }
 
     [Fact]
