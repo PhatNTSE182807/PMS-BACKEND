@@ -15,8 +15,16 @@ namespace PMS.Application.Services.Impl;
 /// Manager, who confirms it (Maker-Checker: never the Staff who closed it). Cash taken after a close opens the
 /// day's next drawer. Drawers are never deleted.
 /// </summary>
-public class CashDrawerService(PmsDbContext pmsContext, LotScopeService lotScope, ParkingOptions options, TimeProvider clock)
+public class CashDrawerService(
+    PmsDbContext pmsContext,
+    LotScopeService lotScope,
+    ParkingOptions options,
+    TimeProvider clock,
+    IParkingRealtimeNotifier notifier = null)
 {
+    /// <summary>BR-12: the latest close time, lot local time.</summary>
+    public static readonly TimeOnly CloseDeadline = new(23, 0);
+
     /// <summary>BR-12: a larger difference needs a reason and a Manager's confirmation.</summary>
     public const decimal DifferenceThreshold = 20_000;
 
@@ -98,6 +106,13 @@ public class CashDrawerService(PmsDbContext pmsContext, LotScopeService lotScope
         drawer.ClosedAt = Now;
         drawer.Status = overThreshold ? CashCloseStatus.HasDifference : CashCloseStatus.Closed;
         await pmsContext.SaveChangesAsync();
+
+        // The Manager hears about every close at once, with the difference when there is one
+        var who = await StaffNameAsync(drawer.StaffUserId);
+        var late = drawer.CloseDueAt != null && drawer.ClosedAt > drawer.CloseDueAt ? " late" : string.Empty;
+        await AlertAsync(drawer.ParkingLotId, "CASH_CLOSED", difference == 0
+            ? $"{who} closed cash drawer {drawer.CloseNo}{late}: it balances. Confirm it in the Approval Queue."
+            : $"{who} closed cash drawer {drawer.CloseNo}{late}: {difference:+#,0;-#,0} VND off. Check it in the Approval Queue.");
         return await ToModelAsync(drawer);
     }
 
@@ -107,7 +122,7 @@ public class CashDrawerService(PmsDbContext pmsContext, LotScopeService lotScope
         await lotScope.EnsureCanManageAsync(lotId);
         var query = pmsContext.DailyCashCloses.AsNoTracking().Where(d => d.ParkingLotId == lotId);
         query = string.IsNullOrWhiteSpace(status)
-            ? query.Where(d => d.Status == CashCloseStatus.Closed || d.Status == CashCloseStatus.HasDifference)
+            ? query.Where(d => d.Status == CashCloseStatus.Closed || d.Status == CashCloseStatus.HasDifference || (d.Status == CashCloseStatus.Open && d.OverdueAt != null))
             : query.Where(d => d.Status == status.Trim());
         var drawers = await query.OrderByDescending(d => d.BusinessDate).ThenByDescending(d => d.ClosedAt).Take(100).ToListAsync();
 
@@ -143,7 +158,86 @@ public class CashDrawerService(PmsDbContext pmsContext, LotScopeService lotScope
         return await ToModelAsync(drawer);
     }
 
+    /// <summary>
+    /// Admin simulation: the business day of one lot (or of every lot) ends now. Every open drawer must be closed
+    /// within the grace period; its Staff are told at once, and the Manager when the deadline passes.
+    /// </summary>
+    public async Task<EndBusinessDayResultModel> EndBusinessDayAsync(EndBusinessDayModel model)
+    {
+        var grace = model?.GraceSeconds ?? 30;
+        if (grace is < 5 or > 3600)
+            throw new BadRequestException("Give the Staff between 5 and 3,600 seconds to close.");
+        var lotId = model?.LotId;
+        if (lotId != null && !await pmsContext.ParkingLots.AnyAsync(p => p.Id == lotId && !p.IsDeleted))
+            throw new NotFoundException("Parking lot not found.");
+
+        var due = Now.AddSeconds(grace);
+        var open = await pmsContext.DailyCashCloses
+            .Where(d => d.Status == CashCloseStatus.Open && (lotId == null || d.ParkingLotId == lotId))
+            .ToListAsync();
+        foreach (var drawer in open)
+        {
+            drawer.CloseDueAt = due;
+            drawer.OverdueAt = null;
+        }
+        await pmsContext.SaveChangesAsync();
+
+        foreach (var lot in open.Select(d => d.ParkingLotId).Distinct())
+            await AlertAsync(lot, "CASH_DAY_END", $"The business day is over: count and close your cash drawer within {grace} seconds.");
+        return new EndBusinessDayResultModel { DrawersToClose = open.Count, CloseDueAt = Utc(due) };
+    }
+
+    /// <summary>
+    /// Background run (every minute, and every second while simulating): open drawers past their deadline are
+    /// marked overdue and the lot's Manager is told (BR-12 escalation). They can still be closed, marked late.
+    /// </summary>
+    public async Task<int> FlagOverdueAsync()
+    {
+        var overdue = await pmsContext.DailyCashCloses
+            .Where(d => d.Status == CashCloseStatus.Open && d.OverdueAt == null && d.CloseDueAt != null && d.CloseDueAt <= Now)
+            .ToListAsync();
+        foreach (var drawer in overdue)
+            drawer.OverdueAt = Now;
+        await pmsContext.SaveChangesAsync();
+
+        foreach (var drawer in overdue)
+        {
+            var (collected, _, _, _) = await CashTakenAsync(drawer, Now);
+            var who = await StaffNameAsync(drawer.StaffUserId);
+            await AlertAsync(drawer.ParkingLotId, "CASH_OVERDUE",
+                $"{who} has not closed cash drawer {drawer.CloseNo} by the deadline ({drawer.FloatTotal + collected:#,0} VND expected).");
+        }
+        return overdue.Count;
+    }
+
     // ---- helpers ----------------------------------------------------------------------------------
+
+    /// <summary>23:00 of the business day in the lot's time zone, in UTC.</summary>
+    private async Task<DateTime> DeadlineAsync(int lotId, DateOnly day)
+    {
+        var timeZoneId = await pmsContext.ParkingLots.AsNoTracking().Where(p => p.Id == lotId).Select(p => p.TimeZoneId).FirstOrDefaultAsync();
+        var local = DateTime.SpecifyKind(day.ToDateTime(CloseDeadline), DateTimeKind.Unspecified);
+        var deadline = TimeZoneInfo.ConvertTimeToUtc(local, ParkingText.FindTimeZone(timeZoneId ?? options.TimeZoneId));
+        // A drawer opened after 23:00 (an extra close) gets an hour to close
+        return deadline > Now ? deadline : Now.AddHours(1);
+    }
+
+    private async Task<string> StaffNameAsync(string userId) =>
+        await pmsContext.Employees.AsNoTracking().Where(e => e.UserId == userId).Select(e => e.FullName).FirstOrDefaultAsync() ?? "A Staff member";
+
+    /// <summary>Real-time alert to everyone working the lot (Staff consoles and the Manager); never breaks the request.</summary>
+    private async Task AlertAsync(int lotId, string code, string message)
+    {
+        if (notifier == null) return;
+        try
+        {
+            await notifier.OpsAlertAsync(lotId, code, message, null);
+        }
+        catch
+        {
+            // Real-time is best effort; the screens also poll
+        }
+    }
 
     private async Task<DailyCashClose> OpenDrawerAsync(int lotId, string staffUserId, Dictionary<int, int> notes)
     {
@@ -159,6 +253,7 @@ public class CashDrawerService(PmsDbContext pmsContext, LotScopeService lotScope
             CloseNo = (latest?.CloseNo ?? 0) + 1,
             Status = CashCloseStatus.Open,
             OpenedAt = Now,
+            CloseDueAt = await DeadlineAsync(lotId, today),
             FloatJson = Write(notes),
             FloatTotal = Total(notes)
         };
@@ -231,6 +326,9 @@ public class CashDrawerService(PmsDbContext pmsContext, LotScopeService lotScope
             CloseNo = drawer.CloseNo,
             Status = drawer.Status,
             OpenedAt = Utc(drawer.OpenedAt),
+            CloseDueAt = drawer.CloseDueAt is { } due ? Utc(due) : null,
+            IsOverdue = drawer.Status == CashCloseStatus.Open && drawer.CloseDueAt != null && drawer.CloseDueAt <= Now,
+            ClosedLate = drawer.ClosedAt != null && drawer.CloseDueAt != null && drawer.ClosedAt > drawer.CloseDueAt,
             Float = floatNotes,
             FloatTotal = drawer.FloatTotal,
             CashCollected = collected,
