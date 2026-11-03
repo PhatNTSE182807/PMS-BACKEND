@@ -668,6 +668,10 @@ public class GateService(
     public async Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model)
     {
         var session = await ScopedSessionAsync(sessionId, tracked: true);
+        // Lost tickets are for walk-ins with a paper ticket or card: a booked vehicle leaves with its booking QR,
+        // its verified plate or the app's exit pass, so it is found by plate or booking code, never fined
+        if (session.ReservationId != null || session.SessionType == SessionType.Reservation)
+            throw new BadRequestException("This vehicle came in with a booking, so it has no paper ticket to lose: find it by plate or booking code at the exit instead.");
         if (string.IsNullOrWhiteSpace(model?.Reason))
             throw new BadRequestException("A reason is required.");
 
