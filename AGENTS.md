@@ -289,7 +289,8 @@ Keep this list current; it is the first place to look when code and SRS disagree
   restores the normal rules and the Manager's pricing; bookings made while it was on keep their short times.
 - Walk-in simulation (team addition, 2026-11-03, for demos): the same Admin screen sends walk-ins with random
   plates (real format, never a registered, parked or listed plate) through a lot's real entry lane
-  (`WalkInSimulationService`, `api/admin/simulation/walk-ins`). Each stays a random time (one hour = one pricing
+  (`WalkInSimulationService`, `api/admin/simulation/walk-ins`) and parks each in a random free bay of its type
+  (as when Staff picks a bay at the lane), so lists and the 3D map show its bay. Each stays a random time (one hour = one pricing
   block while the simulation is on), then pays cash at the exit lane and leaves by itself (`ParkingJobs` minutely
   run and simulation tick). Their sessions carry `IsSimulated`; fees, payments and counters are real and nothing
   is deleted. The screen can also report a lost ticket for a simulated vehicle and park a walk-in in a booked bay.

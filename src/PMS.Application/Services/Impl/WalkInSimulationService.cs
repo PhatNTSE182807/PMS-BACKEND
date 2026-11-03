@@ -52,6 +52,9 @@ public class WalkInSimulationService(
         var adminId = lotScope.UserId;
         var result = new DeployWalkInsResultModel { Requested = model.Count };
         var taken = new HashSet<string>();
+        // Each vehicle parks in a real free bay (as when Staff picks one at the lane), so lists and the 3D map show where it is
+        var freeBays = await FreeBaysAsync(model.LotId);
+        var typesById = types.ToDictionary(t => t.Id);
         for (var i = 0; i < model.Count; i++)
         {
             var isCar = motorbike == null || (carTypes.Count > 0 && RandomNumberGenerator.GetInt32(100) < model.CarPercent);
@@ -61,6 +64,13 @@ public class WalkInSimulationService(
                 : motorbike;
             var noPlate = RandomNumberGenerator.GetInt32(100) < model.NoPlatePercent;
             var plate = noPlate ? null : await FreePlateAsync(isCar, taken);
+            var bay = PickBay(freeBays, typesById, type.Id);
+            if (bay == null)
+            {
+                result.StoppedReason = $"No free {(isCar ? "car" : "motorbike")} bay is left in this lot.";
+                break;
+            }
+            freeBays.Remove(bay);
 
             var entry = await gates.CheckInAsync(model.LotId, new CheckInModel
             {
@@ -68,6 +78,7 @@ public class WalkInSimulationService(
                 NoPlate = noPlate,
                 NoPlateReason = noPlate ? "Simulated: the plate could not be read." : null,
                 VehicleTypeId = type.Id,
+                SlotId = bay.Id,
                 PlateConfirmed = true,
                 IgnoreReservation = true
             });
@@ -229,6 +240,22 @@ public class WalkInSimulationService(
     }
 
     // ---- helpers ----------------------------------------------------------------------------------
+
+    /// <summary>Active, free bays of the lot that no open session stands in.</summary>
+    private async Task<List<Slot>> FreeBaysAsync(int lotId)
+    {
+        var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
+        return await pmsContext.Slots.AsNoTracking()
+            .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available && !occupied.Contains(s.Id))
+            .ToListAsync();
+    }
+
+    /// <summary>A random free bay that takes this vehicle type (cars share bays), or null when none is left.</summary>
+    private static Slot PickBay(List<Slot> freeBays, IReadOnlyDictionary<int, VehicleType> types, int vehicleTypeId)
+    {
+        var fitting = freeBays.Where(s => ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId)).ToList();
+        return fitting.Count == 0 ? null : fitting[RandomNumberGenerator.GetInt32(fitting.Count)];
+    }
 
     /// <summary>
     /// Simulated traffic only goes to lots that are open: not under maintenance, closed, or open without a
