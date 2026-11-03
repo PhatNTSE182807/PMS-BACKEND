@@ -130,13 +130,15 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
     /// Free / total bays per active zone of the lots, with the zone's vehicle family (CAR or MOTORBIKE,
     /// from its bays; null when it has none). The zone counter is used when there is one, the slots otherwise.
     /// </summary>
-    private async Task<List<(int LotId, string VehicleType, int Total, int Free)>> PublicBaysAsync(List<int> lotIds)
+    private async Task<List<(int LotId, int ZoneId, string ZoneName, string VehicleType, int Total, int Free)>> PublicBaysAsync(List<int> lotIds)
     {
         var zones = await pmsContext.Zones.AsNoTracking()
             .Where(z => lotIds.Contains(z.ParkingLotId) && z.IsActive)
             .Select(z => new
             {
                 z.ParkingLotId,
+                z.Id,
+                z.Name,
                 Counter = z.ZoneCounter,
                 TypeCode = z.Slots.Where(s => s.IsActive).Select(s => s.VehicleType.Code).FirstOrDefault(),
                 SlotTotal = z.Slots.Count(s => s.IsActive),
@@ -146,6 +148,8 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
 
         return zones.Select(z => (
             z.ParkingLotId,
+            z.Id,
+            z.Name,
             PublicVehicleFamily(z.TypeCode),
             z.Counter?.TotalCapacity ?? z.SlotTotal,
             z.Counter?.AvailableSpaces ?? z.SlotFree)).ToList();
@@ -159,6 +163,42 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             "two-wheel" => "MOTORBIKE",
             _ => null
         };
+
+    public async Task<LotOccupancyModel> GetOccupancyAsync(int lotId)
+    {
+        if (!await pmsContext.ParkingLots.AnyAsync(p => p.Id == lotId && !p.IsDeleted))
+            throw new NotFoundException($"Parking lot with ID {lotId} was not found.");
+
+        var zones = await PublicBaysAsync([lotId]);
+        var total = zones.Sum(z => z.Total);
+        var free = zones.Sum(z => z.Free);
+        return new LotOccupancyModel
+        {
+            ParkingLotId = lotId,
+            TotalBays = total,
+            FreeBays = free,
+            OccupiedBays = total - free,
+            OccupancyRate = total == 0 ? 0 : Math.Round((total - free) * 100m / total, 1),
+            BaysByVehicle = zones
+                .Where(z => z.VehicleType != null)
+                .GroupBy(z => z.VehicleType)
+                .OrderBy(g => g.Key)
+                .Select(g => new PublicLotBaysModel { VehicleType = g.Key, TotalBays = g.Sum(z => z.Total), FreeBays = g.Sum(z => z.Free) })
+                .ToList(),
+            Zones = zones
+                .OrderBy(z => z.ZoneName)
+                .Select(z => new LotZoneOccupancyModel
+                {
+                    ZoneId = z.ZoneId,
+                    ZoneName = z.ZoneName,
+                    VehicleType = z.VehicleType,
+                    TotalBays = z.Total,
+                    FreeBays = z.Free,
+                    OccupiedBays = z.Total - z.Free
+                })
+                .ToList()
+        };
+    }
 
     public async Task<ParkingLotResponseModel> GetByIdAsync(int id)
     {
