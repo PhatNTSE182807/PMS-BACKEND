@@ -17,6 +17,11 @@ public class PublicParkingLotResponseModel
 
     public string District { get; set; }
 
+    /// <summary>Map position of the lot; null until an Admin sets it (clients then locate the lot by address).</summary>
+    public decimal? Latitude { get; set; }
+
+    public decimal? Longitude { get; set; }
+
     public TimeOnly? OpenTime { get; set; }
 
     public TimeOnly? CloseTime { get; set; }
