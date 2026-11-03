@@ -57,6 +57,8 @@ public partial class PmsDbContext
             entity.Property(e => e.OpenedAt).HasPrecision(3);
             entity.Property(e => e.ClosedAt).HasPrecision(3);
             entity.Property(e => e.ConfirmedAt).HasPrecision(3);
+            entity.Property(e => e.CloseDueAt).HasPrecision(3);
+            entity.Property(e => e.OverdueAt).HasPrecision(3);
         });
 
         modelBuilder.Entity<Payment>(entity =>

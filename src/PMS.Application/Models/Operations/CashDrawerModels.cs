@@ -16,6 +16,24 @@ public class CloseCashDrawerModel
     public string Reason { get; set; }
 }
 
+/// <summary>Admin simulation: ends the business day of one lot (or all) now; open drawers must close within the grace period.</summary>
+public class EndBusinessDayModel
+{
+    /// <summary>Null ends the day in every lot.</summary>
+    public int? LotId { get; set; }
+
+    /// <summary>Seconds the Staff get to count and close (5 to 3600).</summary>
+    public int GraceSeconds { get; set; } = 30;
+}
+
+public class EndBusinessDayResultModel
+{
+    /// <summary>Open drawers that now have to close.</summary>
+    public int DrawersToClose { get; set; }
+
+    public DateTime CloseDueAt { get; set; }
+}
+
 public class ConfirmCashCloseModel
 {
     /// <summary>Required when the close has a difference over the threshold.</summary>
@@ -42,6 +60,15 @@ public class CashDrawerModel
     public string Status { get; set; }
 
     public DateTime? OpenedAt { get; set; }
+
+    /// <summary>Deadline to close the drawer (23:00 of the business day, or sooner in a simulated day end).</summary>
+    public DateTime? CloseDueAt { get; set; }
+
+    /// <summary>Still open after its deadline; the Manager was told.</summary>
+    public bool IsOverdue { get; set; }
+
+    /// <summary>Closed after its deadline.</summary>
+    public bool ClosedLate { get; set; }
 
     public Dictionary<int, int> Float { get; set; } = [];
 

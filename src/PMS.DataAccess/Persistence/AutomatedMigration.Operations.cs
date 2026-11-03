@@ -76,6 +76,8 @@ public static partial class AutomatedMigration
 
         ("Payments", "Purpose", "[varchar](20) NULL"),
         ("Payments", "CashReceivedJson", "[nvarchar](400) NULL"),
+        ("DailyCashCloses", "CloseDueAt", "[datetime2](3) NULL"),
+        ("DailyCashCloses", "OverdueAt", "[datetime2](3) NULL"),
         ("Payments", "CashChangeJson", "[nvarchar](400) NULL"),
         ("Payments", "ReservationId", "[bigint] NULL"),
         ("Payments", "SessionId", "[bigint] NULL"),
