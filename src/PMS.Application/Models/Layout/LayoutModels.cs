@@ -148,6 +148,9 @@ public class Layout2DResponseModel
     public string Detail { get; set; }
 
     public List<Layout2DFloorModel> Floors { get; set; } = [];
+
+    /// <summary>Free and total spaces of each active zone, from its live counter (walk-ins have no bay of their own).</summary>
+    public List<ZoneAvailabilityModel> ZoneCounters { get; set; } = [];
 }
 
 public class Layout2DFloorModel

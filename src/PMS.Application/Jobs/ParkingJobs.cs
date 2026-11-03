@@ -24,7 +24,8 @@ public class ParkingJobs(
     IPaymentService payments,
     ParkingInventory inventory,
     TimeProvider clock,
-    IParkingRealtimeNotifier notifier = null)
+    IParkingRealtimeNotifier notifier = null,
+    WalkInSimulationService walkIns = null)
 {
     public const string MinutelyJobId = "parking-timeouts";
     public const string OverdueJobId = "parking-overdue-sessions";
@@ -52,6 +53,8 @@ public class ParkingJobs(
             var released = await ReleaseStalePaymentRequestsAsync();
             var checkedPayments = await payments.CheckPendingPaymentsAsync();
             var refunds = await payments.RetryPendingRefundsAsync();
+            // Simulated walk-ins whose stay is over pay and leave (Admin demo traffic)
+            if (walkIns != null) await walkIns.CheckOutDueAsync();
             return new ParkingJobRun(expired, noShows, reminders, cancelled, released, checkedPayments, refunds);
         }
         finally
@@ -76,6 +79,7 @@ public class ParkingJobs(
             var expired = await ExpireUnpaidReservationsAsync();
             var noShows = await MarkNoShowsAsync();
             await reservations.ActivateDueHoldsAsync();
+            if (walkIns != null) await walkIns.CheckOutDueAsync();
             return new ParkingJobRun(expired, noShows, 0, 0, 0, 0, 0);
         }
         finally

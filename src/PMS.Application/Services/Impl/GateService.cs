@@ -271,7 +271,38 @@ public class GateService(
         // Zone Counter (FR-OPS-15): only walk-ins are counted against free spaces; a reservation has its slot
         int? zoneId = reservation?.ZoneId;
         int? slotId = reservation?.SlotId;
-        if (reservation == null)
+
+        // BR-08: another vehicle is parked in the booked bay. Move the booking to another free bay of its
+        // type (first hour free), or, when none is left, to the walk-in area with the deposit refunded in full.
+        var bayTaken = reservation?.SlotId is { } bookedSlot
+                       && await pmsContext.ParkingSessions.AnyAsync(s => s.SlotId == bookedSlot && SessionStatus.Open.Contains(s.Status));
+        Slot replacementBay = null;
+        if (bayTaken)
+        {
+            var bookedCode = await pmsContext.Slots.Where(s => s.Id == reservation.SlotId).Select(s => s.Code).FirstOrDefaultAsync();
+            var occupiedSlotIds = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
+            var free = await pmsContext.Slots
+                .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available
+                            && !occupiedSlotIds.Contains(s.Id))
+                .ToListAsync();
+            replacementBay = free
+                .Where(s => ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId))
+                .OrderByDescending(s => s.ZoneId == reservation.ZoneId)
+                .ThenBy(s => s.Code)
+                .FirstOrDefault();
+            alerts.Add(new GateAlertModel
+            {
+                Code = "BOOKED_BAY_TAKEN",
+                Message = replacementBay != null
+                    ? $"Booked bay {bookedCode} is taken by another vehicle: park in bay {replacementBay.Code} instead. The first hour is free."
+                    : $"Booked bay {bookedCode} is taken and no other bay of this type is free: park in the walk-in area. The deposit is refunded in full.",
+                Blocking = false
+            });
+            slotId = replacementBay?.Id;
+            zoneId = replacementBay?.ZoneId;
+        }
+
+        if (reservation == null || (bayTaken && replacementBay == null))
         {
             var counters = (await inventory.CountersAsync(lotId))
                 .Where(c => c.VehicleTypeId != null && ParkingInventory.Compatible(types, c.VehicleTypeId.Value, vehicleTypeId))
@@ -367,10 +398,34 @@ public class GateService(
                 CreatedAt = Now,
                 RowVersion = []
             };
+            if (bayTaken)
+            {
+                // The vehicle in the booked bay keeps it; the booking moves its hold to the new bay (no counter change)
+                var bookedBay = await pmsContext.Slots.FirstAsync(s => s.Id == reservation.SlotId);
+                bookedBay.Status = SlotStatus.Occupied;
+                if (replacementBay != null)
+                {
+                    var newBay = await pmsContext.Slots.FirstAsync(s => s.Id == replacementBay.Id);
+                    newBay.Status = SlotStatus.Reserved;
+                    reservation.SlotId = newBay.Id;
+                    reservation.ZoneId = newBay.ZoneId;
+                    created.FirstHourWaived = true;
+                }
+                created.OverrideNote = string.Join("; ", new[] { created.OverrideNote, alerts.First(a => a.Code == "BOOKED_BAY_TAKEN").Message }
+                    .Where(n => !string.IsNullOrEmpty(n)));
+            }
             pmsContext.ParkingSessions.Add(created);
             await pmsContext.SaveChangesAsync();
             return created;
         }));
+
+        // No bay left for the booking: it parks as a walk-in and the whole deposit goes back (BR-08)
+        if (bayTaken && replacementBay == null)
+        {
+            var deposit = await paymentService.DepositHeldAsync(reservation.Id);
+            if (deposit > 0)
+                await paymentService.RefundDepositAsync(reservation, deposit, "The booked bay was taken by another vehicle.", lotScope.UserId);
+        }
 
         QueueSessionPush(session);
         await inventory.FlushAsync();
@@ -886,6 +941,15 @@ public class GateService(
             : options.Simulation is { Enabled: true } simulation
                 ? FeeCalculator.CalculateSimulated(tariff, Utc(session.EntryTime), Now, timeZone, simulation.BlockSeconds)
                 : FeeCalculator.Calculate(tariff, Utc(session.EntryTime), Now, timeZone);
+        if (session.FirstHourWaived && breakdown.Total > 0)
+        {
+            // BR-08: the booked bay was taken, so the first hour (one block while simulating) is on the house
+            var entry = Utc(session.EntryTime);
+            var firstHour = options.Simulation is { Enabled: true } sim
+                ? FeeCalculator.CalculateSimulated(tariff, entry, Min(Now, entry.AddSeconds(sim.BlockSeconds)), timeZone, sim.BlockSeconds)
+                : FeeCalculator.Calculate(tariff, entry, Min(Now, entry.AddHours(1)), timeZone);
+            breakdown = breakdown with { Total = Math.Max(0, breakdown.Total - firstHour.Total) };
+        }
         var deposit = session.ReservationId != null ? await paymentService.DepositHeldAsync(session.ReservationId.Value) : 0;
         var exitWindowMissed = session.ExitWindowEndsAt != null && Now > session.ExitWindowEndsAt && session.PaidAmount > 0;
         var lostFee = session.IsLostCard ? tariff.LostTicketFee : 0;
@@ -1163,6 +1227,8 @@ public class GateService(
         new(value.Ticks - value.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
 
     private void QueueSessionPush(ParkingSession s)
     {
