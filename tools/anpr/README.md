@@ -41,7 +41,7 @@ Training also runs on the CPU, only slower.
 ## 3. Build the datasets
 
 ```bash
-python prepare_dataset.py --src D:/anpr/generated --out datasets
+python prepare_dataset.py --src generated --out datasets
 ```
 
 `--src` takes several folders. This writes `datasets/plate.yaml` (full frames, one class) and
@@ -67,10 +67,27 @@ python evaluate.py --src D:/anpr/test-set
 `read_plate.py` prints every plate found (text, confidence, box). `evaluate.py` reports how many
 plates of a labelled folder were read exactly and how many reads above the threshold were wrong.
 
+## 6. Run the service for the gate screens
+
+```bash
+uvicorn service:app --port 8001
+```
+
+- `GET /health` says whether `models/plate.pt` and `models/chars.pt` are there.
+- `POST /read` takes one camera frame (JPEG or PNG body) and returns the plates read in it.
+- New model files are picked up on the next read, so training can finish while the service runs.
+- Only the Staff screens in `ANPR_ALLOWED_ORIGINS` may call it (default `http://localhost:5174`).
+
+On the Staff gate dashboard each camera shows the plate reader's state (ready, not trained, offline).
+When a vehicle stops at the camera, the frame (1280 × 720) is sent to the service and the camera
+shows what the AI read next to the recorded plate: **Match**, **Staff check** (below 0.85) or
+**Mismatch**, with a running "AI matched / read" count. The frontend calls
+`http://127.0.0.1:8001` in development; set `VITE_ANPR_SERVICE_URL` to change it.
+
 ## Notes
 
 - The models only know rendered plates. Before using a real camera, add real photos of plates
   (labelled with the same JSON, or in YOLO format) and train again.
 - Generated data, `datasets/`, `runs/` and `models/` are not committed (see `.gitignore`).
-- Next step: a small service that takes camera frames, runs `PlateReader` and fills the plate and
-  `AnprConfidence` of the gate check-in.
+- The 3D lanes replay vehicles that have already checked in or out, so the AI read is shown next to
+  the recorded plate; it does not fill the check-in form yet.
