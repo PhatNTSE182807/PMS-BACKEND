@@ -16,8 +16,19 @@ public class ManagerOperationsController(
     IGateService gateService,
     PlateListService plateLists,
     IParkingLotService parkingLots,
-    LotScopeService lotScope) : ApiController
+    LotScopeService lotScope,
+    CashDrawerService cashDrawers) : ApiController
 {
+    /// <summary>Staff cash closes of the lot: waiting for confirmation by default, or one status.</summary>
+    [HttpGet("lots/{lotId:int}/cash-closes")]
+    public async Task<IActionResult> GetCashClosesAsync(int lotId, [FromQuery] string status = null) =>
+        Ok(ApiResult<IReadOnlyList<CashDrawerModel>>.Success(await cashDrawers.GetForLotAsync(lotId, status)));
+
+    /// <summary>Confirms a Staff cash close (never one's own); a difference needs a note.</summary>
+    [HttpPost("cash-closes/{id:long}/confirm")]
+    public async Task<IActionResult> ConfirmCashCloseAsync(long id, [FromBody] ConfirmCashCloseModel model) =>
+        Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.ConfirmAsync(id, model)));
+
     /// <summary>Live occupied and free bays of a lot the Manager runs: in total, per vehicle family and per zone.</summary>
     [HttpGet("lots/{lotId:int}/occupancy")]
     public async Task<IActionResult> GetOccupancyAsync(int lotId)

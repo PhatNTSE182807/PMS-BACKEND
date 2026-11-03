@@ -75,6 +75,8 @@ public static partial class AutomatedMigration
         ("Invoices", "ReservationId", "[bigint] NULL"),
 
         ("Payments", "Purpose", "[varchar](20) NULL"),
+        ("Payments", "CashReceivedJson", "[nvarchar](400) NULL"),
+        ("Payments", "CashChangeJson", "[nvarchar](400) NULL"),
         ("Payments", "ReservationId", "[bigint] NULL"),
         ("Payments", "SessionId", "[bigint] NULL"),
         ("Payments", "ParkingLotId", "[int] NULL"),
@@ -164,6 +166,33 @@ public static partial class AutomatedMigration
                     CONSTRAINT [FK_PricingRuleHistories_PricingRules] FOREIGN KEY([PricingRuleId]) REFERENCES [dbo].[PricingRules] ([Id])
                 );
                 CREATE NONCLUSTERED INDEX [IX_PricingRuleHistories_PricingRuleId] ON [dbo].[PricingRuleHistories]([PricingRuleId] ASC);
+            END
+
+            -- Daily cash close per Staff and lot (BR-12): float in, banknotes counted out, difference, Manager confirmation
+            IF OBJECT_ID('dbo.DailyCashCloses', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[DailyCashCloses](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ParkingLotId] [int] NOT NULL,
+                    [StaffUserId] [nvarchar](450) NOT NULL,
+                    [BusinessDate] [date] NOT NULL,
+                    [CloseNo] [int] NOT NULL DEFAULT 1,
+                    [Status] [varchar](20) NOT NULL,
+                    [OpenedAt] [datetime2](3) NOT NULL,
+                    [FloatJson] [nvarchar](400) NULL,
+                    [FloatTotal] [decimal](18,2) NOT NULL DEFAULT 0,
+                    [CountedJson] [nvarchar](400) NULL,
+                    [CountedTotal] [decimal](18,2) NULL,
+                    [ExpectedTotal] [decimal](18,2) NULL,
+                    [Difference] [decimal](18,2) NULL,
+                    [DifferenceReason] [nvarchar](500) NULL,
+                    [ClosedAt] [datetime2](3) NULL,
+                    [ConfirmedBy] [nvarchar](450) NULL,
+                    [ConfirmedAt] [datetime2](3) NULL,
+                    [ConfirmNote] [nvarchar](500) NULL,
+                    CONSTRAINT [FK_DailyCashCloses_ParkingLots] FOREIGN KEY([ParkingLotId]) REFERENCES [dbo].[ParkingLots] ([Id])
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_DailyCashCloses_Drawer] ON [dbo].[DailyCashCloses]([ParkingLotId] ASC, [StaffUserId] ASC, [BusinessDate] ASC, [CloseNo] ASC);
             END
 
             -- A price change that waits for the lot to be empty: at most one per pricing rule

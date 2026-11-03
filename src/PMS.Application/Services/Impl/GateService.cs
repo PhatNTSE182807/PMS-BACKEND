@@ -21,7 +21,8 @@ public class GateService(
     LotScopeService lotScope,
     TimeProvider clock,
     IParkingRealtimeNotifier notifier = null,
-    IUserNotificationPublisher notifications = null) : IGateService
+    IUserNotificationPublisher notifications = null,
+    CashDrawerService cashDrawers = null) : IGateService
 {
     /// <summary>Two lanes never open two sessions for one plate at the same time (NFR-14) inside this process.</summary>
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlateGates = new();
@@ -558,7 +559,10 @@ public class GateService(
         if (quote.AmountDue <= 0)
             throw new BadRequestException("Nothing is due.");
 
-        return await paymentService.RecordCashAsync(session, quote.AmountDue, model.Amount, model.Prepaid, lotScope.UserId);
+        // A Staff's cash goes into their drawer of the day: one opens on its own when none is (an extra close after the first)
+        if (cashDrawers != null && lotScope.Role == "Staff")
+            await cashDrawers.EnsureOpenAsync(session.ParkingLotId, lotScope.UserId);
+        return await paymentService.RecordCashAsync(session, quote.AmountDue, model.Amount, model.Prepaid, lotScope.UserId, model.Received, model.Change);
     }
 
     public async Task<PaymentResponseModel> PayOnlineAtLaneAsync(long sessionId, LanePaymentModel model, PaymentRequestContext context)
