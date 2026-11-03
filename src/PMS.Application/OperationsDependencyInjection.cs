@@ -40,6 +40,7 @@ public static class OperationsDependencyInjection
         services.AddScoped<ReservationService>();
         services.AddScoped<IReservationService>(sp => sp.GetRequiredService<ReservationService>());
         services.AddScoped<GateService>();
+        services.AddScoped<WalkInSimulationService>();
         services.AddScoped<IGateService>(sp => sp.GetRequiredService<GateService>());
         services.AddScoped<IParkingHistoryService, ParkingHistoryService>();
         services.AddScoped<IGateRequestService, GateRequestService>();

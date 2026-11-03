@@ -12,9 +12,17 @@ namespace PMS.Application.Services.Impl;
 /// </summary>
 public class LotScopeService(PmsDbContext pmsContext, IClaimService claimService)
 {
-    public string UserId => claimService.GetUserId();
+    private (string UserId, string Role)? _actor;
 
-    public string Role => claimService.GetClaim(ClaimTypes.Role);
+    public string UserId => _actor?.UserId ?? claimService.GetUserId();
+
+    public string Role => _actor?.Role ?? claimService.GetClaim(ClaimTypes.Role);
+
+    /// <summary>
+    /// Background work with no signed-in user (the walk-in simulation's automatic exits) acts as this
+    /// account for the rest of the scope. The account's own role still decides what it may do.
+    /// </summary>
+    public void ActAs(string userId, string role) => _actor = (userId, role);
 
     public async Task EnsureCanOperateAsync(int lotId)
     {

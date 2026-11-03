@@ -144,7 +144,9 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
             LotStatus = LotStaffing.EffectiveStatus(lot, await LotStaffing.IsStaffedAsync(pmsContext, lot.Id)),
             Version = layout.Version,
             Detail = level,
-            Floors = floors
+            Floors = floors,
+            // Live free spaces per zone (walk-ins only move the counter), so the map can show walk-ins too
+            ZoneCounters = await ZoneAvailabilityAsync(lotId)
         };
     }
 

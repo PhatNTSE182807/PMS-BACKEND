@@ -287,6 +287,17 @@ Keep this list current; it is the first place to look when code and SRS disagree
   (`ParkingOptions.HoldTime`, `DepositPaymentTime`, `EarlyArrivalTime`, `CancelRefundTime`,
   `ExitWindowTime`). `ParkingSimulationTicker` runs the deadline checks every second. Turning it off
   restores the normal rules and the Manager's pricing; bookings made while it was on keep their short times.
+- Walk-in simulation (team addition, 2026-11-03, for demos): the same Admin screen sends walk-ins with random
+  plates (real format, never a registered, parked or listed plate) through a lot's real entry lane
+  (`WalkInSimulationService`, `api/admin/simulation/walk-ins`). Each stays a random time (one hour = one pricing
+  block while the simulation is on), then pays cash at the exit lane and leaves by itself (`ParkingJobs` minutely
+  run and simulation tick). Their sessions carry `IsSimulated`; fees, payments and counters are real and nothing
+  is deleted. The screen can also report a lost ticket for a simulated vehicle and park a walk-in in a booked bay.
+- Booked bay taken (BR-08): when a booking checks in and another vehicle is in its bay, the entry lane moves the
+  booking to a free bay of its type and waives the first hour (`ParkingSession.FirstHourWaived`; one block while
+  simulating), or, with no bay left, lets it park as a walk-in and refunds the whole deposit.
+- The 3D / 2D map draws walk-ins: the 2D plan carries each zone's live counter (`ZoneCounters`) and the frontend
+  fills free bays of the zone in a fixed order (`walkInBays` in `src/lib/lot-layout.ts`).
 - No free period (team decision, 2026-10-25): the first block (the first hour by default, or the rule's
   first block) is owed as soon as the vehicle enters, so a stay is never charged 0 VND. This replaces
   BR-09 / BR-22's grace period: `FeeCalculator` ignores `GraceMinutes` and the pricing page no longer
