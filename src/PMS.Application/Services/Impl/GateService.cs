@@ -510,6 +510,23 @@ public class GateService(
 
     public async Task<CheckoutQuoteModel> RequestPaymentAsync(long sessionId, CheckoutQuoteRequestModel model)
     {
+        // Asking for the fee twice gives the same answer, so a request that lost a race with another one (two
+        // lanes, a double click, a refresh) simply runs again on the saved session instead of failing
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await RequestPaymentOnceAsync(sessionId, model);
+            }
+            catch (DbUpdateConcurrencyException) when (attempt < 3)
+            {
+                pmsContext.ChangeTracker.Clear();
+            }
+        }
+    }
+
+    private async Task<CheckoutQuoteModel> RequestPaymentOnceAsync(long sessionId, CheckoutQuoteRequestModel model)
+    {
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         var quote = await QuoteAsync(session, model?.PlateNumber, model?.AnprConfidence, mutate: true);
         await pmsContext.SaveChangesAsync();
