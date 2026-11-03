@@ -107,6 +107,8 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
                 Address = p.Address,
                 City = p.City,
                 District = p.District,
+                Latitude = p.Latitude,
+                Longitude = p.Longitude,
                 OpenTime = p.OpenTime,
                 CloseTime = p.CloseTime,
                 Is24Hours = p.Is24Hours,
