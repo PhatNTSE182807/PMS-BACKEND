@@ -119,6 +119,12 @@ public class ZoneAvailabilityModel
     public int Total { get; set; }
 
     public int Free { get; set; }
+
+    /// <summary>
+    /// Registered colours of the vehicles counted in this zone without a bay of their own, oldest entry first.
+    /// Only the 2D plan with detail = slots fills it. Never a plate.
+    /// </summary>
+    public List<string> WalkInColors { get; set; } = [];
 }
 
 /* ------------------------------------------------------------------ */
@@ -193,6 +199,9 @@ public class Layout2DCellModel
     public int Rotation { get; set; }
 
     public string Status { get; set; }
+
+    /// <summary>Registered colour of the vehicle parked here; null when none is known. Never a plate.</summary>
+    public string VehicleColor { get; set; }
 }
 
 /// <summary>The cells a zone covers on one floor, as a bounding box of rows and columns.</summary>
