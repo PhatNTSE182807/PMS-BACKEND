@@ -145,7 +145,7 @@ public class WalkInSimulationService(
             TotalBays = lotId is { } id
                 ? await pmsContext.Slots.CountAsync(s => s.Zone.ParkingLotId == id && s.Zone.IsActive && s.IsActive)
                 : null,
-            FreeBays = lotId is { } lot ? (await FreeBaysAsync(lot)).Count : null
+            FreeBays = lotId is { } lot ? await FreeBaysQuery(lot).CountAsync() : null
         };
     }
 
@@ -265,12 +265,13 @@ public class WalkInSimulationService(
     }
 
     /// <summary>Active, free bays of the lot that no open session stands in.</summary>
-    private async Task<List<Slot>> FreeBaysAsync(int lotId)
+    private Task<List<Slot>> FreeBaysAsync(int lotId) => FreeBaysQuery(lotId).ToListAsync();
+
+    private IQueryable<Slot> FreeBaysQuery(int lotId)
     {
         var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
-        return await pmsContext.Slots.AsNoTracking()
-            .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available && !occupied.Contains(s.Id))
-            .ToListAsync();
+        return pmsContext.Slots.AsNoTracking()
+            .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available && !occupied.Contains(s.Id));
     }
 
     /// <summary>A random free bay that takes this vehicle type (cars share bays), or null when none is left.</summary>
