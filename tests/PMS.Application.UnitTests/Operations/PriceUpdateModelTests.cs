@@ -9,7 +9,7 @@ using Xunit;
 
 namespace PMS.Application.UnitTests.Operations;
 
-/// <summary>The EF model behind deferred price updates: what the database must enforce.</summary>
+/// <summary>The EF model behind price updates: what the database must enforce.</summary>
 public sealed class PriceUpdateModelTests : IDisposable
 {
     private readonly PmsDbContext _db = new(
@@ -25,16 +25,6 @@ public sealed class PriceUpdateModelTests : IDisposable
         property.IsConcurrencyToken.Should().BeTrue();
         property.IsNullable.Should().BeFalse();
         property.ValueGenerated.Should().Be(Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.OnAddOrUpdate);
-    }
-
-    [Fact]
-    public void A_pricing_rule_has_at_most_one_pending_change()
-    {
-        var index = _db.Model.FindEntityType(typeof(PendingPriceChange))!
-            .GetIndexes()
-            .Single(i => i.Properties.Select(p => p.Name).SequenceEqual([nameof(PendingPriceChange.PricingRuleId)]));
-
-        index.IsUnique.Should().BeTrue();
     }
 
     [Fact]

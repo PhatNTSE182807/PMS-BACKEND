@@ -329,16 +329,17 @@ Keep this list current; it is the first place to look when code and SRS disagree
 - Pricing rules store an overnight surcharge and an overstay surcharge, but the gate's `FeeCalculator`
   does not apply them yet, so the Manager pricing page does not offer them. "Price by the hour" is the
   `DayNight` charge model: a block costs the day or night price of the hour it starts in.
-- Saving a pricing rule edits it in place (new `VersionNo`, old values in `PricingRuleHistory`), but
-  the price a stay is charged is frozen at entry (BR-22): `ParkingSession.PriceSnapshotJson` is copied
-  from the booking (`Reservation.PriceSnapshotJson`, taken when the booking was made) or from the live
-  rule at check-in. Sessions from before the snapshot existed fall back to the live rule.
-- Deferred price updates (team decision): a Manager's change to the price fields of a lot's own rule
-  (`ParkingLotId != null`) is live at once only when `ParkingLot.OccupiedBays` is 0; otherwise it waits
-  in `PendingPriceChange` (one per rule, a new request overwrites it) and goes live when the last
-  vehicle leaves (`LotOccupancy.ReleaseAsync`; the `PriceUpdateJobs` sweeper settles counter drift).
-  Rules shared by the whole system (`ParkingLotId == null`) cannot be changed by a Manager.
-  Every entry/exit/close path must go through `LotOccupancy`; `ParkingLot.RowVersion` serialises races.
+- Saving a pricing rule edits it in place (new `VersionNo`, old values in `PricingRuleHistory`), and the
+  price a stay is charged is frozen at entry (BR-22): `ParkingSession.PriceSnapshotJson` is copied from the live rule
+  at check-in. Sessions from before the snapshot existed fall back to the live rule.
+- Price changes (user request, 2026-11-04; replaces the earlier "wait for an empty lot" team decision): a new price
+  is live as soon as the Manager saves it. Vehicles already inside keep the price they entered with; every vehicle
+  entering afterwards pays the new one, including one booked before the change (`Reservation.PriceSnapshotJson` is
+  legacy, no longer written or read). Saving a new price on an Active rule tells every active customer account
+  (`ICustomerAudience`) in the notification bell through `NotificationJobs` (`PriceChanged`). Rules shared by the
+  whole system (`ParkingLotId == null`) cannot be changed by a Manager. The old `PendingPriceChanges` table is left
+  in existing databases and no code reads it. Every entry/exit/close path must go through `LotOccupancy`;
+  `ParkingLot.RowVersion` serialises a price change with vehicles entering.
 - Deposit is optional when booking (team decision, 2026-10-24). With a deposit (BR-06, paid by
   wallet, VNPay or MoMo) the booking waits in `PendingDeposit` and the slot is held **30 minutes**
   after arrival (`Parking:Reservations:DepositHoldMinutes`). Without a deposit

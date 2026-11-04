@@ -29,7 +29,7 @@ public class PricingRuleServiceTests
         t.ActAs(ManagerUserId, "Manager");
         var scope = new LotScopeService(t.Db, t.Claims);
         var tariffs = new TariffProvider(t.Db, t.Options);
-        var service = new PricingRuleService(t.Db, scope, tariffs, t.Prices, t.Options, t.Clock);
+        var service = new PricingRuleService(t.Db, scope, tariffs, t.Options, t.Clock);
 
         return (t, service);
     }
@@ -432,6 +432,24 @@ public class PricingRuleServiceTests
         carPrice.DayPrice.Should().Be(30_000);
         carPrice.NightPrice.Should().Be(15_000);
         carPrice.MaxDailyFee.Should().Be(200_000);
+    }
+
+    [Fact]
+    public async Task Public_Prices_Show_The_Fee_Of_A_Per_Day_Rule()
+    {
+        var (t, service) = await CreateTestSetupAsync();
+        var bike = t.Db.VehicleTypes.Single(v => v.Code == "MOTORBIKE");
+        var rule = BuildRule(t.Lot.Id, bike.Id, "MOTO-DAY", "Motorbikes, per day", effectiveFrom: t.Now.AddDays(-1));
+        rule.ChargeModel = "PerEntry";
+        rule.EntryFee = 5_000;
+        rule.BlockPrice = 0;
+        t.Db.PricingRules.Add(rule);
+        await t.Db.SaveChangesAsync();
+
+        var motorbike = (await service.GetPublicPricesAsync(t.Lot.Id)).Single(p => p.VehicleTypeCode == "MOTORBIKE");
+
+        motorbike.ChargeModel.Should().Be("PerEntry");
+        motorbike.EntryFee.Should().Be(5_000);
     }
 
     [Fact]

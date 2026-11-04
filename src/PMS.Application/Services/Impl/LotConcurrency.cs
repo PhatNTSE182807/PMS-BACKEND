@@ -6,12 +6,12 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// Optimistic concurrency for everything that decides on the state of a lot (vehicles inside, price waiting).
+/// Optimistic concurrency for everything that decides on the state of a lot (vehicles inside, price in force).
 /// Every such change saves the lot's row, whose <c>RowVersion</c> is a concurrency token. When two changes
 /// started from the same state, the later save throws <see cref="DbUpdateConcurrencyException"/> and nothing of
 /// it is written; <see cref="RunAsync{T}"/> then undoes what the attempt staged and runs it again, so the second
-/// change decides on the state the first one left. Typical case: the last vehicle leaves while another enters,
-/// or a Manager sets a price while the last vehicle leaves.
+/// change decides on the state the first one left. Typical case: two vehicles enter at once, or a Manager sets a
+/// price while a vehicle enters.
 /// </summary>
 public static class LotConcurrency
 {
@@ -23,7 +23,7 @@ public static class LotConcurrency
 
     /// <summary>What an attempt stages; only these are undone before a retry, so unrelated pending changes survive.</summary>
     private static readonly Type[] StagedTypes =
-        [typeof(ParkingLot), typeof(ParkingSession), typeof(PendingPriceChange), typeof(PricingRule), typeof(PricingRuleHistory)];
+        [typeof(ParkingLot), typeof(ParkingSession), typeof(PricingRule), typeof(PricingRuleHistory)];
 
     /// <summary>
     /// Runs <paramref name="attempt"/>, which must read the lot first, stage its changes and save once.

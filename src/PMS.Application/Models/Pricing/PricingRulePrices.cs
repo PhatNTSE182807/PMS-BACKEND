@@ -4,9 +4,9 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Models.Pricing;
 
 /// <summary>
-/// The charging fields of a pricing rule: everything that decides what a customer pays. A Manager's change to
-/// these waits for an empty lot; the other fields of the rule (name, zone, vehicle type, priority, validity,
-/// status) take effect at once. Stored as JSON in <see cref="PendingPriceChange.ProposedValuesJson"/>.
+/// The charging fields of a pricing rule: everything that decides what a customer pays. Comparing them tells whether
+/// an update changed the price, as opposed to the other fields of the rule (name, zone, vehicle type, priority,
+/// validity, status).
 /// </summary>
 public sealed record PricingRulePrices
 {
@@ -120,22 +120,4 @@ public sealed record PricingRulePrices
             return $"{Money(DayPrice)} VND by day and {Money(NightPrice)} VND by night per {minutes} min";
         return $"{Money(BlockPrice)} VND per {minutes} min";
     }
-}
-
-/// <summary>A price change that is waiting for the lot to become empty.</summary>
-public class PendingPriceModel
-{
-    public PricingRulePrices Prices { get; set; }
-
-    /// <summary>The same price in words ("25,000 VND per 60 min").</summary>
-    public string Summary { get; set; }
-
-    /// <summary>1 for the first request; +1 each time the Manager replaced it before it was applied.</summary>
-    public int RevisionNo { get; set; }
-
-    public string RequestedBy { get; set; }
-
-    public DateTime RequestedAt { get; set; }
-
-    public DateTime? UpdatedAt { get; set; }
 }

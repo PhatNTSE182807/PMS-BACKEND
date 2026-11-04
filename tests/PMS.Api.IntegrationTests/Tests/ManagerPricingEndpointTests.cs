@@ -283,16 +283,8 @@ public class ManagerPricingEndpointTests
         Reason = "Price review"
     };
 
-    private async Task SetOccupiedBaysAsync(int lotId, int bays)
-    {
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
-        (await db.ParkingLots.SingleAsync(l => l.Id == lotId)).OccupiedBays = bays;
-        await db.SaveChangesAsync();
-    }
-
     [Fact]
-    public async Task UpdatePricingRule_WhenLotIsEmpty_AppliesThePriceAtOnce()
+    public async Task UpdatePricingRule_AppliesThePriceAtOnce()
     {
         var (client, lot, carType) = await CreateManagerWithLotAsync();
         var rule = await CreateCarRuleAsync(client, lot, carType, 20_000);
@@ -303,34 +295,10 @@ public class ManagerPricingEndpointTests
         var result = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(response)).Result;
         result.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Applied);
         result.BlockPrice.Should().Be(30_000);
-        result.PendingPrice.Should().BeNull();
-    }
+        result.VersionNo.Should().Be(2);
 
-    [Fact]
-    public async Task UpdatePricingRule_WhenVehiclesAreInside_KeepsThePriceAndReturnsThePendingOne()
-    {
-        var (client, lot, carType) = await CreateManagerWithLotAsync();
-        var rule = await CreateCarRuleAsync(client, lot, carType, 20_000);
-        await SetOccupiedBaysAsync(lot.Id, 2);
-
-        var response = await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 30_000)));
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var result = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(response)).Result;
-        result.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Pending);
-        result.BlockPrice.Should().Be(20_000, "customers keep paying the live price");
-        result.VersionNo.Should().Be(1);
-        result.PendingPrice.Should().NotBeNull();
-        result.PendingPrice.Prices.BlockPrice.Should().Be(30_000);
-        result.PendingPrice.RevisionNo.Should().Be(1);
-
-        // The waiting price is still there on the next read, and a second request overwrites it
         var read = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(await client.GetAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}"))).Result;
-        read.PendingPrice.Prices.BlockPrice.Should().Be(30_000);
-        var again = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(
-            await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 35_000))))).Result;
-        again.PendingPrice.Prices.BlockPrice.Should().Be(35_000);
-        again.PendingPrice.RevisionNo.Should().Be(2);
+        read.BlockPrice.Should().Be(30_000);
     }
 
     [Fact]
@@ -338,14 +306,11 @@ public class ManagerPricingEndpointTests
     {
         var (client, lot, carType) = await CreateManagerWithLotAsync();
         var rule = await CreateCarRuleAsync(client, lot, carType, 20_000);
-        await SetOccupiedBaysAsync(lot.Id, 1);
-        await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 30_000)));
 
         var response = await client.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{rule.Id}", new JsonContent(PriceChange(rule, 20_000)));
 
         var result = (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(response)).Result;
         result.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Unchanged);
-        result.PendingPrice.Should().BeNull("asking for the live price withdraws the waiting one");
     }
 
     [Fact]
@@ -392,8 +357,8 @@ public class ManagerPricingEndpointTests
         put["responses"]!["409"]!["description"]!.GetValue<string>().Should().Contain("retry");
 
         var schema = doc["components"]!["schemas"]!["PricingRuleModel"]!["properties"]!;
-        schema["priceUpdateStatus"]!["description"]!.GetValue<string>().Should().Contain("Pending");
-        schema["pendingPrice"].Should().NotBeNull();
+        schema["priceUpdateStatus"]!["description"]!.GetValue<string>().Should().Contain("Applied");
+        schema["pendingPrice"].Should().BeNull();
     }
 
     [Theory]

@@ -13,8 +13,8 @@ public partial class Reservation
     public string UserId { get; set; }
 
     /// <summary>
-    /// The tariff in force when the booking was made, as JSON. Booking locks the price: the check-in
-    /// copies this onto the session whatever the lot's price is by then. Null on older bookings.
+    /// Legacy: the tariff in force when older bookings were made, as JSON. No longer written or read: a booked
+    /// vehicle is charged the price in force when it enters, like any other vehicle.
     /// </summary>
     public string PriceSnapshotJson { get; set; }
 
