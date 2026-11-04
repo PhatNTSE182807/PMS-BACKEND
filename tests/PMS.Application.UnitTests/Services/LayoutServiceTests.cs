@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers;
 using PMS.Application.Models.Layout;
+using PMS.Application.Models.Operations;
 using PMS.Application.Models.ParkingLot;
 using PMS.Application.Services.Impl;
 using PMS.DataAccess.Persistence;
@@ -155,6 +156,56 @@ public class LayoutServiceTests
         blocks.Floors[0].Cells.Should().BeEmpty();
         blocks.Floors[0].ZoneBlocks.Should().ContainSingle()
             .Which.Should().BeEquivalentTo(new { Code = "L1", MinRow = 0, MaxRow = 1, MinCol = 0, MaxCol = 9, Total = 20, Free = 19 });
+    }
+
+    private async Task ParkAsync(int lotId, string color, string status, int? slotId, int? zoneId, int minutesAgo)
+    {
+        var plate = $"51A-{Guid.NewGuid():N}"[..12];
+        var vehicle = new Vehicle
+        {
+            Customer = new Customer { UserId = Guid.NewGuid().ToString(), CustomerCode = plate, FullName = "Customer", IsActive = true, CreatedAt = DateTime.UtcNow },
+            VehicleTypeId = 1, PlateNumber = plate, PlateNormalized = plate, Color = color, IsActive = true
+        };
+        _context.Vehicles.Add(vehicle);
+        _context.ParkingSessions.Add(new ParkingSession
+        {
+            SessionCode = plate, ParkingLotId = lotId, Customer = vehicle.Customer, VehicleId = vehicle.Id, SlotId = slotId, ZoneId = zoneId,
+            EntryGateId = 1, EntryTime = DateTime.UtcNow.AddMinutes(-minutesAgo), EntryPlateNumber = plate, EntryPlateNormalized = plate,
+            Status = status, SessionType = "WalkIn", RowVersion = new byte[8]
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Get2D_Should_Give_The_Registered_Colours_Of_Vehicles_Inside_And_Never_A_Plate()
+    {
+        var lot = await CreateLotAsync();
+        var bay = await _context.Slots.FirstAsync(s => s.Code == "L2-01");
+        var freeBay = await _context.Slots.FirstAsync(s => s.Code == "L2-02");
+        await ParkAsync(lot.Id, "Red", SessionStatus.Active, bay.Id, bay.ZoneId, 10);
+        await ParkAsync(lot.Id, "Silver", SessionStatus.Active, null, bay.ZoneId, 5);
+        await ParkAsync(lot.Id, "Blue", SessionStatus.Active, null, bay.ZoneId, 30);
+        await ParkAsync(lot.Id, "Pink", SessionStatus.Completed, freeBay.Id, freeBay.ZoneId, 60);
+
+        var plan = await _sut.Get2DAsync(lot.Id, LayoutDetail.Slots);
+
+        var cells = plan.Floors.SelectMany(f => f.Cells).ToList();
+        cells.Single(c => c.SlotId == bay.Id).VehicleColor.Should().Be("Red");
+        cells.Single(c => c.SlotId == freeBay.Id).VehicleColor.Should().BeNull("that vehicle has left");
+        plan.ZoneCounters.Single(z => z.ZoneId == bay.ZoneId).WalkInColors.Should().Equal("Blue", "Silver");
+        System.Text.Json.JsonSerializer.Serialize(plan).Should().NotContain("51A-");
+    }
+
+    [Fact]
+    public async Task Get2D_With_Zone_Detail_Should_Not_Read_Colours()
+    {
+        var lot = await CreateLotAsync();
+        var bay = await _context.Slots.FirstAsync(s => s.Code == "L2-01");
+        await ParkAsync(lot.Id, "Silver", SessionStatus.Active, null, bay.ZoneId, 5);
+
+        var plan = await _sut.Get2DAsync(lot.Id, LayoutDetail.Zones);
+
+        plan.ZoneCounters.Should().OnlyContain(z => z.WalkInColors.Count == 0);
     }
 
     [Fact]
