@@ -373,3 +373,5 @@ src/PMS.API/wwwroot/uploads/**/*
 !src/PMS.API/wwwroot/uploads/**/.gitkeep
 
 .githooks/
+AGENTS.md
+CLAUDE.md
