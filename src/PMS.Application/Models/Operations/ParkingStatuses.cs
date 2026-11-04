@@ -121,6 +121,17 @@ public static class CashCloseStatus
     public const string Confirmed = "Confirmed";
 }
 
+/// <summary>Banknotes a Staff asked the Manager to add to their cash drawer.</summary>
+public static class CashTopUpStatus
+{
+    public const string Pending = "Pending";
+    /// <summary>The notes count as cash put into the drawer.</summary>
+    public const string Approved = "Approved";
+    public const string Rejected = "Rejected";
+    /// <summary>Withdrawn by the Staff before the Manager decided.</summary>
+    public const string Cancelled = "Cancelled";
+}
+
 public static class PaymentMethod
 {
     public const string Cash = "Cash";

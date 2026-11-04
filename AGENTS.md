@@ -306,6 +306,13 @@ Keep this list current; it is the first place to look when code and SRS disagree
   is flagged (`OverdueAt`) and the lot's Manager is alerted (`CASH_*` OpsAlerts on the lot channel, checked by the
   minutely job and the simulation tick). The Admin simulation can end the business day now with a short grace
   period (`POST /api/admin/simulation/end-business-day`). Not built: escalation to the Admin when a lot has no Manager.
+- Cash for a drawer (team addition, 2026-11-04): a Staff short of banknotes (usually change) asks the lot's Manager
+  for a list of notes from the Cash Tally page or, when the drawer cannot make change, from the POS
+  (`CashTopUpRequests` table, `CashDrawerService.RequestTopUpAsync`, `POST /api/staff/lots/{id}/cash-drawer/top-ups`;
+  one waiting request per drawer, the Staff can cancel it). The Manager approves or rejects it (with a reason) in
+  the Approval Queue (`/api/manager/lots/{id}/cash-top-ups`, `.../cash-top-ups/{id}/approve|reject`; never their own
+  request, only while the drawer is open). Approved notes count as cash put into that drawer: they are added to
+  its expected notes and expected total (`TopUpTotal`), so the close balances when the Staff counts them.
 - Booked bay taken (BR-08): when a booking checks in and another vehicle is in its bay, the entry lane moves the
   booking to a free bay of its type and waives the first hour (`ParkingSession.FirstHourWaived`; one block while
   simulating), or, with no bay left, lets it park as a walk-in and refunds the whole deposit.

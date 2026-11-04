@@ -199,6 +199,29 @@ public static partial class AutomatedMigration
                 CREATE UNIQUE NONCLUSTERED INDEX [IX_DailyCashCloses_Drawer] ON [dbo].[DailyCashCloses]([ParkingLotId] ASC, [StaffUserId] ASC, [BusinessDate] ASC, [CloseNo] ASC);
             END
 
+            -- Banknotes a Staff asks the Manager to add to their open cash drawer (approved ones count as cash put in)
+            IF OBJECT_ID('dbo.CashTopUpRequests', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[CashTopUpRequests](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ParkingLotId] [int] NOT NULL,
+                    [DailyCashCloseId] [bigint] NOT NULL,
+                    [StaffUserId] [nvarchar](450) NOT NULL,
+                    [NotesJson] [nvarchar](400) NOT NULL,
+                    [Total] [decimal](18,2) NOT NULL,
+                    [Reason] [nvarchar](500) NULL,
+                    [Status] [varchar](20) NOT NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL,
+                    [DecidedBy] [nvarchar](450) NULL,
+                    [DecidedAt] [datetime2](3) NULL,
+                    [DecisionNote] [nvarchar](500) NULL,
+                    CONSTRAINT [FK_CashTopUpRequests_ParkingLots] FOREIGN KEY([ParkingLotId]) REFERENCES [dbo].[ParkingLots] ([Id]),
+                    CONSTRAINT [FK_CashTopUpRequests_DailyCashCloses] FOREIGN KEY([DailyCashCloseId]) REFERENCES [dbo].[DailyCashCloses] ([Id])
+                );
+                CREATE NONCLUSTERED INDEX [IX_CashTopUpRequests_Lot] ON [dbo].[CashTopUpRequests]([ParkingLotId] ASC, [Status] ASC, [CreatedAt] ASC);
+                CREATE NONCLUSTERED INDEX [IX_CashTopUpRequests_Drawer] ON [dbo].[CashTopUpRequests]([DailyCashCloseId] ASC);
+            END
+
             -- A price change that waits for the lot to be empty: at most one per pricing rule
             IF OBJECT_ID('dbo.PendingPriceChanges', 'U') IS NULL
             BEGIN
