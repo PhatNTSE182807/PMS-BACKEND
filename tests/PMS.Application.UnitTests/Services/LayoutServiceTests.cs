@@ -219,7 +219,8 @@ public class LayoutServiceTests
         cell.ParkedVehicleTypeCode.Should().Be("CAR_7");
         var walkIn = plan.ZoneCounters.Single(z => z.ZoneId == bay.ZoneId).WalkIns.Should().ContainSingle().Subject;
         walkIn.VehicleTypeCode.Should().Be("CAR_7");
-        walkIn.VehicleColor.Should().BeNull();
+        // Not registered: the colour picked from its plate, the same the gate cameras paint it
+        walkIn.VehicleColor.Should().Be(PMS.Application.Helpers.Parking.VehiclePaint.Of(null, "51B22233")).And.NotBeNull();
     }
 
     [Fact]

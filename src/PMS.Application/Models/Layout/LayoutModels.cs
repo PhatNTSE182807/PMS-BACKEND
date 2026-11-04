@@ -130,7 +130,7 @@ public class ZoneAvailabilityModel
 /// <summary>What the map draws of a parked vehicle. Never a plate.</summary>
 public class ParkedVehicleModel
 {
-    /// <summary>Registered colour; null for a vehicle that is not registered.</summary>
+    /// <summary>Colour to paint it: the registered colour, or one picked from the plate for an unregistered vehicle (see VehiclePaint). Never a plate.</summary>
     public string VehicleColor { get; set; }
 
     /// <summary>CAR_4, CAR_7 or MOTORBIKE; null when unknown.</summary>
@@ -210,7 +210,7 @@ public class Layout2DCellModel
 
     public string Status { get; set; }
 
-    /// <summary>Registered colour of the vehicle parked here; null when none is known. Never a plate.</summary>
+    /// <summary>Colour to paint the vehicle parked here, the same the gate cameras use (see VehiclePaint); null when the bay is empty. Never a plate.</summary>
     public string VehicleColor { get; set; }
 
     /// <summary>Type of the vehicle parked here, which a car bay does not fix (CAR_4 or CAR_7); null when none is known.</summary>

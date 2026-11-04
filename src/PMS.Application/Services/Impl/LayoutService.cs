@@ -169,23 +169,23 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
         var sessions = await pmsContext.ParkingSessions.AsNoTracking()
             .Where(s => s.ParkingLotId == lotId && SessionStatus.Open.Contains(s.Status))
             .OrderBy(s => s.EntryTime).ThenBy(s => s.Id)
-            .Select(s => new { s.SlotId, s.ZoneId, s.VehicleId, s.VehicleTypeId })
             .ToListAsync();
 
         var vehicleIds = sessions.Where(s => s.VehicleId != null).Select(s => s.VehicleId.Value).Distinct().ToList();
-        var vehicles = await pmsContext.Vehicles.AsNoTracking()
+        var vehicleTypes = await pmsContext.Vehicles.AsNoTracking()
             .Where(v => vehicleIds.Contains(v.Id))
-            .Select(v => new { v.Id, v.Color, v.VehicleTypeId })
-            .ToDictionaryAsync(v => v.Id);
+            .ToDictionaryAsync(v => v.Id, v => v.VehicleTypeId);
         var typeCodes = await pmsContext.VehicleTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Code);
+        // The same paint the gate cameras use, so a vehicle keeps its colour from the entry lane to the exit lane
+        var registered = await VehiclePaint.RegisteredAsync(pmsContext, vehicleIds,
+            sessions.Where(s => s.HasPlate).Select(s => s.EntryPlateNormalized));
 
         return sessions.Select(s =>
         {
-            var vehicle = s.VehicleId is { } id ? vehicles.GetValueOrDefault(id) : null;
-            var typeId = s.VehicleTypeId ?? vehicle?.VehicleTypeId;
+            var typeId = s.VehicleTypeId ?? (s.VehicleId is { } id ? vehicleTypes.GetValueOrDefault(id) : null);
             return (s.SlotId, s.ZoneId, new ParkedVehicleModel
             {
-                VehicleColor = string.IsNullOrWhiteSpace(vehicle?.Color) ? null : vehicle.Color,
+                VehicleColor = VehiclePaint.ForSession(s, registered),
                 VehicleTypeCode = typeId is { } type ? typeCodes.GetValueOrDefault(type) : null
             });
         }).ToList();
