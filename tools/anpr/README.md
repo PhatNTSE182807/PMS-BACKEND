@@ -185,7 +185,9 @@ uvicorn service:app --port 8001
 - `GET /health` says whether `models/plate.pt` and `models/chars.pt` are there.
 - `POST /read` takes one camera frame (JPEG or PNG body) and returns the plates read in it.
 - New model files are picked up on the next read, so training can finish while the service runs.
-- Only the Staff screens in `ANPR_ALLOWED_ORIGINS` may call it (default `http://localhost:5174`).
+- Only Staff screens served from this computer may call it (localhost / 127.0.0.1, any port, so both
+  `npm run dev` on 5173 and the preview on 5174 work). Set `ANPR_ALLOWED_ORIGINS` (comma-separated) to allow
+  other screen addresses instead.
 - The service uses the GPU when PyTorch can, otherwise the CPU (a read then takes longer).
 
 On the Staff gate dashboard each camera shows the plate reader's state (ready, not trained, offline).
@@ -206,7 +208,7 @@ shows what the AI read next to the recorded plate: **Match**, **Staff check** (b
 | `CUDA out of memory` | `--batch 8` (or 4) |
 | The computer freezes or runs out of RAM while training | `--workers 1` (or 0) and `--batch 8`; close other apps |
 | Training stopped half-way (Ctrl + C, crash, shutdown) | Run the same command with `--resume` |
-| Camera shows *ANPR offline* | Start `uvicorn service:app --port 8001` in `tools/anpr` |
+| Camera shows *ANPR offline* | Start `uvicorn service:app --port 8001` in `tools/anpr`; if it runs, restart it after pulling and reload the page |
 | Camera shows *ANPR not trained* | Train first: `models/plate.pt` and `models/chars.pt` are missing |
 
 ## Notes
