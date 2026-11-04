@@ -30,6 +30,16 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> CloseCashDrawerAsync(int lotId, [FromBody] CloseCashDrawerModel model) =>
         Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.CloseAsync(lotId, model)));
 
+    /// <summary>Asks the lot's Manager for banknotes to add to the open drawer (one waiting request at a time).</summary>
+    [HttpPost("lots/{lotId:int}/cash-drawer/top-ups")]
+    public async Task<IActionResult> RequestCashTopUpAsync(int lotId, [FromBody] RequestCashTopUpModel model) =>
+        Ok(ApiResult<CashTopUpModel>.Success(await cashDrawers.RequestTopUpAsync(lotId, model)));
+
+    /// <summary>Withdraws one's own request before the Manager decides.</summary>
+    [HttpPost("lots/{lotId:int}/cash-drawer/top-ups/{id:long}/cancel")]
+    public async Task<IActionResult> CancelCashTopUpAsync(int lotId, long id) =>
+        Ok(ApiResult<CashTopUpModel>.Success(await cashDrawers.CancelTopUpAsync(lotId, id)));
+
     [HttpGet("lots/{lotId:int}/gates")]
     public async Task<IActionResult> GetGatesAsync(int lotId) =>
         Ok(ApiResult<IReadOnlyList<GateResponseModel>>.Success(await gateService.GetGatesAsync(lotId)));

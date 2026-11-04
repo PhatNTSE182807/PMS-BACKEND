@@ -112,4 +112,64 @@ public class CashDrawerModel
 
     /// <summary>Banknote values the drawer counts, largest first.</summary>
     public IReadOnlyList<int> Denominations { get; set; } = [];
+
+    /// <summary>Cash the Manager approved into this drawer (already in ExpectedTotal and ExpectedNotes).</summary>
+    public decimal TopUpTotal { get; set; }
+
+    /// <summary>Every request for more banknotes made for this drawer, newest first.</summary>
+    public List<CashTopUpModel> TopUps { get; set; } = [];
+}
+
+/// <summary>The Staff asks the Manager for banknotes to add to their open drawer.</summary>
+public class RequestCashTopUpModel
+{
+    /// <summary>Banknote value → how many, e.g. {"10000": 20, "5000": 20}.</summary>
+    public Dictionary<int, int> Notes { get; set; } = [];
+
+    /// <summary>Optional, e.g. "Out of small notes for change".</summary>
+    public string Reason { get; set; }
+}
+
+public class DecideCashTopUpModel
+{
+    /// <summary>Optional when approving, required when rejecting.</summary>
+    public string Note { get; set; }
+}
+
+/// <summary>A request for more banknotes in a Staff cash drawer.</summary>
+public class CashTopUpModel
+{
+    public long Id { get; set; }
+
+    public int ParkingLotId { get; set; }
+
+    public long DrawerId { get; set; }
+
+    public int CloseNo { get; set; }
+
+    public string StaffUserId { get; set; }
+
+    public string StaffName { get; set; }
+
+    public Dictionary<int, int> Notes { get; set; } = [];
+
+    public decimal Total { get; set; }
+
+    public string Reason { get; set; }
+
+    /// <summary>Pending, Approved, Rejected or Cancelled.</summary>
+    public string Status { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+
+    public string DecidedBy { get; set; }
+
+    public string DecidedByName { get; set; }
+
+    public DateTime? DecidedAt { get; set; }
+
+    public string DecisionNote { get; set; }
+
+    /// <summary>The drawer is still open, so the notes can still go into it.</summary>
+    public bool DrawerOpen { get; set; }
 }

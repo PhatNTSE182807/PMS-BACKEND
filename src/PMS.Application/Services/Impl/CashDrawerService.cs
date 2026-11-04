@@ -88,7 +88,8 @@ public class CashDrawerService(
         var counted = CleanNotes(model?.Counted, "count");
         var countedTotal = Total(counted);
         var (collected, _, _, _) = await CashTakenAsync(drawer, Now);
-        var expected = drawer.FloatTotal + collected;
+        var (topUps, _) = await ApprovedTopUpsAsync(drawer.Id);
+        var expected = drawer.FloatTotal + collected + topUps;
         var difference = countedTotal - expected;
         var reason = model?.Reason?.Trim();
         var overThreshold = Math.Abs(difference) > DifferenceThreshold;
@@ -203,11 +204,190 @@ public class CashDrawerService(
         foreach (var drawer in overdue)
         {
             var (collected, _, _, _) = await CashTakenAsync(drawer, Now);
+            var (topUps, _) = await ApprovedTopUpsAsync(drawer.Id);
             var who = await StaffNameAsync(drawer.StaffUserId);
             await AlertAsync(drawer.ParkingLotId, "CASH_OVERDUE",
-                $"{who} has not closed cash drawer {drawer.CloseNo} by the deadline ({drawer.FloatTotal + collected:#,0} VND expected).");
+                $"{who} has not closed cash drawer {drawer.CloseNo} by the deadline ({drawer.FloatTotal + collected + topUps:#,0} VND expected).");
         }
         return overdue.Count;
+    }
+
+    // ---- more banknotes for a drawer (team addition, 2026-11-04) ----------------------------------
+
+    /// <summary>
+    /// The Staff's drawer is short of banknotes (usually change): they list the notes they need for the lot's
+    /// Manager to approve. A drawer has at most one request waiting at a time.
+    /// </summary>
+    public async Task<CashTopUpModel> RequestTopUpAsync(int lotId, RequestCashTopUpModel model)
+    {
+        await lotScope.EnsureCanOperateAsync(lotId);
+        var notes = CleanNotes(model?.Notes, "request");
+        if (notes.Count == 0)
+            throw new BadRequestException("List the banknotes you need.");
+        var reason = model?.Reason?.Trim();
+        if (reason?.Length > 500)
+            throw new BadRequestException("The reason is too long (500 characters at most).");
+
+        // The notes go into the open drawer; with none open, today's next drawer opens empty to receive them
+        await EnsureOpenAsync(lotId, lotScope.UserId);
+        var drawer = await LatestAsync(lotId, lotScope.UserId, await BusinessDateAsync(lotId));
+        if (await pmsContext.CashTopUpRequests.AnyAsync(r => r.DailyCashCloseId == drawer.Id && r.Status == CashTopUpStatus.Pending))
+            throw new BadRequestException("You already have a request waiting for the Manager: cancel it to ask for different notes.");
+
+        var request = new CashTopUpRequest
+        {
+            ParkingLotId = lotId,
+            DailyCashCloseId = drawer.Id,
+            StaffUserId = lotScope.UserId,
+            NotesJson = Write(notes),
+            Total = Total(notes),
+            Reason = string.IsNullOrEmpty(reason) ? null : reason,
+            Status = CashTopUpStatus.Pending,
+            CreatedAt = Now
+        };
+        pmsContext.CashTopUpRequests.Add(request);
+        await pmsContext.SaveChangesAsync();
+
+        var who = await StaffNameAsync(request.StaffUserId);
+        await AlertAsync(lotId, "CASH_TOPUP_REQUESTED",
+            $"{who} needs {request.Total:#,0} VND in banknotes for cash drawer {drawer.CloseNo}: approve it in the Approval Queue.");
+        return (await ToTopUpModelsAsync([request]))[0];
+    }
+
+    /// <summary>The Staff withdraws their own request before the Manager decides.</summary>
+    public async Task<CashTopUpModel> CancelTopUpAsync(int lotId, long id)
+    {
+        await lotScope.EnsureCanOperateAsync(lotId);
+        var request = await pmsContext.CashTopUpRequests.FirstOrDefaultAsync(r => r.Id == id && r.ParkingLotId == lotId && r.StaffUserId == lotScope.UserId)
+                      ?? throw new NotFoundException("Cash request not found.");
+        if (request.Status != CashTopUpStatus.Pending)
+            throw new BadRequestException("The Manager already decided on this request.");
+
+        Decide(request, CashTopUpStatus.Cancelled, null);
+        await pmsContext.SaveChangesAsync();
+        return (await ToTopUpModelsAsync([request]))[0];
+    }
+
+    /// <summary>A lot's requests for its Manager: waiting ones by default, oldest first; or one status, newest first.</summary>
+    public async Task<IReadOnlyList<CashTopUpModel>> GetTopUpsForLotAsync(int lotId, string status)
+    {
+        await lotScope.EnsureCanManageAsync(lotId);
+        var query = pmsContext.CashTopUpRequests.AsNoTracking().Where(r => r.ParkingLotId == lotId);
+        var requests = string.IsNullOrWhiteSpace(status)
+            ? await query.Where(r => r.Status == CashTopUpStatus.Pending).OrderBy(r => r.CreatedAt).ToListAsync()
+            : await query.Where(r => r.Status == status.Trim()).OrderByDescending(r => r.CreatedAt).Take(100).ToListAsync();
+        return await ToTopUpModelsAsync(requests);
+    }
+
+    /// <summary>The Manager approves: the notes count as cash put into the Staff's drawer (never one's own request).</summary>
+    public async Task<CashTopUpModel> ApproveTopUpAsync(long id, DecideCashTopUpModel model)
+    {
+        var request = await PendingTopUpAsync(id);
+        var drawer = await pmsContext.DailyCashCloses.AsNoTracking().FirstAsync(d => d.Id == request.DailyCashCloseId);
+        if (drawer.Status != CashCloseStatus.Open)
+            throw new BadRequestException("The Staff already closed this drawer: reject the request and let them ask again from their new drawer.");
+
+        Decide(request, CashTopUpStatus.Approved, Note(model, required: false));
+        await pmsContext.SaveChangesAsync();
+        await AlertAsync(request.ParkingLotId, "CASH_TOPUP_APPROVED",
+            $"{request.Total:#,0} VND in banknotes approved for {await StaffNameAsync(request.StaffUserId)}'s cash drawer {drawer.CloseNo}: hand the notes over.");
+        return (await ToTopUpModelsAsync([request]))[0];
+    }
+
+    /// <summary>The Manager rejects with a reason the Staff sees.</summary>
+    public async Task<CashTopUpModel> RejectTopUpAsync(long id, DecideCashTopUpModel model)
+    {
+        var request = await PendingTopUpAsync(id);
+        Decide(request, CashTopUpStatus.Rejected, Note(model, required: true));
+        await pmsContext.SaveChangesAsync();
+        await AlertAsync(request.ParkingLotId, "CASH_TOPUP_REJECTED",
+            $"The cash request of {await StaffNameAsync(request.StaffUserId)} was rejected: {request.DecisionNote}");
+        return (await ToTopUpModelsAsync([request]))[0];
+    }
+
+    private async Task<CashTopUpRequest> PendingTopUpAsync(long id)
+    {
+        var request = await pmsContext.CashTopUpRequests.FirstOrDefaultAsync(r => r.Id == id)
+                      ?? throw new NotFoundException("Cash request not found.");
+        await lotScope.EnsureCanManageAsync(request.ParkingLotId);
+        if (request.Status != CashTopUpStatus.Pending)
+            throw new BadRequestException(request.Status == CashTopUpStatus.Cancelled
+                ? "The Staff cancelled this request."
+                : "This request was already decided.");
+        // Maker-Checker: whoever asked for the cash never approves it
+        if (request.StaffUserId == lotScope.UserId)
+            throw new ForbiddenException("You made this request, so another Manager has to decide on it.");
+        return request;
+    }
+
+    private void Decide(CashTopUpRequest request, string status, string note)
+    {
+        request.Status = status;
+        request.DecidedBy = lotScope.UserId;
+        request.DecidedAt = Now;
+        request.DecisionNote = note;
+    }
+
+    private static string Note(DecideCashTopUpModel model, bool required)
+    {
+        var note = model?.Note?.Trim();
+        if (required && string.IsNullOrEmpty(note))
+            throw new BadRequestException("Give the Staff a reason for rejecting the request.");
+        if (note?.Length > 500)
+            throw new BadRequestException("The note is too long (500 characters at most).");
+        return string.IsNullOrEmpty(note) ? null : note;
+    }
+
+    /// <summary>Cash and banknotes the Manager approved into a drawer.</summary>
+    private async Task<(decimal Total, Dictionary<int, int> Notes)> ApprovedTopUpsAsync(long drawerId)
+    {
+        var approved = await pmsContext.CashTopUpRequests.AsNoTracking()
+            .Where(r => r.DailyCashCloseId == drawerId && r.Status == CashTopUpStatus.Approved)
+            .Select(r => new { r.Total, r.NotesJson })
+            .ToListAsync();
+        var notes = new Dictionary<int, int>();
+        foreach (var request in approved)
+            foreach (var (value, count) in Read(request.NotesJson))
+                notes[value] = notes.GetValueOrDefault(value) + count;
+        return (approved.Sum(r => r.Total), notes);
+    }
+
+    private async Task<List<CashTopUpModel>> ToTopUpModelsAsync(IReadOnlyCollection<CashTopUpRequest> requests)
+    {
+        if (requests.Count == 0)
+            return [];
+        var userIds = requests.Select(r => r.StaffUserId).Concat(requests.Where(r => r.DecidedBy != null).Select(r => r.DecidedBy)).Distinct().ToList();
+        var names = await pmsContext.Employees.AsNoTracking()
+            .Where(e => userIds.Contains(e.UserId))
+            .ToDictionaryAsync(e => e.UserId, e => e.FullName);
+        var drawerIds = requests.Select(r => r.DailyCashCloseId).Distinct().ToList();
+        var drawers = await pmsContext.DailyCashCloses.AsNoTracking()
+            .Where(d => drawerIds.Contains(d.Id))
+            .ToDictionaryAsync(d => d.Id, d => new { d.CloseNo, d.Status });
+
+        return requests.Select(r =>
+        {
+            var drawer = drawers.GetValueOrDefault(r.DailyCashCloseId);
+            return new CashTopUpModel
+            {
+                Id = r.Id,
+                ParkingLotId = r.ParkingLotId,
+                DrawerId = r.DailyCashCloseId,
+                CloseNo = drawer?.CloseNo ?? 0,
+                StaffUserId = r.StaffUserId,
+                StaffName = names.GetValueOrDefault(r.StaffUserId),
+                Notes = Read(r.NotesJson),
+                Total = r.Total,
+                Reason = r.Reason,
+                Status = r.Status,
+                CreatedAt = Utc(r.CreatedAt),
+                DecidedBy = r.DecidedBy,
+                DecidedByName = r.DecidedBy != null ? names.GetValueOrDefault(r.DecidedBy) : null,
+                DecidedAt = r.DecidedAt is { } decided ? Utc(decided) : null,
+                DecisionNote = r.DecisionNote,
+                DrawerOpen = drawer?.Status == CashCloseStatus.Open
+            };
+        }).ToList();
     }
 
     // ---- helpers ----------------------------------------------------------------------------------
@@ -305,11 +485,16 @@ public class CashDrawerService(
     {
         var until = drawer.ClosedAt ?? Now;
         var (collected, count, net, untracked) = await CashTakenAsync(drawer, until);
+        var (topUpTotal, topUpNotes) = await ApprovedTopUpsAsync(drawer.Id);
         var floatNotes = Read(drawer.FloatJson);
         var expectedNotes = Denominations
-            .Select(value => (value, count: floatNotes.GetValueOrDefault(value) + net.GetValueOrDefault(value)))
+            .Select(value => (value, count: floatNotes.GetValueOrDefault(value) + net.GetValueOrDefault(value) + topUpNotes.GetValueOrDefault(value)))
             .Where(n => n.count != 0)
             .ToDictionary(n => n.value, n => n.count);
+        var requests = await pmsContext.CashTopUpRequests.AsNoTracking()
+            .Where(r => r.DailyCashCloseId == drawer.Id)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToListAsync();
 
         var names = await pmsContext.Employees.AsNoTracking()
             .Where(e => e.UserId == drawer.StaffUserId || e.UserId == drawer.ConfirmedBy)
@@ -335,7 +520,11 @@ public class CashDrawerService(
             CashPayments = count,
             ExpectedNotes = expectedNotes,
             // Frozen at the close; live while the drawer is open
-            ExpectedTotal = drawer.Status == CashCloseStatus.Open ? drawer.FloatTotal + collected : drawer.ExpectedTotal ?? drawer.FloatTotal + collected,
+            ExpectedTotal = drawer.Status == CashCloseStatus.Open
+                ? drawer.FloatTotal + collected + topUpTotal
+                : drawer.ExpectedTotal ?? drawer.FloatTotal + collected + topUpTotal,
+            TopUpTotal = topUpTotal,
+            TopUps = await ToTopUpModelsAsync(requests),
             UntrackedCash = untracked,
             Counted = drawer.CountedJson == null ? null : Read(drawer.CountedJson),
             CountedTotal = drawer.CountedTotal,

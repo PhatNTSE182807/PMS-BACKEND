@@ -29,6 +29,21 @@ public class ManagerOperationsController(
     public async Task<IActionResult> ConfirmCashCloseAsync(long id, [FromBody] ConfirmCashCloseModel model) =>
         Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.ConfirmAsync(id, model)));
 
+    /// <summary>Staff requests for more banknotes in their drawer: waiting ones by default, or one status.</summary>
+    [HttpGet("lots/{lotId:int}/cash-top-ups")]
+    public async Task<IActionResult> GetCashTopUpsAsync(int lotId, [FromQuery] string status = null) =>
+        Ok(ApiResult<IReadOnlyList<CashTopUpModel>>.Success(await cashDrawers.GetTopUpsForLotAsync(lotId, status)));
+
+    /// <summary>Approves a request: the banknotes count as cash put into the Staff's open drawer.</summary>
+    [HttpPost("cash-top-ups/{id:long}/approve")]
+    public async Task<IActionResult> ApproveCashTopUpAsync(long id, [FromBody] DecideCashTopUpModel model) =>
+        Ok(ApiResult<CashTopUpModel>.Success(await cashDrawers.ApproveTopUpAsync(id, model)));
+
+    /// <summary>Rejects a request with a reason the Staff sees.</summary>
+    [HttpPost("cash-top-ups/{id:long}/reject")]
+    public async Task<IActionResult> RejectCashTopUpAsync(long id, [FromBody] DecideCashTopUpModel model) =>
+        Ok(ApiResult<CashTopUpModel>.Success(await cashDrawers.RejectTopUpAsync(id, model)));
+
     /// <summary>Live occupied and free bays of a lot the Manager runs: in total, per vehicle family and per zone.</summary>
     [HttpGet("lots/{lotId:int}/occupancy")]
     public async Task<IActionResult> GetOccupancyAsync(int lotId)
