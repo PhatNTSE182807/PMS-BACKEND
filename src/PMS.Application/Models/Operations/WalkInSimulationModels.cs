@@ -3,15 +3,16 @@ namespace PMS.Application.Models.Operations;
 /// <summary>Admin simulation: send a batch of walk-in vehicles into a lot through the real entry lane.</summary>
 public class DeployWalkInsModel
 {
-    public const int MaxCount = 500;
-
     public int LotId { get; set; }
 
-    /// <summary>How many vehicles to send in (1 to <see cref="MaxCount"/>); the batch stops when a zone is full.</summary>
+    /// <summary>How many vehicles to send in: from 1 up to the lot's free bays; the batch stops when a zone is full.</summary>
     public int Count { get; set; } = 20;
 
-    /// <summary>Share of cars in the batch, 0 to 100; the rest are motorbikes.</summary>
-    public int CarPercent { get; set; } = 50;
+    /// <summary>Share of 4-seat cars in the batch, 0 to 100.</summary>
+    public int CarPercent { get; set; } = 40;
+
+    /// <summary>Share of 7-seat cars in the batch, 0 to 100; with the 4-seat share at most 100, the rest are motorbikes.</summary>
+    public int Car7Percent { get; set; } = 15;
 
     /// <summary>Shortest stay in hours. While the parking simulation is on, one hour lasts one pricing block.</summary>
     public double MinStayHours { get; set; } = 2;
@@ -80,6 +81,12 @@ public class WalkInSimulationOverviewModel
 
     /// <summary>What the simulated vehicles paid (parking fee, lost-ticket fines, late fees).</summary>
     public decimal Revenue { get; set; }
+
+    /// <summary>Bays of the lot in active zones; null when no lot is chosen.</summary>
+    public int? TotalBays { get; set; }
+
+    /// <summary>Bays of the lot a vehicle can park in now: the most vehicles one batch can send; null when no lot is chosen.</summary>
+    public int? FreeBays { get; set; }
 }
 
 public class WalkInCheckOutResultModel
