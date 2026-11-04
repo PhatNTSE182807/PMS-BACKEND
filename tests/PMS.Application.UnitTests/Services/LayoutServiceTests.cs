@@ -158,18 +158,18 @@ public class LayoutServiceTests
             .Which.Should().BeEquivalentTo(new { Code = "L1", MinRow = 0, MaxRow = 1, MinCol = 0, MaxCol = 9, Total = 20, Free = 19 });
     }
 
-    private async Task ParkAsync(int lotId, string color, string status, int? slotId, int? zoneId, int minutesAgo)
+    private async Task ParkAsync(int lotId, string color, string status, int? slotId, int? zoneId, int minutesAgo, int vehicleTypeId = 1)
     {
         var plate = $"51A-{Guid.NewGuid():N}"[..12];
         var vehicle = new Vehicle
         {
             Customer = new Customer { UserId = Guid.NewGuid().ToString(), CustomerCode = plate, FullName = "Customer", IsActive = true, CreatedAt = DateTime.UtcNow },
-            VehicleTypeId = 1, PlateNumber = plate, PlateNormalized = plate, Color = color, IsActive = true
+            VehicleTypeId = vehicleTypeId, PlateNumber = plate, PlateNormalized = plate, Color = color, IsActive = true
         };
         _context.Vehicles.Add(vehicle);
         _context.ParkingSessions.Add(new ParkingSession
         {
-            SessionCode = plate, ParkingLotId = lotId, Customer = vehicle.Customer, VehicleId = vehicle.Id, SlotId = slotId, ZoneId = zoneId,
+            SessionCode = plate, ParkingLotId = lotId, Customer = vehicle.Customer, VehicleId = vehicle.Id, VehicleTypeId = vehicleTypeId, SlotId = slotId, ZoneId = zoneId,
             EntryGateId = 1, EntryTime = DateTime.UtcNow.AddMinutes(-minutesAgo), EntryPlateNumber = plate, EntryPlateNormalized = plate,
             Status = status, SessionType = "WalkIn", RowVersion = new byte[8]
         });
@@ -192,8 +192,34 @@ public class LayoutServiceTests
         var cells = plan.Floors.SelectMany(f => f.Cells).ToList();
         cells.Single(c => c.SlotId == bay.Id).VehicleColor.Should().Be("Red");
         cells.Single(c => c.SlotId == freeBay.Id).VehicleColor.Should().BeNull("that vehicle has left");
-        plan.ZoneCounters.Single(z => z.ZoneId == bay.ZoneId).WalkInColors.Should().Equal("Blue", "Silver");
+        plan.ZoneCounters.Single(z => z.ZoneId == bay.ZoneId).WalkIns.Select(w => w.VehicleColor).Should().Equal("Blue", "Silver");
         System.Text.Json.JsonSerializer.Serialize(plan).Should().NotContain("51A-");
+    }
+
+    [Fact]
+    public async Task Get2D_Should_Tell_Which_Type_Of_Car_Is_Parked_Even_For_A_Walk_In_Without_An_Account()
+    {
+        var lot = await CreateLotAsync();
+        var suvType = new VehicleType { Code = "CAR_7", Name = "7-Seat Car", IsActive = true };
+        _context.VehicleTypes.Add(suvType);
+        await _context.SaveChangesAsync();
+        var bay = await _context.Slots.FirstAsync(s => s.Code == "L2-01");
+        await ParkAsync(lot.Id, "Black", SessionStatus.Active, bay.Id, bay.ZoneId, 10, suvType.Id);
+        _context.ParkingSessions.Add(new ParkingSession
+        {
+            SessionCode = "S-WALK-IN", ParkingLotId = lot.Id, VehicleTypeId = suvType.Id, ZoneId = bay.ZoneId, EntryGateId = 1,
+            EntryTime = DateTime.UtcNow, EntryPlateNumber = "51B-222.33", EntryPlateNormalized = "51B22233",
+            Status = SessionStatus.Active, SessionType = "WalkIn", RowVersion = new byte[8]
+        });
+        await _context.SaveChangesAsync();
+
+        var plan = await _sut.Get2DAsync(lot.Id, LayoutDetail.Slots);
+
+        var cell = plan.Floors.SelectMany(f => f.Cells).Single(c => c.SlotId == bay.Id);
+        cell.ParkedVehicleTypeCode.Should().Be("CAR_7");
+        var walkIn = plan.ZoneCounters.Single(z => z.ZoneId == bay.ZoneId).WalkIns.Should().ContainSingle().Subject;
+        walkIn.VehicleTypeCode.Should().Be("CAR_7");
+        walkIn.VehicleColor.Should().BeNull();
     }
 
     [Fact]
@@ -205,7 +231,7 @@ public class LayoutServiceTests
 
         var plan = await _sut.Get2DAsync(lot.Id, LayoutDetail.Zones);
 
-        plan.ZoneCounters.Should().OnlyContain(z => z.WalkInColors.Count == 0);
+        plan.ZoneCounters.Should().OnlyContain(z => z.WalkIns.Count == 0);
     }
 
     [Fact]

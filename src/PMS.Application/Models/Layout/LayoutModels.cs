@@ -121,10 +121,20 @@ public class ZoneAvailabilityModel
     public int Free { get; set; }
 
     /// <summary>
-    /// Registered colours of the vehicles counted in this zone without a bay of their own, oldest entry first.
-    /// Only the 2D plan with detail = slots fills it. Never a plate.
+    /// The vehicles counted in this zone without a bay of their own, oldest entry first.
+    /// Only the 2D plan with detail = slots fills it.
     /// </summary>
-    public List<string> WalkInColors { get; set; } = [];
+    public List<ParkedVehicleModel> WalkIns { get; set; } = [];
+}
+
+/// <summary>What the map draws of a parked vehicle. Never a plate.</summary>
+public class ParkedVehicleModel
+{
+    /// <summary>Registered colour; null for a vehicle that is not registered.</summary>
+    public string VehicleColor { get; set; }
+
+    /// <summary>CAR_4, CAR_7 or MOTORBIKE; null when unknown.</summary>
+    public string VehicleTypeCode { get; set; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -202,6 +212,9 @@ public class Layout2DCellModel
 
     /// <summary>Registered colour of the vehicle parked here; null when none is known. Never a plate.</summary>
     public string VehicleColor { get; set; }
+
+    /// <summary>Type of the vehicle parked here, which a car bay does not fix (CAR_4 or CAR_7); null when none is known.</summary>
+    public string ParkedVehicleTypeCode { get; set; }
 }
 
 /// <summary>The cells a zone covers on one floor, as a bounding box of rows and columns.</summary>

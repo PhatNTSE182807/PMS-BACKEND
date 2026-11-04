@@ -86,10 +86,10 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
         var layout = await FindPublishedAsync(lotId);
         var slots = await PlacedSlotsAsync(layout);
         var zones = await pmsContext.Zones.Where(z => z.ParkingLotId == lotId).ToDictionaryAsync(z => z.Id);
-        var parked = level == LayoutDetail.Slots ? await ParkedColorsAsync(lotId) : [];
-        var colorOfSlot = parked.Where(p => p.SlotId != null)
+        var parked = level == LayoutDetail.Slots ? await ParkedVehiclesAsync(lotId) : [];
+        var parkedInSlot = parked.Where(p => p.SlotId != null)
             .GroupBy(p => p.SlotId.Value)
-            .ToDictionary(g => g.Key, g => g.First().Color);
+            .ToDictionary(g => g.Key, g => g.First().Vehicle);
 
         var floors = ReadFloors(layout).Select(floor =>
         {
@@ -117,7 +117,8 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
                     Col = s.Placement.Col,
                     Rotation = s.Placement.Rotation,
                     Status = s.Slot.Status,
-                    VehicleColor = colorOfSlot.GetValueOrDefault(s.Slot.Id)
+                    VehicleColor = parkedInSlot.GetValueOrDefault(s.Slot.Id)?.VehicleColor,
+                    ParkedVehicleTypeCode = parkedInSlot.GetValueOrDefault(s.Slot.Id)?.VehicleTypeCode
                 }).OrderBy(c => c.Row).ThenBy(c => c.Col).ToList();
             }
             else
@@ -145,7 +146,7 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
 
         var counters = await ZoneAvailabilityAsync(lotId);
         foreach (var counter in counters)
-            counter.WalkInColors = parked.Where(p => p.SlotId == null && p.ZoneId == counter.ZoneId).Select(p => p.Color).ToList();
+            counter.WalkIns = parked.Where(p => p.SlotId == null && p.ZoneId == counter.ZoneId).Select(p => p.Vehicle).ToList();
 
         return new Layout2DResponseModel
         {
@@ -162,19 +163,32 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
 
     /* Helpers -------------------------------------------------------- */
 
-    /// <summary>Colours of the registered vehicles with an open session in the lot, oldest entry first.</summary>
-    private async Task<List<(int? SlotId, int? ZoneId, string Color)>> ParkedColorsAsync(int lotId)
+    /// <summary>Colour and type of every vehicle with an open session in the lot, oldest entry first.</summary>
+    private async Task<List<(int? SlotId, int? ZoneId, ParkedVehicleModel Vehicle)>> ParkedVehiclesAsync(int lotId)
     {
-        var parked = await (
-                from session in pmsContext.ParkingSessions
-                where session.ParkingLotId == lotId && SessionStatus.Open.Contains(session.Status) && session.VehicleId != null
-                join vehicle in pmsContext.Vehicles on session.VehicleId equals (Guid?)vehicle.Id
-                where vehicle.Color != null && vehicle.Color != ""
-                orderby session.EntryTime, session.Id
-                select new { session.SlotId, session.ZoneId, vehicle.Color })
+        var sessions = await pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => s.ParkingLotId == lotId && SessionStatus.Open.Contains(s.Status))
+            .OrderBy(s => s.EntryTime).ThenBy(s => s.Id)
+            .Select(s => new { s.SlotId, s.ZoneId, s.VehicleId, s.VehicleTypeId })
             .ToListAsync();
 
-        return parked.Select(p => (p.SlotId, p.ZoneId, p.Color)).ToList();
+        var vehicleIds = sessions.Where(s => s.VehicleId != null).Select(s => s.VehicleId.Value).Distinct().ToList();
+        var vehicles = await pmsContext.Vehicles.AsNoTracking()
+            .Where(v => vehicleIds.Contains(v.Id))
+            .Select(v => new { v.Id, v.Color, v.VehicleTypeId })
+            .ToDictionaryAsync(v => v.Id);
+        var typeCodes = await pmsContext.VehicleTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Code);
+
+        return sessions.Select(s =>
+        {
+            var vehicle = s.VehicleId is { } id ? vehicles.GetValueOrDefault(id) : null;
+            var typeId = s.VehicleTypeId ?? vehicle?.VehicleTypeId;
+            return (s.SlotId, s.ZoneId, new ParkedVehicleModel
+            {
+                VehicleColor = string.IsNullOrWhiteSpace(vehicle?.Color) ? null : vehicle.Color,
+                VehicleTypeCode = typeId is { } type ? typeCodes.GetValueOrDefault(type) : null
+            });
+        }).ToList();
     }
 
     private async Task<ParkingLot> FindLotAsync(int lotId) =>
