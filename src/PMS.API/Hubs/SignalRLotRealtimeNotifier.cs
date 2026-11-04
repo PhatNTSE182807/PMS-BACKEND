@@ -14,4 +14,7 @@ public class SignalRLotRealtimeNotifier(IHubContext<LotHub> hub) : ILotRealtimeN
 
     public Task LayoutChangedAsync(int lotId) =>
         hub.Clients.Group(LotHub.Group(lotId)).SendAsync("LayoutChanged", new { lotId });
+
+    public Task LotPriceChangedAsync(int lotId, string state, string message) =>
+        hub.Clients.Group(LotHub.Group(lotId)).SendAsync("LotPriceChanged", new { lotId, state, message });
 }

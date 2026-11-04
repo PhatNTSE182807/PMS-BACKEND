@@ -51,6 +51,15 @@ public interface IGateService
     /// <summary>FR-OPS-05 hook: lost ticket/card with the configured fine; conditional approval (BR-13) or Manager approval.</summary>
     Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model);
 
+    /// <summary>Lost ticket with the driver's Citizen ID and registration photos, waiting for the Staff's check.</summary>
+    Task<SessionResponseModel> ReportLostTicketWithPapersAsync(long sessionId, LostTicketPapersModel model);
+
+    /// <summary>The Staff approves (fine on the bill, vehicle stays) or refuses the papers.</summary>
+    Task<SessionResponseModel> ReviewLostTicketAsync(long sessionId, LostTicketReviewModel model);
+
+    /// <summary>One uploaded paper of the latest lost-ticket case.</summary>
+    Task<(Stream Content, string ContentType)> GetLostTicketPaperAsync(long sessionId, string kind);
+
     /// <summary>Manager decision on a lost ticket case.</summary>
     Task<SessionResponseModel> DecideLostTicketAsync(long sessionId, bool approve, string reason);
 

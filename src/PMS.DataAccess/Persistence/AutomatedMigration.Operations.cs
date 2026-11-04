@@ -39,6 +39,10 @@ public static partial class AutomatedMigration
         ("ParkingSessions", "IsManualEntry", "[bit] NOT NULL DEFAULT 0"),
         ("ParkingSessions", "ManualEntryReason", "[nvarchar](500) NULL"),
         ("ParkingSessions", "NoPlateReason", "[nvarchar](500) NULL"),
+        ("ParkingSessions", "IsSimulated", "[bit] NOT NULL DEFAULT 0"),
+        ("ParkingSessions", "SimulatedExitAt", "[datetime2](3) NULL"),
+        ("ParkingSessions", "SimulatedBy", "[nvarchar](450) NULL"),
+        ("ParkingSessions", "FirstHourWaived", "[bit] NOT NULL DEFAULT 0"),
         ("ParkingSessions", "IsManualExit", "[bit] NOT NULL DEFAULT 0"),
         ("ParkingSessions", "ManualExitReason", "[nvarchar](500) NULL"),
         ("ParkingSessions", "EntryConfirmedAt", "[datetime2](3) NULL"),
@@ -60,11 +64,23 @@ public static partial class AutomatedMigration
         ("SessionViolations", "ApprovalMode", "[varchar](20) NULL"),
         ("SessionViolations", "DecidedBy", "[nvarchar](450) NULL"),
         ("SessionViolations", "DecidedAt", "[datetime2](3) NULL"),
+        ("SessionViolations", "CitizenIdPhotoPath", "[nvarchar](500) NULL"),
+        ("SessionViolations", "RegistrationPhotoPath", "[nvarchar](500) NULL"),
         ("SessionViolations", "DecisionNote", "[nvarchar](500) NULL"),
+
+        // Deferred price updates: the tariff copied at entry, and the lot's concurrency token
+        // (ParkingLots.OccupiedBays is added with its backfill below)
+        ("ParkingSessions", "PriceSnapshotJson", "[nvarchar](max) NULL"),
+        ("Reservations", "PriceSnapshotJson", "[nvarchar](max) NULL"),
+        ("ParkingLots", "RowVersion", "[rowversion] NOT NULL"),
 
         ("Invoices", "ReservationId", "[bigint] NULL"),
 
         ("Payments", "Purpose", "[varchar](20) NULL"),
+        ("Payments", "CashReceivedJson", "[nvarchar](400) NULL"),
+        ("DailyCashCloses", "CloseDueAt", "[datetime2](3) NULL"),
+        ("DailyCashCloses", "OverdueAt", "[datetime2](3) NULL"),
+        ("Payments", "CashChangeJson", "[nvarchar](400) NULL"),
         ("Payments", "ReservationId", "[bigint] NULL"),
         ("Payments", "SessionId", "[bigint] NULL"),
         ("Payments", "ParkingLotId", "[int] NULL"),
@@ -154,6 +170,75 @@ public static partial class AutomatedMigration
                     CONSTRAINT [FK_PricingRuleHistories_PricingRules] FOREIGN KEY([PricingRuleId]) REFERENCES [dbo].[PricingRules] ([Id])
                 );
                 CREATE NONCLUSTERED INDEX [IX_PricingRuleHistories_PricingRuleId] ON [dbo].[PricingRuleHistories]([PricingRuleId] ASC);
+            END
+
+            -- Daily cash close per Staff and lot (BR-12): float in, banknotes counted out, difference, Manager confirmation
+            IF OBJECT_ID('dbo.DailyCashCloses', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[DailyCashCloses](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ParkingLotId] [int] NOT NULL,
+                    [StaffUserId] [nvarchar](450) NOT NULL,
+                    [BusinessDate] [date] NOT NULL,
+                    [CloseNo] [int] NOT NULL DEFAULT 1,
+                    [Status] [varchar](20) NOT NULL,
+                    [OpenedAt] [datetime2](3) NOT NULL,
+                    [FloatJson] [nvarchar](400) NULL,
+                    [FloatTotal] [decimal](18,2) NOT NULL DEFAULT 0,
+                    [CountedJson] [nvarchar](400) NULL,
+                    [CountedTotal] [decimal](18,2) NULL,
+                    [ExpectedTotal] [decimal](18,2) NULL,
+                    [Difference] [decimal](18,2) NULL,
+                    [DifferenceReason] [nvarchar](500) NULL,
+                    [ClosedAt] [datetime2](3) NULL,
+                    [ConfirmedBy] [nvarchar](450) NULL,
+                    [ConfirmedAt] [datetime2](3) NULL,
+                    [ConfirmNote] [nvarchar](500) NULL,
+                    CONSTRAINT [FK_DailyCashCloses_ParkingLots] FOREIGN KEY([ParkingLotId]) REFERENCES [dbo].[ParkingLots] ([Id])
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_DailyCashCloses_Drawer] ON [dbo].[DailyCashCloses]([ParkingLotId] ASC, [StaffUserId] ASC, [BusinessDate] ASC, [CloseNo] ASC);
+            END
+
+            -- Banknotes a Staff asks the Manager to add to their open cash drawer (approved ones count as cash put in)
+            IF OBJECT_ID('dbo.CashTopUpRequests', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[CashTopUpRequests](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ParkingLotId] [int] NOT NULL,
+                    [DailyCashCloseId] [bigint] NOT NULL,
+                    [StaffUserId] [nvarchar](450) NOT NULL,
+                    [NotesJson] [nvarchar](400) NOT NULL,
+                    [Total] [decimal](18,2) NOT NULL,
+                    [Reason] [nvarchar](500) NULL,
+                    [Status] [varchar](20) NOT NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL,
+                    [DecidedBy] [nvarchar](450) NULL,
+                    [DecidedAt] [datetime2](3) NULL,
+                    [DecisionNote] [nvarchar](500) NULL,
+                    CONSTRAINT [FK_CashTopUpRequests_ParkingLots] FOREIGN KEY([ParkingLotId]) REFERENCES [dbo].[ParkingLots] ([Id]),
+                    CONSTRAINT [FK_CashTopUpRequests_DailyCashCloses] FOREIGN KEY([DailyCashCloseId]) REFERENCES [dbo].[DailyCashCloses] ([Id])
+                );
+                CREATE NONCLUSTERED INDEX [IX_CashTopUpRequests_Lot] ON [dbo].[CashTopUpRequests]([ParkingLotId] ASC, [Status] ASC, [CreatedAt] ASC);
+                CREATE NONCLUSTERED INDEX [IX_CashTopUpRequests_Drawer] ON [dbo].[CashTopUpRequests]([DailyCashCloseId] ASC);
+            END
+
+            -- A price change that waits for the lot to be empty: at most one per pricing rule
+            IF OBJECT_ID('dbo.PendingPriceChanges', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[PendingPriceChanges](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ParkingLotId] [int] NOT NULL,
+                    [PricingRuleId] [int] NOT NULL,
+                    [ProposedValuesJson] [nvarchar](max) NOT NULL,
+                    [RevisionNo] [int] NOT NULL DEFAULT 1,
+                    [RequestedBy] [nvarchar](450) NULL,
+                    [RequestedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime()),
+                    [UpdatedAt] [datetime2](3) NULL,
+                    CONSTRAINT [FK_PendingPriceChanges_ParkingLots] FOREIGN KEY([ParkingLotId]) REFERENCES [dbo].[ParkingLots] ([Id]),
+                    CONSTRAINT [FK_PendingPriceChanges_PricingRules] FOREIGN KEY([PricingRuleId]) REFERENCES [dbo].[PricingRules] ([Id])
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [IX_PendingPriceChanges_PricingRuleId] ON [dbo].[PendingPriceChanges]([PricingRuleId] ASC);
+                CREATE NONCLUSTERED INDEX [IX_PendingPriceChanges_ParkingLotId] ON [dbo].[PendingPriceChanges]([ParkingLotId] ASC);
             END
 
             IF OBJECT_ID('dbo.Reservations', 'U') IS NULL
@@ -326,6 +411,19 @@ public static partial class AutomatedMigration
         foreach (var (table, column, type) in AddedColumns)
             columns.AppendLine($"IF COL_LENGTH('dbo.{table}', '{column}') IS NULL ALTER TABLE [dbo].[{table}] ADD [{column}] {type};");
         await pmsContext.Database.ExecuteSqlRawAsync(columns.ToString());
+
+        // Vehicles inside each lot. Counted once, when the column is created; from then on every entry and exit
+        // moves it. EXEC defers compiling the UPDATE until the column exists.
+        var openStatuses = OpenSessionStatuses.Replace("'", "''");
+        await pmsContext.Database.ExecuteSqlRawAsync($@"
+            IF COL_LENGTH('dbo.ParkingLots', 'OccupiedBays') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[ParkingLots] ADD [OccupiedBays] [int] NOT NULL DEFAULT 0;
+                EXEC(N'UPDATE l SET l.[OccupiedBays] = (
+                           SELECT COUNT(*) FROM [dbo].[ParkingSessions] s
+                           WHERE s.[ParkingLotId] = l.[Id] AND s.[Status] IN ({openStatuses}))
+                       FROM [dbo].[ParkingLots] l');
+            END");
 
         // Bookings made before date-time booking: pay-as-you-go, and the active ones already hold their bay.
         // A bay can now carry several bookings at different times, so the old "one active booking per bay"

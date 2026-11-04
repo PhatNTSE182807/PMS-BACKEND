@@ -13,8 +13,33 @@ namespace PMS.API.Controllers;
 /// </summary>
 [Route("api/staff")]
 [Authorize(Roles = "Staff,Manager,Admin")]
-public class StaffGateController(IGateService gateService, IReservationService reservationService, PlateListService plateLists) : ApiController
+public class StaffGateController(IGateService gateService, IReservationService reservationService, PlateListService plateLists, CashDrawerService cashDrawers) : ApiController
 {
+    /// <summary>The signed-in Staff's cash drawer of today at the lot: float, cash taken, expected banknotes (BR-12).</summary>
+    [HttpGet("lots/{lotId:int}/cash-drawer")]
+    public async Task<IActionResult> GetCashDrawerAsync(int lotId) =>
+        Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.GetCurrentAsync(lotId)));
+
+    /// <summary>Opens today's drawer with the counted float.</summary>
+    [HttpPost("lots/{lotId:int}/cash-drawer/open")]
+    public async Task<IActionResult> OpenCashDrawerAsync(int lotId, [FromBody] OpenCashDrawerModel model) =>
+        Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.OpenAsync(lotId, model)));
+
+    /// <summary>Closes the drawer with the blind banknote count; a large difference needs a reason.</summary>
+    [HttpPost("lots/{lotId:int}/cash-drawer/close")]
+    public async Task<IActionResult> CloseCashDrawerAsync(int lotId, [FromBody] CloseCashDrawerModel model) =>
+        Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.CloseAsync(lotId, model)));
+
+    /// <summary>Asks the lot's Manager for banknotes to add to the open drawer (one waiting request at a time).</summary>
+    [HttpPost("lots/{lotId:int}/cash-drawer/top-ups")]
+    public async Task<IActionResult> RequestCashTopUpAsync(int lotId, [FromBody] RequestCashTopUpModel model) =>
+        Ok(ApiResult<CashTopUpModel>.Success(await cashDrawers.RequestTopUpAsync(lotId, model)));
+
+    /// <summary>Withdraws one's own request before the Manager decides.</summary>
+    [HttpPost("lots/{lotId:int}/cash-drawer/top-ups/{id:long}/cancel")]
+    public async Task<IActionResult> CancelCashTopUpAsync(int lotId, long id) =>
+        Ok(ApiResult<CashTopUpModel>.Success(await cashDrawers.CancelTopUpAsync(lotId, id)));
+
     [HttpGet("lots/{lotId:int}/gates")]
     public async Task<IActionResult> GetGatesAsync(int lotId) =>
         Ok(ApiResult<IReadOnlyList<GateResponseModel>>.Success(await gateService.GetGatesAsync(lotId)));
@@ -103,6 +128,41 @@ public class StaffGateController(IGateService gateService, IReservationService r
     [HttpPost("sessions/{id:long}/check-out")]
     public async Task<IActionResult> CheckoutAsync(long id, [FromBody] CheckoutModel model) =>
         Ok(ApiResult<CheckoutResultModel>.Success(await gateService.CheckoutAsync(id, model)));
+
+    /// <summary>Lost ticket with the driver's Citizen ID and registration photos; the Staff then approves or refuses it.</summary>
+    [HttpPost("sessions/{id:long}/lost-ticket/papers")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 20 * 1024 * 1024)]
+    public async Task<IActionResult> ReportLostTicketWithPapersAsync(long id, [FromForm] string reason, IFormFile citizenId, IFormFile registration)
+    {
+        if (citizenId == null || registration == null)
+            return BadRequest(ApiResult<SessionResponseModel>.Failure(["Upload both the Citizen ID and the vehicle registration certificate."]));
+        await using var citizen = citizenId.OpenReadStream();
+        await using var papers = registration.OpenReadStream();
+        return Ok(ApiResult<SessionResponseModel>.Success(await gateService.ReportLostTicketWithPapersAsync(id, new LostTicketPapersModel
+        {
+            Reason = reason,
+            CitizenIdPhoto = citizen,
+            CitizenIdLength = citizenId.Length,
+            RegistrationPhoto = papers,
+            RegistrationLength = registration.Length
+        })));
+    }
+
+    /// <summary>The Staff compared the papers with the vehicle: approve (fine on the bill, vehicle stays) or refuse.</summary>
+    [HttpPost("sessions/{id:long}/lost-ticket/review")]
+    public async Task<IActionResult> ReviewLostTicketAsync(long id, [FromBody] LostTicketReviewModel model) =>
+        Ok(ApiResult<SessionResponseModel>.Success(await gateService.ReviewLostTicketAsync(id, model)));
+
+    /// <summary>A paper photo of the vehicle's lost-ticket case: citizen-id or registration.</summary>
+    [HttpGet("sessions/{id:long}/lost-ticket/papers/{kind}")]
+    public async Task<IActionResult> GetLostTicketPaperAsync(long id, string kind)
+    {
+        var (content, contentType) = await gateService.GetLostTicketPaperAsync(id, kind);
+        Response.Headers.CacheControl = "no-store";
+        return File(content, contentType);
+    }
 
     /// <summary>FR-OPS-05: lost ticket / card.</summary>
     [HttpPost("sessions/{id:long}/lost-ticket")]

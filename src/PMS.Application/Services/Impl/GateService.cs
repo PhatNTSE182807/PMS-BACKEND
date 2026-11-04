@@ -15,12 +15,15 @@ public class GateService(
     ParkingOptions options,
     ParkingInventory inventory,
     TariffProvider tariffs,
+    LotOccupancy occupancy,
     IPaymentService paymentService,
     ParkingTokenSigner signer,
     LotScopeService lotScope,
     TimeProvider clock,
     IParkingRealtimeNotifier notifier = null,
-    IUserNotificationPublisher notifications = null) : IGateService
+    IUserNotificationPublisher notifications = null,
+    CashDrawerService cashDrawers = null,
+    IVehicleDocumentStorage paperStorage = null) : IGateService
 {
     /// <summary>Two lanes never open two sessions for one plate at the same time (NFR-14) inside this process.</summary>
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlateGates = new();
@@ -270,7 +273,38 @@ public class GateService(
         // Zone Counter (FR-OPS-15): only walk-ins are counted against free spaces; a reservation has its slot
         int? zoneId = reservation?.ZoneId;
         int? slotId = reservation?.SlotId;
-        if (reservation == null)
+
+        // BR-08: another vehicle is parked in the booked bay. Move the booking to another free bay of its
+        // type (first hour free), or, when none is left, to the walk-in area with the deposit refunded in full.
+        var bayTaken = reservation?.SlotId is { } bookedSlot
+                       && await pmsContext.ParkingSessions.AnyAsync(s => s.SlotId == bookedSlot && SessionStatus.Open.Contains(s.Status));
+        Slot replacementBay = null;
+        if (bayTaken)
+        {
+            var bookedCode = await pmsContext.Slots.Where(s => s.Id == reservation.SlotId).Select(s => s.Code).FirstOrDefaultAsync();
+            var occupiedSlotIds = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
+            var free = await pmsContext.Slots
+                .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available
+                            && !occupiedSlotIds.Contains(s.Id))
+                .ToListAsync();
+            replacementBay = free
+                .Where(s => ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId))
+                .OrderByDescending(s => s.ZoneId == reservation.ZoneId)
+                .ThenBy(s => s.Code)
+                .FirstOrDefault();
+            alerts.Add(new GateAlertModel
+            {
+                Code = "BOOKED_BAY_TAKEN",
+                Message = replacementBay != null
+                    ? $"Booked bay {bookedCode} is taken by another vehicle: park in bay {replacementBay.Code} instead. The first hour is free."
+                    : $"Booked bay {bookedCode} is taken and no other bay of this type is free: park in the walk-in area. The deposit is refunded in full.",
+                Blocking = false
+            });
+            slotId = replacementBay?.Id;
+            zoneId = replacementBay?.ZoneId;
+        }
+
+        if (reservation == null || (bayTaken && replacementBay == null))
         {
             var counters = (await inventory.CountersAsync(lotId))
                 .Where(c => c.VehicleTypeId != null && ParkingInventory.Compatible(types, c.VehicleTypeId.Value, vehicleTypeId))
@@ -315,7 +349,7 @@ public class GateService(
             : await VerifiedOwnerAsync(normalized);
 
         // Lock on the vehicle when it is known (a reservation may come with another plate), else on the plate
-        var session = await WithPlateLockAsync(vehicleId != null ? $"vehicle:{vehicleId}" : normalized, async () =>
+        var session = await WithPlateLockAsync(vehicleId != null ? $"vehicle:{vehicleId}" : normalized, () => LotConcurrency.RunAsync(pmsContext, async () =>
         {
             if (await pmsContext.ParkingSessions.AnyAsync(s => SessionStatus.Open.Contains(s.Status)
                     && ((normalized.Length > 0 && s.HasPlate && s.EntryPlateNormalized == normalized)
@@ -326,7 +360,16 @@ public class GateService(
             if (reservation != null && await pmsContext.Reservations.AnyAsync(r => r.Id == reservation.Id && r.Status != ReservationStatus.Confirmed))
                 throw new ConflictException("This reservation has already checked in.");
 
-            var tariff = await tariffs.ForAsync(lotId, reservation?.ZoneId, vehicleTypeId, Now);
+            // Concurrency: count the vehicle in (this reads the lot row and remembers its RowVersion) BEFORE the
+            // price is read, and save the session and the counter together. If a price becomes live or another
+            // vehicle enters between our read and our save, SaveChangesAsync throws DbUpdateConcurrencyException,
+            // RunAsync drops the unsaved session and runs this block again, so the session never keeps a price
+            // that was replaced while it was being created.
+            await occupancy.StageEntryAsync(lotId);
+
+            // A booking locked its price when it was made: the booked vehicle keeps it whatever the lot charges now
+            var tariff = TariffSnapshot.Read(reservation?.PriceSnapshotJson)
+                         ?? await tariffs.ForAsync(lotId, reservation?.ZoneId, vehicleTypeId, Now);
             var created = new ParkingSession
             {
                 SessionCode = ParkingText.NewCode("SS", Now),
@@ -345,6 +388,7 @@ public class GateService(
                 SlotId = slotId,
                 PricingRuleId = tariff.RuleId,
                 PricingRuleVersion = tariff.Version,
+                PriceSnapshotJson = TariffSnapshot.Write(tariff),
                 Status = SessionStatus.PendingEntry,
                 SessionType = reservation != null ? SessionType.Reservation : whitelisted ? SessionType.Whitelist : SessionType.WalkIn,
                 VehicleTypeId = vehicleTypeId,
@@ -356,10 +400,34 @@ public class GateService(
                 CreatedAt = Now,
                 RowVersion = []
             };
+            if (bayTaken)
+            {
+                // The vehicle in the booked bay keeps it; the booking moves its hold to the new bay (no counter change)
+                var bookedBay = await pmsContext.Slots.FirstAsync(s => s.Id == reservation.SlotId);
+                bookedBay.Status = SlotStatus.Occupied;
+                if (replacementBay != null)
+                {
+                    var newBay = await pmsContext.Slots.FirstAsync(s => s.Id == replacementBay.Id);
+                    newBay.Status = SlotStatus.Reserved;
+                    reservation.SlotId = newBay.Id;
+                    reservation.ZoneId = newBay.ZoneId;
+                    created.FirstHourWaived = true;
+                }
+                created.OverrideNote = string.Join("; ", new[] { created.OverrideNote, alerts.First(a => a.Code == "BOOKED_BAY_TAKEN").Message }
+                    .Where(n => !string.IsNullOrEmpty(n)));
+            }
             pmsContext.ParkingSessions.Add(created);
             await pmsContext.SaveChangesAsync();
             return created;
-        });
+        }));
+
+        // No bay left for the booking: it parks as a walk-in and the whole deposit goes back (BR-08)
+        if (bayTaken && replacementBay == null)
+        {
+            var deposit = await paymentService.DepositHeldAsync(reservation.Id);
+            if (deposit > 0)
+                await paymentService.RefundDepositAsync(reservation, deposit, "The booked bay was taken by another vehicle.", lotScope.UserId);
+        }
 
         QueueSessionPush(session);
         await inventory.FlushAsync();
@@ -423,6 +491,8 @@ public class GateService(
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         await CancelPendingEntryAsync(session, "Vehicle turned around / cancelled by Staff");
         await pmsContext.SaveChangesAsync();
+        // The session counted the vehicle in when it was created; it never got in, so count it out again
+        await occupancy.ReleaseAsync(session.ParkingLotId);
         await inventory.FlushAsync();
         return await ToModelAsync(session);
     }
@@ -441,6 +511,23 @@ public class GateService(
     // ---- payment points ---------------------------------------------------------------------------
 
     public async Task<CheckoutQuoteModel> RequestPaymentAsync(long sessionId, CheckoutQuoteRequestModel model)
+    {
+        // Asking for the fee twice gives the same answer, so a request that lost a race with another one (two
+        // lanes, a double click, a refresh) simply runs again on the saved session instead of failing
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await RequestPaymentOnceAsync(sessionId, model);
+            }
+            catch (DbUpdateConcurrencyException) when (attempt < 3)
+            {
+                pmsContext.ChangeTracker.Clear();
+            }
+        }
+    }
+
+    private async Task<CheckoutQuoteModel> RequestPaymentOnceAsync(long sessionId, CheckoutQuoteRequestModel model)
     {
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         var quote = await QuoteAsync(session, model?.PlateNumber, model?.AnprConfidence, mutate: true);
@@ -473,7 +560,10 @@ public class GateService(
         if (quote.AmountDue <= 0)
             throw new BadRequestException("Nothing is due.");
 
-        return await paymentService.RecordCashAsync(session, quote.AmountDue, model.Amount, model.Prepaid, lotScope.UserId);
+        // A Staff's cash goes into their drawer of the day: one opens on its own when none is (an extra close after the first)
+        if (cashDrawers != null && lotScope.Role == "Staff")
+            await cashDrawers.EnsureOpenAsync(session.ParkingLotId, lotScope.UserId);
+        return await paymentService.RecordCashAsync(session, quote.AmountDue, model.Amount, model.Prepaid, lotScope.UserId, model.Received, model.Change);
     }
 
     public async Task<PaymentResponseModel> PayOnlineAtLaneAsync(long sessionId, LanePaymentModel model, PaymentRequestContext context)
@@ -563,6 +653,11 @@ public class GateService(
         }
 
         await pmsContext.SaveChangesAsync();
+
+        // The session is Completed: count the vehicle out. When it was the last one, the prices that waited for an
+        // empty lot become live here (see LotOccupancy.ReleaseAsync for the concurrency handling).
+        await occupancy.ReleaseAsync(session.ParkingLotId);
+
         QueueSessionPush(session);
         await inventory.FlushAsync();
         // Bell notification with the check-out time, duration and fee
@@ -571,9 +666,17 @@ public class GateService(
         return new CheckoutResultModel { Session = await ToModelAsync(session), BarrierOpen = true, DepositRefund = refunded };
     }
 
-    public async Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model)
+    public Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model) =>
+        ReportLostTicketAsync(sessionId, model, LostTicketApproval.Manager);
+
+    /// <param name="pendingMode">Who decides a case that is not approved on the spot: the Manager, or the Staff after uploading papers.</param>
+    private async Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model, string pendingMode)
     {
         var session = await ScopedSessionAsync(sessionId, tracked: true);
+        // Lost tickets are for walk-ins with a paper ticket or card: a booked vehicle leaves with its booking QR,
+        // its verified plate or the app's exit pass, so it is found by plate or booking code, never fined
+        if (session.ReservationId != null || session.SessionType == SessionType.Reservation)
+            throw new BadRequestException("This vehicle came in with a booking, so it has no paper ticket to lose: find it by plate or booking code at the exit instead.");
         if (string.IsNullOrWhiteSpace(model?.Reason))
             throw new BadRequestException("A reason is required.");
 
@@ -587,7 +690,7 @@ public class GateService(
         }
         ParkingStateMachines.EnsureSession(session.Status, SessionStatus.LostTicketPending);
 
-        var tariff = await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
+        var tariff = await TariffOfAsync(session);
         var reporter = lotScope.UserId;
         session.IsLostCard = true;
         session.Status = SessionStatus.LostTicketPending;
@@ -602,7 +705,7 @@ public class GateService(
             ReportedBy = reporter,
             ReportedAt = Now,
             Status = LostTicketCaseStatus.Pending,
-            ApprovalMode = LostTicketApproval.Manager
+            ApprovalMode = pendingMode
         };
         pmsContext.SessionViolations.Add(lostCase);
 
@@ -613,10 +716,10 @@ public class GateService(
             lostCase.ApprovalMode = LostTicketApproval.Conditional;
             lostCase.DecidedBy = reporter;
             lostCase.DecidedAt = Now;
-            session.Status = SessionStatus.PendingPayment;
-            await QuoteAsync(session, null, null, mutate: true);
+            // The vehicle stays parked; the fine is added to its bill when it checks out
+            session.Status = SessionStatus.Active;
         }
-        else
+        else if (pendingMode == LostTicketApproval.Manager)
         {
             var (lotId, id, code) = (session.ParkingLotId, session.Id, session.SessionCode);
             inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "LOST_TICKET_APPROVAL", $"Lost ticket {code} needs a Manager's approval.", id) ?? Task.CompletedTask);
@@ -626,6 +729,100 @@ public class GateService(
         QueueSessionPush(session);
         await inventory.FlushAsync();
         return await ToModelAsync(session);
+    }
+
+    /// <summary>Photos of papers are kept small: a phone photo or a scan.</summary>
+    private const long MaxPaperBytes = 8 * 1024 * 1024;
+
+    /// <summary>
+    /// Lost ticket of a walk-in, with the driver's Citizen ID and vehicle registration photos. The case waits for the
+    /// Staff to compare the papers with the vehicle (ReviewLostTicketAsync); the vehicle cannot pay or leave meanwhile.
+    /// </summary>
+    public async Task<SessionResponseModel> ReportLostTicketWithPapersAsync(long sessionId, LostTicketPapersModel model)
+    {
+        if (paperStorage == null)
+            throw new BadRequestException("Uploading papers is not available.");
+        if (model?.CitizenIdPhoto == null || model.RegistrationPhoto == null)
+            throw new BadRequestException("Upload both the Citizen ID and the vehicle registration certificate.");
+
+        var citizen = await ReadPaperAsync(model.CitizenIdPhoto, model.CitizenIdLength, "Citizen ID");
+        var registration = await ReadPaperAsync(model.RegistrationPhoto, model.RegistrationLength, "registration certificate");
+        await ReportLostTicketAsync(sessionId, new LostTicketModel { Reason = model.Reason }, LostTicketApproval.Staff);
+
+        var lostCase = await CurrentLostTicketCaseAsync(sessionId);
+        var folder = $"lost-tickets/{sessionId}";
+        lostCase.CitizenIdPhotoPath = await paperStorage.SaveAsync(citizen, folder);
+        lostCase.RegistrationPhotoPath = await paperStorage.SaveAsync(registration, folder);
+        await pmsContext.SaveChangesAsync();
+        return await ToModelAsync(await ScopedSessionAsync(sessionId));
+    }
+
+    /// <summary>
+    /// The Staff compared the uploaded papers with the vehicle. Approved: the fine goes on the bill and the vehicle
+    /// stays parked until it checks out (a Manager reviews it later, BR-13). Refused: it stays and cannot leave until
+    /// a new case is approved (SRS 4.2.4).
+    /// </summary>
+    public async Task<SessionResponseModel> ReviewLostTicketAsync(long sessionId, LostTicketReviewModel model)
+    {
+        var session = await ScopedSessionAsync(sessionId, tracked: true);
+        if (session.Status != SessionStatus.LostTicketPending)
+            throw new BadRequestException("No lost-ticket case is waiting for this vehicle.");
+        var lostCase = await CurrentLostTicketCaseAsync(session.Id);
+        if (lostCase is not { Status: LostTicketCaseStatus.Pending, ApprovalMode: LostTicketApproval.Staff })
+            throw new BadRequestException("This lost-ticket case waits for a Manager, not for the papers check.");
+        var note = model?.Note?.Trim();
+        if (model?.Approve != true && string.IsNullOrEmpty(note))
+            throw new BadRequestException("Say why the papers do not match before refusing.");
+        if (note?.Length > 500)
+            throw new BadRequestException("The note is too long (500 characters at most).");
+
+        lostCase.Status = model.Approve ? LostTicketCaseStatus.Approved : LostTicketCaseStatus.Rejected;
+        lostCase.ApprovalMode = model.Approve ? LostTicketApproval.Conditional : LostTicketApproval.Staff;
+        lostCase.DecidedBy = lotScope.UserId;
+        lostCase.DecidedAt = Now;
+        lostCase.DecisionNote = string.IsNullOrEmpty(note) ? null : note;
+        // An approval is reviewed by the Manager later (BR-13); a refusal is final for this case
+        lostCase.IsResolved = !model.Approve;
+        session.Status = SessionStatus.Active;
+        session.UpdatedAt = Now;
+        await pmsContext.SaveChangesAsync();
+        QueueSessionPush(session);
+        await inventory.FlushAsync();
+        return await ToModelAsync(session);
+    }
+
+    /// <summary>One uploaded paper of the vehicle's latest lost-ticket case (citizen-id or registration), for the lot's Staff and Manager.</summary>
+    public async Task<(Stream Content, string ContentType)> GetLostTicketPaperAsync(long sessionId, string kind)
+    {
+        var session = await ScopedSessionAsync(sessionId);
+        var lostCase = await CurrentLostTicketCaseAsync(session.Id)
+                       ?? throw new NotFoundException("This vehicle has no lost-ticket case.");
+        var path = kind?.ToLowerInvariant() switch
+        {
+            "citizen-id" => lostCase.CitizenIdPhotoPath,
+            "registration" => lostCase.RegistrationPhotoPath,
+            _ => throw new BadRequestException("Ask for citizen-id or registration.")
+        } ?? throw new NotFoundException("No photo was uploaded for this case.");
+
+        var stream = paperStorage?.OpenRead(path) ?? throw new NotFoundException("The photo is no longer stored.");
+        var head = new byte[8];
+        var read = await stream.ReadAsync(head);
+        stream.Position = 0;
+        return (stream, VehicleDocumentService.DetectContentType(head.AsSpan(0, read)) ?? "application/octet-stream");
+    }
+
+    private static async Task<MemoryStream> ReadPaperAsync(Stream content, long length, string what)
+    {
+        if (length <= 0)
+            throw new BadRequestException($"The {what} file is empty.");
+        if (length > MaxPaperBytes)
+            throw new BadRequestException($"The {what} file is larger than 8 MB.");
+        var buffer = new MemoryStream();
+        await content.CopyToAsync(buffer);
+        if (VehicleDocumentService.DetectContentType(buffer.GetBuffer().AsSpan(0, (int)buffer.Length)) == null)
+            throw new BadRequestException($"The {what} must be a JPEG, PNG or PDF file.");
+        buffer.Position = 0;
+        return buffer;
     }
 
     public async Task<SessionResponseModel> DecideLostTicketAsync(long sessionId, bool approve, string reason)
@@ -652,16 +849,9 @@ public class GateService(
         lostCase.DecisionNote = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         lostCase.IsResolved = true;
 
-        if (approve)
-        {
-            session.Status = SessionStatus.PendingPayment;
-            await QuoteAsync(session, null, null, mutate: true);
-        }
-        else
-        {
-            // 4.2.4: the vehicle stays; the customer comes back with full papers and a new case
-            session.Status = SessionStatus.Active;
-        }
+        // Approved: the fine is on the bill and the vehicle stays until it checks out. Rejected (4.2.4): it stays
+        // in the lot until the customer comes back with full papers and a new case is approved.
+        session.Status = SessionStatus.Active;
 
         session.UpdatedAt = Now;
         await pmsContext.SaveChangesAsync();
@@ -699,6 +889,8 @@ public class GateService(
         }
 
         await pmsContext.SaveChangesAsync();
+        // An abnormal close frees the bay like a normal exit, and may be the one that empties the lot
+        await occupancy.ReleaseAsync(session.ParkingLotId);
         QueueSessionPush(session);
         await inventory.FlushAsync();
         if (session.CustomerId != null)
@@ -769,7 +961,7 @@ public class GateService(
         {
             // A read-only quote: looking at the fee never changes the session
             var quote = await QuoteAsync(session, null, null, mutate: false);
-            var tariff = await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
+            var tariff = await TariffOfAsync(session);
             var lot = lots.GetValueOrDefault(session.ParkingLotId);
             var vehicle = session.VehicleId != null ? vehicles.GetValueOrDefault(session.VehicleId.Value) : null;
             var booking = session.ReservationId != null ? bookings.GetValueOrDefault(session.ReservationId.Value) : null;
@@ -859,13 +1051,22 @@ public class GateService(
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstAsync(p => p.Id == session.ParkingLotId);
         var timeZone = ParkingText.FindTimeZone(lot.TimeZoneId ?? options.TimeZoneId);
-        var tariff = await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
+        var tariff = await TariffOfAsync(session);
 
         var breakdown = session.SessionType == SessionType.Whitelist
             ? new FeeBreakdown((int)Math.Ceiling((Now - session.EntryTime).TotalMinutes), 0, false, [])
             : options.Simulation is { Enabled: true } simulation
                 ? FeeCalculator.CalculateSimulated(tariff, Utc(session.EntryTime), Now, timeZone, simulation.BlockSeconds)
                 : FeeCalculator.Calculate(tariff, Utc(session.EntryTime), Now, timeZone);
+        if (session.FirstHourWaived && breakdown.Total > 0)
+        {
+            // BR-08: the booked bay was taken, so the first hour (one block while simulating) is on the house
+            var entry = Utc(session.EntryTime);
+            var firstHour = options.Simulation is { Enabled: true } sim
+                ? FeeCalculator.CalculateSimulated(tariff, entry, Min(Now, entry.AddSeconds(sim.BlockSeconds)), timeZone, sim.BlockSeconds)
+                : FeeCalculator.Calculate(tariff, entry, Min(Now, entry.AddHours(1)), timeZone);
+            breakdown = breakdown with { Total = Math.Max(0, breakdown.Total - firstHour.Total) };
+        }
         var deposit = session.ReservationId != null ? await paymentService.DepositHeldAsync(session.ReservationId.Value) : 0;
         var exitWindowMissed = session.ExitWindowEndsAt != null && Now > session.ExitWindowEndsAt && session.PaidAmount > 0;
         var lostFee = session.IsLostCard ? tariff.LostTicketFee : 0;
@@ -938,6 +1139,14 @@ public class GateService(
     }
 
     // ---- helpers ----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The tariff a stay is charged with: the copy taken at entry, so a price change after the vehicle came in
+    /// (or after the booking was made) never touches it. Sessions from before the copy existed use the live rule.
+    /// </summary>
+    private async Task<Tariff> TariffOfAsync(ParkingSession session) =>
+        TariffSnapshot.Read(session.PriceSnapshotJson)
+        ?? await tariffs.ForAsync(session.ParkingLotId, session.ReservationId != null ? session.ZoneId : null, session.VehicleTypeId, session.EntryTime);
 
     private async Task<Reservation> FindReservationAsync(int lotId, CheckInModel model, string normalized, List<GateAlertModel> alerts, List<string> overrides)
     {
@@ -1136,6 +1345,8 @@ public class GateService(
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
+    private static DateTime Min(DateTime a, DateTime b) => a < b ? a : b;
+
     private void QueueSessionPush(ParkingSession s)
     {
         var (lotId, id, status, plate) = (s.ParkingLotId, s.Id, s.Status, s.EntryPlateNumber);
@@ -1195,6 +1406,8 @@ public class GateService(
             LostTicketReportedBy = lostCases.GetValueOrDefault(s.Id)?.ReportedBy,
             LostTicketReportedAt = lostCases.TryGetValue(s.Id, out var lost) ? Utc(lost.ReportedAt) : null,
             LostTicketReason = lostCases.GetValueOrDefault(s.Id)?.Note,
+            LostTicketApprovalMode = lostCases.GetValueOrDefault(s.Id)?.ApprovalMode,
+            LostTicketHasPapers = lostCases.GetValueOrDefault(s.Id)?.CitizenIdPhotoPath != null,
             LostTicketDecisionNote = lostCases.GetValueOrDefault(s.Id)?.DecisionNote,
             PlateMismatch = s.PlateMismatch,
             IsOverdue = SessionStatus.Inside.Contains(s.Status) && s.EntryTime < overdueBefore,

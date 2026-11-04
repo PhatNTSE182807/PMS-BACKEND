@@ -20,10 +20,13 @@ public class ParkingJobs(
     ParkingOptions options,
     ReservationService reservations,
     GateService gates,
+    LotOccupancy occupancy,
     IPaymentService payments,
     ParkingInventory inventory,
     TimeProvider clock,
-    IParkingRealtimeNotifier notifier = null)
+    IParkingRealtimeNotifier notifier = null,
+    WalkInSimulationService walkIns = null,
+    CashDrawerService cashDrawers = null)
 {
     public const string MinutelyJobId = "parking-timeouts";
     public const string OverdueJobId = "parking-overdue-sessions";
@@ -51,6 +54,10 @@ public class ParkingJobs(
             var released = await ReleaseStalePaymentRequestsAsync();
             var checkedPayments = await payments.CheckPendingPaymentsAsync();
             var refunds = await payments.RetryPendingRefundsAsync();
+            // Simulated walk-ins whose stay is over pay and leave (Admin demo traffic)
+            if (walkIns != null) await walkIns.CheckOutDueAsync();
+            // Cash drawers still open after their deadline: tell the Manager (BR-12)
+            if (cashDrawers != null) await cashDrawers.FlagOverdueAsync();
             return new ParkingJobRun(expired, noShows, reminders, cancelled, released, checkedPayments, refunds);
         }
         finally
@@ -75,6 +82,8 @@ public class ParkingJobs(
             var expired = await ExpireUnpaidReservationsAsync();
             var noShows = await MarkNoShowsAsync();
             await reservations.ActivateDueHoldsAsync();
+            if (walkIns != null) await walkIns.CheckOutDueAsync();
+            if (cashDrawers != null) await cashDrawers.FlagOverdueAsync();
             return new ParkingJobRun(expired, noShows, 0, 0, 0, 0, 0);
         }
         finally
@@ -165,6 +174,10 @@ public class ParkingJobs(
             await gates.CancelPendingEntryAsync(session, "No sensor signal: the vehicle turned around");
 
         await SaveAndFlushAsync();
+
+        // Each of these sessions counted a vehicle in at the entry lane; none got in, so count them out
+        foreach (var lot in stale.GroupBy(s => s.ParkingLotId))
+            await occupancy.ReleaseAsync(lot.Key, lot.Count());
         return stale.Count;
     }
 

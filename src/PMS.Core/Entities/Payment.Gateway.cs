@@ -23,6 +23,12 @@ public partial class Payment
     /// <summary>Staff who took the cash (FR-PAY-01), or who started the lane QR.</summary>
     public string CollectedByUserId { get; set; }
 
+    /// <summary>Cash only: banknotes the customer handed over, as JSON {"50000": 2, …}; null when not entered note by note.</summary>
+    public string CashReceivedJson { get; set; }
+
+    /// <summary>Cash only: banknotes given back as change, same JSON shape.</summary>
+    public string CashChangeJson { get; set; }
+
     /// <summary>"App", "Lane" or "Kiosk": only App and Kiosk payments open an Exit Window (FR-PAY-07).</summary>
     public string Channel { get; set; }
 

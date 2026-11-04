@@ -20,7 +20,12 @@ public interface IPaymentService
         string returnUrl, string customerUserId, string staffUserId, PaymentRequestContext context);
 
     /// <summary>Cash at the lane or a counter (FR-PAY-01): settles the session at once.</summary>
-    Task<PaymentResponseModel> RecordCashAsync(ParkingSession session, decimal amountDue, decimal received, bool prepaid, string staffUserId);
+    /// <summary>
+    /// Cash at a lane or counter. <paramref name="receivedNotes"/> and <paramref name="changeNotes"/> (banknote value → count) are
+    /// optional; when given they must add up to the money received and the change, and they feed the Staff's cash drawer.
+    /// </summary>
+    Task<PaymentResponseModel> RecordCashAsync(ParkingSession session, decimal amountDue, decimal received, bool prepaid, string staffUserId,
+        IReadOnlyDictionary<int, int> receivedNotes = null, IReadOnlyDictionary<int, int> changeNotes = null);
 
     /// <summary>Return URL or IPN of a gateway: checks the signature, then applies the result once.</summary>
     Task<PaymentCallbackResultModel> HandleCallbackAsync(string provider, IReadOnlyDictionary<string, string> fields);

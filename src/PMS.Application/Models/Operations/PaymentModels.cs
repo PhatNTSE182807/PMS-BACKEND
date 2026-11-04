@@ -18,6 +18,12 @@ public class CashPaymentModel
 
     /// <summary>True when paid at a counter/kiosk before driving to the exit: opens an Exit Window (FR-PAY-07).</summary>
     public bool Prepaid { get; set; }
+
+    /// <summary>Optional: the banknotes handed over (value → count); their sum must equal Amount.</summary>
+    public Dictionary<int, int> Received { get; set; }
+
+    /// <summary>Optional: the banknotes given back; received − change must equal the amount due.</summary>
+    public Dictionary<int, int> Change { get; set; }
 }
 
 /// <summary>Online payment started by the Staff at a lane (dynamic QR for a Guest, FR-PAY-03).</summary>

@@ -24,6 +24,18 @@ public partial class ParkingSession
     /// <summary>Why a vehicle entered without a plate (unreadable or missing); null when it has a plate. Not a device failure, so it is not a manual entry.</summary>
     public string NoPlateReason { get; set; }
 
+    /// <summary>Created by the Admin's walk-in simulation (demo traffic); real fees and payments, but reports can tell it apart.</summary>
+    public bool IsSimulated { get; set; }
+
+    /// <summary>When the simulation drives this vehicle out (pays the fee at the lane and leaves); null for real sessions.</summary>
+    public DateTime? SimulatedExitAt { get; set; }
+
+    /// <summary>The Admin who deployed the simulated vehicle; the automatic exit acts on their behalf.</summary>
+    public string SimulatedBy { get; set; }
+
+    /// <summary>BR-08: the booked bay was taken by another vehicle and the booking moved to another bay, so the first hour is free.</summary>
+    public bool FirstHourWaived { get; set; }
+
     public bool IsManualExit { get; set; }
 
     public string ManualExitReason { get; set; }
@@ -33,6 +45,13 @@ public partial class ParkingSession
 
     /// <summary>Version of the pricing rule in force at entry (BR-22).</summary>
     public int? PricingRuleVersion { get; set; }
+
+    /// <summary>
+    /// The tariff (price fields of the rule) in force at the moment of entry, as JSON. The fee is worked out
+    /// from this copy, never from the lot's live rule, so a later price change cannot touch a stay in progress.
+    /// Null on sessions created before this column existed: they are still priced from the live rule.
+    /// </summary>
+    public string PriceSnapshotJson { get; set; }
 
     /// <summary>Reservation deposit deducted from the fee at check-out (FR-RSV-07).</summary>
     public decimal DepositApplied { get; set; }

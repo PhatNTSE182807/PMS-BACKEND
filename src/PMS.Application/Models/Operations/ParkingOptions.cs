@@ -123,8 +123,17 @@ public class ReservationRules
 
     public decimal DefaultDeposit { get; set; } = 30_000;
 
-    /// <summary>BR-01: only these vehicle types may book ("chỉ ô tô" by default).</summary>
-    public string[] ReservableVehicleTypeCodes { get; set; } = ["CAR_4", "CAR_7"];
+    /// <summary>BR-01 (changed): only these vehicle types may book. Cars book ahead; motorbikes only claim a bay on arrival.</summary>
+    public string[] ReservableVehicleTypeCodes { get; set; } = ["CAR_4", "CAR_7", "MOTORBIKE"];
+
+    /// <summary>
+    /// Team addition: these types never book ahead. Tapping a free bay claims it now, with no deposit and
+    /// no time to pick; Staff then checks the vehicle in at the gate.
+    /// </summary>
+    public string[] InstantVehicleTypeCodes { get; set; } = ["MOTORBIKE"];
+
+    public bool IsInstant(string vehicleTypeCode) =>
+        InstantVehicleTypeCodes.Contains(vehicleTypeCode, StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>XXIV Wallet limits for customers.</summary>

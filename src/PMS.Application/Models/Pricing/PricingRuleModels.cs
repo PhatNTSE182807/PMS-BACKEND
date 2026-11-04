@@ -4,6 +4,19 @@ using System.Collections.Generic;
 
 namespace PMS.Application.Models.Pricing;
 
+/// <summary>The values of <see cref="PricingRuleModel.PriceUpdateStatus"/>.</summary>
+public static class PriceUpdateStatuses
+{
+    /// <summary>The lot was empty: the new price is live now.</summary>
+    public const string Applied = "Applied";
+
+    /// <summary>Vehicles are inside: the new price is saved and goes live when the last one leaves.</summary>
+    public const string Pending = "Pending";
+
+    /// <summary>The request equals the live price; nothing changed and any waiting price was withdrawn.</summary>
+    public const string Unchanged = "Unchanged";
+}
+
 /// <summary>
 /// Detailed DTO for a pricing rule / tariff configuration (SRS section 5, BR-09, BR-22).
 /// </summary>
@@ -82,6 +95,19 @@ public class PricingRuleModel
     public DateTime CreatedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// What happened to the charging fields of the last update, one of <see cref="PriceUpdateStatuses"/>:
+    /// "Applied" (live now), "Pending" (waits until the lot is empty) or "Unchanged" (same as the live price, any
+    /// waiting change was withdrawn). Null outside an update response.
+    /// </summary>
+    public string PriceUpdateStatus { get; set; }
+
+    /// <summary>
+    /// The price waiting for an empty lot; null when none. While it is set, the price fields of this model are still
+    /// the live price that customers pay.
+    /// </summary>
+    public PendingPriceModel PendingPrice { get; set; }
 }
 
 /// <summary>Public price of one vehicle type at a lot (what the gates charge now), for customers.</summary>

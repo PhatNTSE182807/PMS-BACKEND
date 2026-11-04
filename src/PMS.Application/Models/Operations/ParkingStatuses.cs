@@ -111,6 +111,27 @@ public static class PaymentPurpose
     public const string WalletTopUp = "WalletTopUp";
 }
 
+/// <summary>Daily cash close of a Staff drawer (BR-12).</summary>
+public static class CashCloseStatus
+{
+    public const string Open = "Open";
+    public const string Closed = "Closed";
+    /// <summary>Closed with a difference over the threshold: the Staff gave a reason, a Manager must confirm it.</summary>
+    public const string HasDifference = "HasDifference";
+    public const string Confirmed = "Confirmed";
+}
+
+/// <summary>Banknotes a Staff asked the Manager to add to their cash drawer.</summary>
+public static class CashTopUpStatus
+{
+    public const string Pending = "Pending";
+    /// <summary>The notes count as cash put into the drawer.</summary>
+    public const string Approved = "Approved";
+    public const string Rejected = "Rejected";
+    /// <summary>Withdrawn by the Staff before the Manager decided.</summary>
+    public const string Cancelled = "Cancelled";
+}
+
 public static class PaymentMethod
 {
     public const string Cash = "Cash";
@@ -167,6 +188,9 @@ public static class LostTicketCaseStatus
 /// <summary>How a lost-ticket case was approved (SessionViolations.ApprovalMode).</summary>
 public static class LostTicketApproval
 {
+    /// <summary>The Staff uploaded the driver's Citizen ID and registration papers and has to approve or refuse the case.</summary>
+    public const string Staff = "Staff";
+
     /// <summary>BR-13: the Staff checked photos, papers and ID and applied the standard fine; the Manager reviews it later.</summary>
     public const string Conditional = "Conditional";
     /// <summary>BR-14: a Manager of the lot (or an Admin) decides; never the person who reported it.</summary>

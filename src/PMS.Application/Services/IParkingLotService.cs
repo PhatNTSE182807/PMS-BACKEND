@@ -10,6 +10,9 @@ public interface IParkingLotService
 
     Task<IEnumerable<PublicParkingLotResponseModel>> GetPublicLotsAsync(string searchTerm = null);
 
+    /// <summary>Live occupied / free bays of a lot, in total, per vehicle family and per zone (zone counters).</summary>
+    Task<LotOccupancyModel> GetOccupancyAsync(int lotId);
+
     Task<ParkingLotResponseModel> GetByIdAsync(int id);
 
     Task<ParkingLotResponseModel> CreateAsync(CreateParkingLotModel model, string createdBy = null);

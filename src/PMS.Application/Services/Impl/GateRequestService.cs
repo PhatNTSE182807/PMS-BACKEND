@@ -135,6 +135,9 @@ public class GateRequestService(
             : [GateRequestKind.All.FirstOrDefault(k => k.Equals(kind.Trim(), StringComparison.OrdinalIgnoreCase))
                ?? throw new BadRequestException("Kind must be CheckIn or CheckOut.")];
 
+        if (kinds.Contains(GateRequestKind.CheckOut))
+            await QueuePaidVehiclesAsync(lotId);
+
         var requests = await pmsContext.GateRequests
             .Where(g => g.ParkingLotId == lotId && kinds.Contains(g.Kind) && g.Status == GateRequestStatus.Waiting)
             .OrderBy(g => g.CreatedAt)
@@ -228,6 +231,61 @@ public class GateRequestService(
         return (await ToModelsAsync([request]))[0];
     }
 
+    /// <summary>
+    /// Team decision (2026-11-04): the barrier is opened only from the Check-out lane, never from the POS. Every
+    /// vehicle of the lot that is paid (at the POS, in the app or 0 VND) gets a waiting check-out request, walk-ins
+    /// included (no customer account then). Simulated walk-ins leave by themselves and are skipped; a request the
+    /// Staff refused, or the customer cancelled, after the last payment is not opened again.
+    /// </summary>
+    private async Task QueuePaidVehiclesAsync(int lotId)
+    {
+        var paid = await pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => s.ParkingLotId == lotId && s.Status == SessionStatus.Paid && !s.IsSimulated)
+            .Where(s => !pmsContext.GateRequests.Any(g => g.SessionId == s.Id && g.Kind == GateRequestKind.CheckOut && g.Status == GateRequestStatus.Waiting))
+            .Select(s => new
+            {
+                s.Id,
+                s.CustomerId,
+                s.ReservationId,
+                s.VehicleId,
+                s.EntryPlateNumber,
+                LastPaidAt = pmsContext.Payments.Where(p => p.SessionId == s.Id && p.Status == PaymentStatus.Succeeded).Max(p => p.PaidAt),
+                LastClosedAt = pmsContext.GateRequests
+                    .Where(g => g.SessionId == s.Id && g.Kind == GateRequestKind.CheckOut
+                                && (g.Status == GateRequestStatus.Refused || g.Status == GateRequestStatus.Cancelled))
+                    .Max(g => g.HandledAt)
+            })
+            .ToListAsync();
+
+        var toQueue = paid.Where(s => s.LastClosedAt == null || (s.LastPaidAt != null && s.LastPaidAt > s.LastClosedAt)).ToList();
+        if (toQueue.Count == 0)
+            return;
+
+        // Customers see the request in the app ("waiting for Staff at the exit lane") and can follow it
+        var customerIds = toQueue.Where(s => s.CustomerId != null).Select(s => s.CustomerId!.Value).Distinct().ToList();
+        var userIds = await pmsContext.Customers.AsNoTracking()
+            .Where(c => customerIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.UserId);
+
+        var created = toQueue.Select(s => new GateRequest
+        {
+            ParkingLotId = lotId,
+            Kind = GateRequestKind.CheckOut,
+            Status = GateRequestStatus.Waiting,
+            UserId = s.CustomerId != null ? userIds.GetValueOrDefault(s.CustomerId.Value) : null,
+            CustomerId = s.CustomerId,
+            ReservationId = s.ReservationId,
+            SessionId = s.Id,
+            VehicleId = s.VehicleId,
+            PlateNumber = s.EntryPlateNumber,
+            CreatedAt = Now
+        }).ToList();
+        pmsContext.GateRequests.AddRange(created);
+        await pmsContext.SaveChangesAsync();
+        foreach (var request in created)
+            await PushAsync(request);
+    }
+
     /* ------------------------------------------------------------------ helpers */
 
     private async Task<GateRequest> WaitingForStaffAsync(long requestId)
@@ -290,6 +348,9 @@ public class GateRequestService(
         var slotIds = reservations.Values.Where(r => r.SlotId != null).Select(r => r.SlotId!.Value)
             .Concat(sessions.Values.Where(s => s.SlotId != null).Select(s => s.SlotId!.Value)).Distinct().ToList();
         var slots = await pmsContext.Slots.AsNoTracking().Where(s => slotIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Code);
+        // Walk-ins have no registered vehicle: their type comes from the session (the lane's choice)
+        var typeIds = sessions.Values.Where(s => s.VehicleTypeId != null).Select(s => s.VehicleTypeId!.Value).Distinct().ToList();
+        var typeNames = await pmsContext.VehicleTypes.AsNoTracking().Where(t => typeIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Name);
 
         return requests.Select(r =>
         {
@@ -309,8 +370,9 @@ public class GateRequestService(
                 PlateNumber = r.PlateNumber ?? vehicle?.PlateNumber,
                 VehicleLabel = vehicle == null ? null : string.Join(" ", new[] { vehicle.Brand, vehicle.Model }.Where(x => !string.IsNullOrWhiteSpace(x))),
                 VehicleColor = vehicle?.Color,
-                VehicleTypeId = vehicle?.VehicleTypeId,
-                VehicleTypeName = vehicle?.VehicleType?.Name,
+                VehicleTypeId = vehicle?.VehicleTypeId ?? session?.VehicleTypeId,
+                VehicleTypeName = vehicle?.VehicleType?.Name
+                                  ?? (session?.VehicleTypeId != null ? typeNames.GetValueOrDefault(session.VehicleTypeId.Value) : null),
                 CustomerName = customer?.FullName,
                 CustomerPhone = customer?.Phone,
                 ReservationId = reservation?.Id,

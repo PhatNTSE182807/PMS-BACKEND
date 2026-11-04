@@ -6,6 +6,9 @@
         <RootNamespace>PMS.API</RootNamespace>
         <ImplicitUsings>enable</ImplicitUsings>
         <DockerDefaultTargetOS>Windows</DockerDefaultTargetOS>
+        <!-- XML comments on controllers feed the Swagger operations; missing-comment warnings stay off -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);1570;1571;1572;1573;1574;1580;1584;1587;1591</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>

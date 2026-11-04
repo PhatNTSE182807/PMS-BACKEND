@@ -67,6 +67,8 @@ public sealed class OperationsTestContext
     public IClaimService Claims { get; } = Substitute.For<IClaimService>();
     public ParkingTokenSigner Signer { get; }
     public ParkingInventory Inventory { get; }
+    public DeferredPriceService Prices { get; }
+    public LotOccupancy Occupancy { get; }
     public PaymentService Payments { get; }
     public ReservationService Reservations { get; }
     public GateService Gates { get; }
@@ -95,9 +97,11 @@ public sealed class OperationsTestContext
         Inventory = new ParkingInventory(Db);
         var tariffs = new TariffProvider(Db, Options);
         Payments = new PaymentService(Db, gateways, GatewayOptions, Options, Signer, scope, Claims, Clock, Inventory);
-        Reservations = new ReservationService(Db, Options, Inventory, Payments, Signer, scope, Clock);
-        Gates = new GateService(Db, Options, Inventory, tariffs, Payments, Signer, scope, Clock);
-        Jobs = new ParkingJobs(Db, Options, Reservations, Gates, Payments, Inventory, Clock);
+        Prices = new DeferredPriceService(Db, Clock);
+        Occupancy = new LotOccupancy(Db, Prices);
+        Reservations = new ReservationService(Db, Options, Inventory, tariffs, Payments, Signer, scope, Clock);
+        Gates = new GateService(Db, Options, Inventory, tariffs, Occupancy, Payments, Signer, scope, Clock, paperStorage: new InMemoryPaperStorage());
+        Jobs = new ParkingJobs(Db, Options, Reservations, Gates, Occupancy, Payments, Inventory, Clock);
     }
 
     public DateTime Now => Clock.GetUtcNow().UtcDateTime;

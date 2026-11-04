@@ -24,6 +24,12 @@ public partial class PmsDbContext
         // Customer notifications (vehicle approved / rejected, check-in, check-out) live in PmsDbContext.Notifications.cs
         ConfigureNotifications(modelBuilder);
 
+        // Deferred price updates (lot occupancy, price copied at entry, pending changes) live in PmsDbContext.PriceUpdates.cs
+        ConfigurePriceUpdates(modelBuilder);
+
+        // Banknotes a Staff asks the Manager to add to their cash drawer live in PmsDbContext.CashTopUps.cs
+        ConfigureCashTopUps(modelBuilder);
+
         modelBuilder.Entity<ParkingLot>()
             .Property(e => e.LayoutTemplate)
             .HasMaxLength(30)

@@ -14,4 +14,7 @@ public interface ILotRealtimeNotifier
 
     /// <summary>The lot's 3D layout was (re)generated, so clients reload it.</summary>
     Task LayoutChangedAsync(int lotId);
+
+    /// <summary>A price of the lot is now in force ("Applied") or will start once the lot is empty ("Scheduled").</summary>
+    Task LotPriceChangedAsync(int lotId, string state, string message);
 }

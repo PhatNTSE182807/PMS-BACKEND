@@ -28,4 +28,10 @@ public class ManagerRevenueController(
 
         return Ok(ApiResult<ManagerRevenueReportResponse>.Success(result));
     }
+
+    /// <summary>Total revenue since the first parking session of the Manager's lots (or of one lot), split by payment method.</summary>
+    [HttpGet("all-time")]
+    public async Task<IActionResult> GetAllTimeRevenueAsync([FromQuery] int? parkingLotId = null) =>
+        Ok(ApiResult<ManagerRevenueReportResponse>.Success(
+            await revenueReportService.GetManagerAllTimeRevenueAsync(claimService.GetUserId(), parkingLotId)));
 }

@@ -87,6 +87,32 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
             });
     }
 
+    public async Task<ManagerRevenueReportResponse> GetManagerAllTimeRevenueAsync(string managerUserId, int? parkingLotId = null)
+    {
+        if (string.IsNullOrWhiteSpace(managerUserId))
+            throw new ForbiddenException("Authenticated user ID is required.");
+
+        var lotIds = await pmsContext.ParkingLots.AsNoTracking()
+            .Where(p => p.ManagerUserId == managerUserId && !p.IsDeleted)
+            .Select(p => p.Id)
+            .ToListAsync();
+        if (parkingLotId.HasValue && !lotIds.Contains(parkingLotId.Value))
+            throw new ForbiddenException("You do not manage this parking lot.");
+        if (parkingLotId.HasValue)
+            lotIds = [parkingLotId.Value];
+
+        // From the day of the first session of these lots (a day early, so no time zone cuts it off) to today
+        var tz = ParkingText.FindTimeZone(null);
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz));
+        var firstEntry = await pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => lotIds.Contains(s.ParkingLotId))
+            .MinAsync(s => (DateTime?)s.EntryTime);
+        var start = firstEntry is { } first ? DateOnly.FromDateTime(first).AddDays(-1) : today;
+        if (start > today) start = today;
+
+        return await GetManagerRevenueAsync(managerUserId, start.ToString("yyyy-MM-dd"), today.AddDays(1).ToString("yyyy-MM-dd"), parkingLotId);
+    }
+
     public async Task<AdminRevenueReportResponse> GetAdminRevenueAsync(
         string startDate, string endDate, int? parkingLotId = null)
     {

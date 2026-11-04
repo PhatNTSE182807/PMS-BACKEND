@@ -33,4 +33,10 @@ public partial class SessionViolation
     public DateTime? DecidedAt { get; set; }
 
     public string DecisionNote { get; set; }
+
+    /// <summary>Lost ticket: storage path of the driver's Citizen ID photo the Staff uploaded; null without one.</summary>
+    public string CitizenIdPhotoPath { get; set; }
+
+    /// <summary>Lost ticket: storage path of the vehicle registration certificate photo.</summary>
+    public string RegistrationPhotoPath { get; set; }
 }

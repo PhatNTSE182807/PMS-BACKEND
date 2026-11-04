@@ -4,6 +4,9 @@
         <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>PMS.Application</RootNamespace>
+        <!-- XML comments on the DTOs feed the Swagger schemas; missing-comment warnings stay off -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);1570;1571;1572;1573;1574;1580;1584;1587;1591</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>

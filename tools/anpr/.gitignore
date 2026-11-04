@@ -1,0 +1,9 @@
+# Generated data and training output stay local
+.venv/
+__pycache__/
+datasets/
+runs/
+models/
+generated*/
+test-set/
+*.pt

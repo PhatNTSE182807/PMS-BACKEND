@@ -102,6 +102,8 @@ public static class ApiDependencyInjection
         jobs.AddOrUpdate<ParkingJobs>(ParkingJobs.MinutelyJobId, j => j.RunMinutelyAsync(), Cron.Minutely());
         // BR-20: overdue and abandoned vehicles
         jobs.AddOrUpdate<ParkingJobs>(ParkingJobs.OverdueJobId, j => j.FlagOverdueSessionsAsync(), "*/15 * * * *");
+        // Deferred price updates: lots that are empty but still have a price waiting (an exit could not finish)
+        jobs.AddOrUpdate<PriceUpdateJobs>(PriceUpdateJobs.IdleLotsJobId, j => j.PromoteIdleLotsAsync(), Cron.Minutely());
         // Customer notifications: daily purge of old read/unread items
         jobs.AddOrUpdate<NotificationJobs>(NotificationJobs.PurgeJobId, j => j.PurgeOldNotificationsAsync(), Cron.Daily(4));
     }
@@ -163,6 +165,14 @@ public static class ApiDependencyInjection
             });
 
             s.DocumentFilter<SwaggerTagsDocumentFilter>();
+
+            // Controller and DTO XML comments (summaries, remarks, response codes) show up in Swagger
+            foreach (var assembly in new[] { typeof(ApiDependencyInjection).Assembly, typeof(PMS.Application.Models.ApiResult<>).Assembly })
+            {
+                var xmlFile = Path.Combine(AppContext.BaseDirectory, $"{assembly.GetName().Name}.xml");
+                if (File.Exists(xmlFile))
+                    s.IncludeXmlComments(xmlFile, includeControllerXmlComments: true);
+            }
 
             s.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {

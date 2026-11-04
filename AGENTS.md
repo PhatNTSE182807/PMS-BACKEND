@@ -143,7 +143,8 @@ String constants live in `src/PMS.Application/Models/Operations/ParkingStatuses.
   `PendingPayment` (fee requested at lane, counter or app; back to `Active` on cancel/timeout) →
   `Paid` (paid after deposit, or fee 0; back to `PendingPayment` when a pre-payment exceeds the
   exit window) → `Completed` (vehicle passed the barrier). Side paths: `Active → LostTicketPending
-  → PendingPayment` (approved) or back to `Active` (rejected); `Active → AbnormalClosed`
+  → Active` (approved: the fine is added at check-out; rejected: the vehicle stays until new papers
+  are approved); `Active → AbnormalClosed`
   (Maker-Checker); `Active → EmergencyExit` (Manager then waives or records debt). A turned-back
   car cancels the session (`Cancelled`) and the counter does not change. "Device failure" is not a
   state: it is the *manual* flag with a reason.
@@ -287,6 +288,36 @@ Keep this list current; it is the first place to look when code and SRS disagree
   (`ParkingOptions.HoldTime`, `DepositPaymentTime`, `EarlyArrivalTime`, `CancelRefundTime`,
   `ExitWindowTime`). `ParkingSimulationTicker` runs the deadline checks every second. Turning it off
   restores the normal rules and the Manager's pricing; bookings made while it was on keep their short times.
+- Walk-in simulation (team addition, 2026-11-03, for demos): the same Admin screen sends walk-ins with random
+  plates (real format, never a registered, parked or listed plate) through a lot's real entry lane
+  (`WalkInSimulationService`, `api/admin/simulation/walk-ins`) and parks each in a random free bay of its type
+  (as when Staff picks a bay at the lane), so lists and the 3D map show its bay. Each stays a random time (one hour = one pricing
+  block while the simulation is on), then pays cash at the exit lane and leaves by itself (`ParkingJobs` minutely
+  run and simulation tick). Their sessions carry `IsSimulated`; fees, payments and counters are real and nothing
+  is deleted. The screen can also report a lost ticket for a simulated vehicle and park a walk-in in a booked bay.
+- Daily cash close (BR-12, built 2026-11-03): one `DailyCashClose` row per Staff drawer of a lot and business day
+  (`CashDrawerService`, `/api/staff/lots/{id}/cash-drawer`, `/api/manager/…/cash-closes`). The Staff opens it with a
+  counted float (or it opens on its own, empty, with their first cash payment; cash after a close opens drawer 2, 3…).
+  At the lane the Staff can tap the banknotes handed over; the payment then stores the notes received and the change
+  (`Payment.CashReceivedJson` / `CashChangeJson`) and the screen suggests change from the drawer. The close is a blind
+  count; a difference over 20,000 VND needs a reason (`HasDifference`) and the lot's Manager confirms every close
+  (never their own) in the Approval Queue, with a note when it is off. Each drawer must close by 23:00 lot time
+  (`CloseDueAt`; a drawer opened later gets an hour): Staff see a countdown banner, and a drawer still open after it
+  is flagged (`OverdueAt`) and the lot's Manager is alerted (`CASH_*` OpsAlerts on the lot channel, checked by the
+  minutely job and the simulation tick). The Admin simulation can end the business day now with a short grace
+  period (`POST /api/admin/simulation/end-business-day`). Not built: escalation to the Admin when a lot has no Manager.
+- Cash for a drawer (team addition, 2026-11-04): a Staff short of banknotes (usually change) asks the lot's Manager
+  for a list of notes from the Cash Tally page or, when the drawer cannot make change, from the POS
+  (`CashTopUpRequests` table, `CashDrawerService.RequestTopUpAsync`, `POST /api/staff/lots/{id}/cash-drawer/top-ups`;
+  one waiting request per drawer, the Staff can cancel it). The Manager approves or rejects it (with a reason) in
+  the Approval Queue (`/api/manager/lots/{id}/cash-top-ups`, `.../cash-top-ups/{id}/approve|reject`; never their own
+  request, only while the drawer is open). Approved notes count as cash put into that drawer: they are added to
+  its expected notes and expected total (`TopUpTotal`), so the close balances when the Staff counts them.
+- Booked bay taken (BR-08): when a booking checks in and another vehicle is in its bay, the entry lane moves the
+  booking to a free bay of its type and waives the first hour (`ParkingSession.FirstHourWaived`; one block while
+  simulating), or, with no bay left, lets it park as a walk-in and refunds the whole deposit.
+- The 3D / 2D map draws walk-ins: the 2D plan carries each zone's live counter (`ZoneCounters`) and the frontend
+  fills free bays of the zone in a fixed order (`walkInBays` in `src/lib/lot-layout.ts`).
 - No free period (team decision, 2026-10-25): the first block (the first hour by default, or the rule's
   first block) is owed as soon as the vehicle enters, so a stay is never charged 0 VND. This replaces
   BR-09 / BR-22's grace period: `FeeCalculator` ignores `GraceMinutes` and the pricing page no longer
@@ -298,8 +329,16 @@ Keep this list current; it is the first place to look when code and SRS disagree
 - Pricing rules store an overnight surcharge and an overstay surcharge, but the gate's `FeeCalculator`
   does not apply them yet, so the Manager pricing page does not offer them. "Price by the hour" is the
   `DayNight` charge model: a block costs the day or night price of the hour it starts in.
-- Saving a pricing rule edits it in place (new `VersionNo`, old values in `PricingRuleHistory`); the
-  gates use the current Active rule at checkout, not a copy frozen at entry as BR-22 describes.
+- Saving a pricing rule edits it in place (new `VersionNo`, old values in `PricingRuleHistory`), but
+  the price a stay is charged is frozen at entry (BR-22): `ParkingSession.PriceSnapshotJson` is copied
+  from the booking (`Reservation.PriceSnapshotJson`, taken when the booking was made) or from the live
+  rule at check-in. Sessions from before the snapshot existed fall back to the live rule.
+- Deferred price updates (team decision): a Manager's change to the price fields of a lot's own rule
+  (`ParkingLotId != null`) is live at once only when `ParkingLot.OccupiedBays` is 0; otherwise it waits
+  in `PendingPriceChange` (one per rule, a new request overwrites it) and goes live when the last
+  vehicle leaves (`LotOccupancy.ReleaseAsync`; the `PriceUpdateJobs` sweeper settles counter drift).
+  Rules shared by the whole system (`ParkingLotId == null`) cannot be changed by a Manager.
+  Every entry/exit/close path must go through `LotOccupancy`; `ParkingLot.RowVersion` serialises races.
 - Deposit is optional when booking (team decision, 2026-10-24). With a deposit (BR-06, paid by
   wallet, VNPay or MoMo) the booking waits in `PendingDeposit` and the slot is held **30 minutes**
   after arrival (`Parking:Reservations:DepositHoldMinutes`). Without a deposit
@@ -324,18 +363,42 @@ Keep this list current; it is the first place to look when code and SRS disagree
   Staff is reported as `Maintenance` (`LotStaffing`, worked out on every read; `StoredStatus` keeps the
   Admin's value): customers can still see it on the public list and 3D map, but bookings are refused. A
   new lot therefore starts in maintenance until its Manager adds Staff.
+- Motorbikes park at once (team decision, 2026-10-30): BR-01 allows cars only, but `MOTORBIKE` is now
+  in `ReservableVehicleTypeCodes` and in `InstantVehicleTypeCodes`. For these types `CreateAsync` ignores
+  the times and the deposit: the arrival is now, pay-as-you-go, no deposit, `Confirmed` at once and the bay
+  is held now for `HoldMinutes`. The customer app then sends a check-in request, so Staff sees the plate
+  at the entry lane; the fee is paid at check-out. Cars still book ahead as before.
 - Bookings have two modes (`BookingMode`): `PayAsYouGo` follows the SRS (arrival time only);
   `Scheduled` also takes a departure time, which the SRS does not have.
 - Vehicle verification has no "needs more info", "disputed" or "revoked" state yet (section 5).
 - Lost tickets (FR-OPS-05) have no `LostTicketCase` table: each report is a `SessionViolations` row
   (`ViolationType = LostTicket`) with `Status` (Pending / Approved / Rejected), `ApprovalMode`
-  (Conditional / Manager), `DecidedBy`, `DecidedAt` and `DecisionNote`. The reporter can never decide
+  (Conditional / Manager / Staff), `DecidedBy`, `DecidedAt` and `DecisionNote`. The reporter can never decide
   the case, and a rejected case blocks every payment point and the exit until a new case is approved.
+  Only walk-ins can report a lost ticket (team decision, 2026-11-03): a booked vehicle has no paper ticket
+  (booking QR, verified plate or exit pass), so the API refuses it. Staff start the case from Vehicles in the lot
+  (Lost ticket) or the Exceptions desk.
   Not built yet: the 10-minute approval deadline with escalation to Admin (BR-14), the Manager's 24-hour
   review of conditional approvals (BR-13; those rows keep `IsResolved = false`), a stored BR-13 checklist
   (only the `ConditionsMet` flag), and locking the lost ticket QR.
+- Exit barrier only at the Check-out lane (team decision, 2026-11-04): the Staff POS (`/staff/checkout`) only
+  takes the fee; it has no barrier button. Every paid vehicle of the lot (paid at the POS, in the app or 0 VND,
+  walk-ins included) gets a waiting check-out `GateRequest` (`GateRequestService.QueuePaidVehiclesAsync`, run when
+  the queue is read), shown in the Check-out tab of the gate dashboard, where the Staff opens the barrier (the
+  normal exit checks run). Walk-in requests have no `UserId` / `CustomerId`; a customer's request carries their
+  account, so the app shows it. Simulated walk-ins are skipped, and a request refused or cancelled after the last
+  payment is not opened again.
+- Lost ticket papers (team decision, 2026-11-04): Lost ticket (Vehicles in the lot on the gate dashboard, or the
+  Exceptions desk after a plate lookup) opens a popup where the Staff uploads photos of the driver's Citizen ID and
+  vehicle registration certificate (JPEG / PNG / PDF, 8 MB each; `POST /api/staff/sessions/{id}/lost-ticket/papers`,
+  stored under `lost-tickets/{sessionId}`, paths on the `SessionViolations` row). The case waits with
+  `ApprovalMode = Staff` (no Manager alert) and the Exceptions screen shows the papers for the Staff to check and
+  approve or disapprove (`POST .../lost-ticket/review`; disapproving needs a note). The Staff at the counter decides
+  this case, unlike the Maker-Checker rule for the other lost-ticket paths. Every decision leaves the vehicle parked
+  (`Active`): an approval adds the lost-ticket fine to the bill at check-out; a disapproval keeps the vehicle in
+  until new papers are uploaded and approved.
 - Some older code comments quote the Vietnamese SRS terms (e.g. in `ParkingStatuses.cs`).
   Translate them to English when you touch those lines; do not add new ones.
 - Not built yet in the API (as of 2026-10-24): pricing management, reports, the approval queue
-  (`ApprovalRequest`), daily cash close, inventory check, incidents, emergency mode, audit log
+  (`ApprovalRequest`), inventory check, incidents, emergency mode, audit log
   viewer. Re-check with the commands in section 7 before relying on this line.
