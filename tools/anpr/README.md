@@ -146,6 +146,26 @@ Starts from `yolo11n.pt` (downloaded by ultralytics) and saves `models/plate.pt`
 `models/chars.pt`. Each epoch prints a line: the **mAP50** column should climb towards 1.0; once it
 stops rising, more epochs do not help. Charts are in `runs/`.
 
+**Stop and carry on later.** Every epoch is saved to `runs/plate/weights/last.pt` (and `runs/chars/...`).
+Press **Ctrl + C** to stop, then run the same command with `--resume`: training continues from the
+epoch it reached, with the same result as one uninterrupted run. A run that already finished is kept as
+it is. Do not split training into several fresh `--epochs 5` runs: each fresh run starts again from
+`yolo11n.pt`.
+
+```powershell
+python train.py --data datasets --epochs 20        # Ctrl + C at any time
+python train.py --data datasets --resume           # continues where it stopped
+```
+
+**Low on RAM (16 GB or less).** Each image loader is a separate Python process that loads PyTorch again
+(several hundred MB each). `train.py` uses 2 by default; lower it, and the batch, when the machine
+slows down, and close Visual Studio and other heavy apps while training:
+
+```powershell
+python train.py --data datasets --batch 8 --workers 1   # lighter
+python train.py --data datasets --batch 4 --workers 0   # lightest, slowest
+```
+
 ## 8. Read and measure
 
 ```powershell
@@ -184,6 +204,8 @@ shows what the AI read next to the recorded plate: **Match**, **Staff check** (b
 | `datasets\plate.yaml not found` | Run `prepare_dataset.py` first |
 | `--device 0 asks for the GPU, but PyTorch cannot use one` | Step 3, or train with `--device cpu` |
 | `CUDA out of memory` | `--batch 8` (or 4) |
+| The computer freezes or runs out of RAM while training | `--workers 1` (or 0) and `--batch 8`; close other apps |
+| Training stopped half-way (Ctrl + C, crash, shutdown) | Run the same command with `--resume` |
 | Camera shows *ANPR offline* | Start `uvicorn service:app --port 8001` in `tools/anpr` |
 | Camera shows *ANPR not trained* | Train first: `models/plate.pt` and `models/chars.pt` are missing |
 
