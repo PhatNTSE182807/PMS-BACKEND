@@ -514,4 +514,145 @@ public class RevenueReportServiceTests : IDisposable
         result.PaymentMethods.First(m => m.Method == "RFID_WALLET").Amount.Should().Be(20000m);
         result.PaymentMethods.First(m => m.Method == "CASH").Amount.Should().Be(30000m);
     }
+
+    /* Vehicle types and time series ------------------------------------- */
+
+    private const int Car4 = 1, Car7 = 2, Motorbike = 3;
+
+    private void SeedVehicleTypes()
+    {
+        _db.VehicleTypes.AddRange(
+            new VehicleType { Id = Car4, Code = "CAR_4", Name = "4-seat car", IsActive = true },
+            new VehicleType { Id = Car7, Code = "CAR_7", Name = "7-seat car", IsActive = true },
+            new VehicleType { Id = Motorbike, Code = "MOTORBIKE", Name = "Motorbike", IsActive = true });
+        _db.SaveChanges();
+    }
+
+    private void SetType(long sessionId, int vehicleTypeId)
+    {
+        var session = _db.ParkingSessions.Find(sessionId);
+        session.VehicleTypeId = vehicleTypeId;
+        _db.SaveChanges();
+    }
+
+    /// <summary>Lot A: a 4-seat and a 7-seat car on 28/10, a motorbike on 29/10 (all at noon VN time).</summary>
+    private ParkingLot SeedMixedLot()
+    {
+        SeedVehicleTypes();
+        var lot = CreateLot(1, "Lot A");
+        var day1 = new DateTime(2026, 10, 28, 5, 0, 0, DateTimeKind.Utc);
+        var day2 = new DateTime(2026, 10, 29, 5, 0, 0, DateTimeKind.Utc);
+        CreateSession(201, lot.Id, 40000m, 0m, 40000m, SessionStatus.Completed, day1);
+        CreateSession(202, lot.Id, 50000m, 0m, 50000m, SessionStatus.Completed, day1);
+        CreateSession(203, lot.Id, 6000m, 0m, 6000m, SessionStatus.Completed, day2);
+        SetType(201, Car4);
+        SetType(202, Car7);
+        SetType(203, Motorbike);
+        return lot;
+    }
+
+    [Fact]
+    public async Task AdminRevenue_SplitsCarsAndMotorbikes()
+    {
+        SeedMixedLot();
+
+        var result = await _service.GetAdminRevenueAsync("2026-10-28", "2026-10-29");
+
+        result.ByVehicleType.Should().HaveCount(2);
+        result.ByVehicleType.Single(v => v.VehicleType == "CAR").TotalRevenue.Should().Be(90000m);
+        result.ByVehicleType.Single(v => v.VehicleType == "CAR").TotalSessions.Should().Be(2);
+        result.ByVehicleType.Single(v => v.VehicleType == "MOTORBIKE").TotalRevenue.Should().Be(6000m);
+    }
+
+    [Fact]
+    public async Task AdminRevenue_VehicleTypeFilter_KeepsOnlyThatFamily()
+    {
+        SeedMixedLot();
+
+        var result = await _service.GetAdminRevenueAsync("2026-10-28", "2026-10-29", vehicleType: "motorbike");
+
+        result.SystemTotalRevenue.Should().Be(6000m);
+        result.SystemTotalSessions.Should().Be(1);
+        result.ByLot.Single().TotalRevenue.Should().Be(6000m);
+        result.ByVehicleType.Single(v => v.VehicleType == "CAR").TotalSessions.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task AdminRevenue_UnknownVehicleType_IsRejected()
+    {
+        var act = () => _service.GetAdminRevenueAsync("2026-10-28", "2026-10-29", vehicleType: "BICYCLE");
+
+        await act.Should().ThrowAsync<BadRequestException>();
+    }
+
+    [Fact]
+    public async Task TimeSeries_ReturnsEveryDay_WithCarAndMotorbikeTotals()
+    {
+        SeedMixedLot();
+
+        var result = await _service.GetAdminRevenueTimeSeriesAsync("2026-10-27", "2026-10-29");
+
+        result.Granularity.Should().Be("DAY");
+        result.Points.Select(p => p.StartDate).Should().Equal("2026-10-27", "2026-10-28", "2026-10-29");
+        result.Points[0].TotalSessions.Should().Be(0);
+        result.Points[1].TotalRevenue.Should().Be(90000m);
+        result.Points[1].CarSessions.Should().Be(2);
+        result.Points[1].MotorbikeSessions.Should().Be(0);
+        result.Points[2].MotorbikeRevenue.Should().Be(6000m);
+        result.Points[1].ByLot.Single().ParkingLotName.Should().Be("Lot A");
+        result.Points[0].ByLot.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TimeSeries_CountsSessionsOnTheLocalDay()
+    {
+        SeedVehicleTypes();
+        var lot = CreateLot(1, "Lot A");
+        // 18:30 UTC on 27/10 is 01:30 on 28/10 in Vietnam
+        CreateSession(301, lot.Id, 20000m, 0m, 20000m, SessionStatus.Completed, new DateTime(2026, 10, 27, 18, 30, 0, DateTimeKind.Utc));
+
+        var result = await _service.GetAdminRevenueTimeSeriesAsync("2026-10-27", "2026-10-28");
+
+        result.Points[0].TotalRevenue.Should().Be(0m);
+        result.Points[1].TotalRevenue.Should().Be(20000m);
+    }
+
+    [Fact]
+    public async Task TimeSeries_LongRange_GoesPerWeek_FromMondayToSunday()
+    {
+        SeedMixedLot();
+
+        // 01/10/2026 is a Thursday; 35 days -> weeks
+        var result = await _service.GetAdminRevenueTimeSeriesAsync("2026-10-01", "2026-11-04");
+
+        result.Granularity.Should().Be("WEEK");
+        result.Points[0].StartDate.Should().Be("2026-10-01");
+        result.Points[0].EndDate.Should().Be("2026-10-04");
+        result.Points[1].StartDate.Should().Be("2026-10-05");
+        result.Points[^1].EndDate.Should().Be("2026-11-04");
+        result.Points.Sum(p => p.TotalRevenue).Should().Be(96000m);
+        // 28 and 29 October fall in the week of Monday 26 October
+        result.Points.Single(p => p.StartDate == "2026-10-26").TotalSessions.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task TimeSeries_ExplicitMonth_AndVehicleFilter()
+    {
+        SeedMixedLot();
+
+        var result = await _service.GetAdminRevenueTimeSeriesAsync("2026-09-15", "2026-10-31", vehicleType: "CAR", granularity: "month");
+
+        result.Granularity.Should().Be("MONTH");
+        result.Points.Select(p => (p.StartDate, p.EndDate)).Should().Equal(("2026-09-15", "2026-09-30"), ("2026-10-01", "2026-10-31"));
+        result.Points[1].TotalRevenue.Should().Be(90000m);
+        result.Points[1].MotorbikeSessions.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task TimeSeries_InvalidGranularity_IsRejected()
+    {
+        var act = () => _service.GetAdminRevenueTimeSeriesAsync("2026-10-01", "2026-10-02", granularity: "HOUR");
+
+        await act.Should().ThrowAsync<BadRequestException>();
+    }
 }

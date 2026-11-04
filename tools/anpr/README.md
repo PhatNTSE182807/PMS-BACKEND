@@ -146,6 +146,26 @@ Starts from `yolo11n.pt` (downloaded by ultralytics) and saves `models/plate.pt`
 `models/chars.pt`. Each epoch prints a line: the **mAP50** column should climb towards 1.0; once it
 stops rising, more epochs do not help. Charts are in `runs/`.
 
+**Stop and carry on later.** Every epoch is saved to `runs/plate/weights/last.pt` (and `runs/chars/...`).
+Press **Ctrl + C** to stop, then run the same command with `--resume`: training continues from the
+epoch it reached, with the same result as one uninterrupted run. A run that already finished is kept as
+it is. Do not split training into several fresh `--epochs 5` runs: each fresh run starts again from
+`yolo11n.pt`.
+
+```powershell
+python train.py --data datasets --epochs 20        # Ctrl + C at any time
+python train.py --data datasets --resume           # continues where it stopped
+```
+
+**Low on RAM (16 GB or less).** Each image loader is a separate Python process that loads PyTorch again
+(several hundred MB each). `train.py` uses 2 by default; lower it, and the batch, when the machine
+slows down, and close Visual Studio and other heavy apps while training:
+
+```powershell
+python train.py --data datasets --batch 8 --workers 1   # lighter
+python train.py --data datasets --batch 4 --workers 0   # lightest, slowest
+```
+
 ## 8. Read and measure
 
 ```powershell
@@ -165,7 +185,9 @@ uvicorn service:app --port 8001
 - `GET /health` says whether `models/plate.pt` and `models/chars.pt` are there.
 - `POST /read` takes one camera frame (JPEG or PNG body) and returns the plates read in it.
 - New model files are picked up on the next read, so training can finish while the service runs.
-- Only the Staff screens in `ANPR_ALLOWED_ORIGINS` may call it (default `http://localhost:5174`).
+- Only Staff screens served from this computer may call it (localhost / 127.0.0.1, any port, so both
+  `npm run dev` on 5173 and the preview on 5174 work). Set `ANPR_ALLOWED_ORIGINS` (comma-separated) to allow
+  other screen addresses instead.
 - The service uses the GPU when PyTorch can, otherwise the CPU (a read then takes longer).
 
 On the Staff gate dashboard each camera shows the plate reader's state (ready, not trained, offline).
@@ -184,7 +206,9 @@ shows what the AI read next to the recorded plate: **Match**, **Staff check** (b
 | `datasets\plate.yaml not found` | Run `prepare_dataset.py` first |
 | `--device 0 asks for the GPU, but PyTorch cannot use one` | Step 3, or train with `--device cpu` |
 | `CUDA out of memory` | `--batch 8` (or 4) |
-| Camera shows *ANPR offline* | Start `uvicorn service:app --port 8001` in `tools/anpr` |
+| The computer freezes or runs out of RAM while training | `--workers 1` (or 0) and `--batch 8`; close other apps |
+| Training stopped half-way (Ctrl + C, crash, shutdown) | Run the same command with `--resume` |
+| Camera shows *ANPR offline* | Start `uvicorn service:app --port 8001` in `tools/anpr`; if it runs, restart it after pulling and reload the page |
 | Camera shows *ANPR not trained* | Train first: `models/plate.pt` and `models/chars.pt` are missing |
 
 ## Notes

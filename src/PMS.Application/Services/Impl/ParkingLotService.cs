@@ -202,6 +202,176 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         };
     }
 
+    public async Task<IReadOnlyList<ParkingLotCapacityModel>> GetCapacityOverviewAsync(System.Threading.CancellationToken cancellationToken = default)
+    {
+        var lots = await pmsContext.ParkingLots.AsNoTracking()
+            .Where(p => !p.IsDeleted)
+            .OrderBy(p => p.Id)
+            .ToListAsync(cancellationToken);
+
+        if (lots.Count == 0)
+            return [];
+
+        var lotIds = lots.Select(l => l.Id).ToList();
+        var staffedLotIds = await LotStaffing.StaffedLotIdsAsync(pmsContext, lotIds);
+
+        var managerUserIds = lots
+            .Where(l => !string.IsNullOrEmpty(l.ManagerUserId))
+            .Select(l => l.ManagerUserId)
+            .Distinct()
+            .ToList();
+
+        var employees = await pmsContext.Employees.AsNoTracking()
+            .Where(e => managerUserIds.Contains(e.UserId))
+            .ToListAsync(cancellationToken);
+
+        var managerNameByUser = employees
+            .GroupBy(e => e.UserId)
+            .ToDictionary(g => g.Key, g => g.First().FullName);
+
+        var zones = await pmsContext.Zones.AsNoTracking()
+            .Where(z => lotIds.Contains(z.ParkingLotId) && z.IsActive)
+            .Include(z => z.ZoneCounter)
+            .Include(z => z.Slots)
+                .ThenInclude(s => s.VehicleType)
+            .ToListAsync(cancellationToken);
+
+        // Hourly flow for the last 6 hours
+        var tz = ParkingText.FindTimeZone(null);
+        var localNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+        var buckets = new List<(DateTime StartUtc, DateTime EndUtc, string HourLabel)>();
+        for (var i = 5; i >= 0; i--)
+        {
+            var bucketTime = localNow.AddHours(-i);
+            var startLocal = new DateTime(bucketTime.Year, bucketTime.Month, bucketTime.Day, bucketTime.Hour, 0, 0, DateTimeKind.Unspecified);
+            var endLocal = startLocal.AddHours(1);
+            var startUtc = TimeZoneInfo.ConvertTimeToUtc(startLocal, tz);
+            var endUtc = TimeZoneInfo.ConvertTimeToUtc(endLocal, tz);
+            buckets.Add((startUtc, endUtc, startLocal.ToString("HH:00")));
+        }
+        var oldestStartUtc = buckets[0].StartUtc;
+        var newestEndUtc = buckets[^1].EndUtc;
+
+        var sessions = await pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => lotIds.Contains(s.ParkingLotId) &&
+                        ((s.EntryTime >= oldestStartUtc && s.EntryTime < newestEndUtc) ||
+                         (s.ExitTime != null && s.ExitTime >= oldestStartUtc && s.ExitTime < newestEndUtc)))
+            .Select(s => new { s.ParkingLotId, s.EntryTime, s.ExitTime })
+            .ToListAsync(cancellationToken);
+
+        var result = new List<ParkingLotCapacityModel>(lots.Count);
+
+        foreach (var lot in lots)
+        {
+            var lotZones = zones.Where(z => z.ParkingLotId == lot.Id).OrderBy(z => z.Name).ToList();
+
+            var zoneDetails = new List<(Zone Zone, string VehicleType, int Total, int Occupied, int Available, int Maintenance)>();
+            foreach (var z in lotZones)
+            {
+                var typeCode = z.Slots.Where(s => s.IsActive).Select(s => s.VehicleType?.Code).FirstOrDefault();
+                var vType = PublicVehicleFamily(typeCode);
+                if (vType == null)
+                {
+                    vType = z.Name.Contains("Motorbike", StringComparison.OrdinalIgnoreCase) ? "MOTORBIKE" : "CAR";
+                }
+
+                var maintenance = z.Slots.Count(s => s.IsActive && s.Status == SlotStatus.Maintenance);
+                var total = z.ZoneCounter?.TotalCapacity ?? z.Slots.Count(s => s.IsActive);
+                var occupied = z.ZoneCounter?.OccupiedSpaces ?? z.Slots.Count(s => s.IsActive && (s.Status == SlotStatus.Occupied || s.Status == SlotStatus.Reserved));
+                var available = Math.Max(0, total - occupied - maintenance);
+
+                zoneDetails.Add((z, vType, total, occupied, available, maintenance));
+            }
+
+            var capacityByVehicle = new List<VehicleCapacityDetailModel>();
+            foreach (var vType in new[] { "CAR", "MOTORBIKE" })
+            {
+                var vZones = zoneDetails.Where(z => z.VehicleType == vType).ToList();
+                var totalSlots = vZones.Sum(z => z.Total);
+                var occupiedSlots = vZones.Sum(z => z.Occupied);
+                var maintenanceSlots = vZones.Sum(z => z.Maintenance);
+                var availableSlots = Math.Max(0, totalSlots - occupiedSlots - maintenanceSlots);
+
+                capacityByVehicle.Add(new VehicleCapacityDetailModel
+                {
+                    VehicleType = vType,
+                    TotalSlots = totalSlots,
+                    OccupiedSlots = occupiedSlots,
+                    AvailableSlots = availableSlots,
+                    MaintenanceSlots = maintenanceSlots
+                });
+            }
+
+            var totalAll = capacityByVehicle.Sum(c => c.TotalSlots);
+            var occupiedAll = capacityByVehicle.Sum(c => c.OccupiedSlots);
+            var overallPercentage = totalAll > 0 ? Math.Round((double)occupiedAll * 100 / totalAll, 1) : 0;
+
+            var isStaffed = staffedLotIds.Contains(lot.Id);
+            string lotStatus;
+            if (lot.Status == LotStatus.Inactive || lot.Status == LotStatus.TemporarilyClosed)
+                lotStatus = "CLOSED";
+            else if (lot.Status == LotStatus.Maintenance || !isStaffed)
+                lotStatus = "MAINTENANCE";
+            else if (overallPercentage >= 100)
+                lotStatus = "FULL";
+            else
+                lotStatus = "OPEN";
+
+            var lastUpdatedDt = lotZones.Select(z => z.ZoneCounter?.LastUpdatedAt)
+                .Where(d => d != null)
+                .OrderByDescending(d => d)
+                .FirstOrDefault() ?? lot.UpdatedAt ?? lot.CreatedAt;
+
+            var address = string.Join(", ", new[] { lot.Address, lot.District, lot.City }.Where(p => !string.IsNullOrWhiteSpace(p)));
+
+            var manager = lot.ManagerUserId != null && managerNameByUser.TryGetValue(lot.ManagerUserId, out var empName)
+                ? empName
+                : "Unassigned";
+
+            var zoneDtos = zoneDetails.Select(zd =>
+            {
+                var usable = Math.Max(0, zd.Total - zd.Maintenance);
+                var rate = usable > 0 ? (double)zd.Occupied * 100 / usable : 0;
+                var zStatus = rate > 90 ? "FULL" : rate >= 70 ? "WARNING" : "AVAILABLE";
+
+                return new ZoneCapacityDetailModel
+                {
+                    ZoneId = zd.Zone.Id.ToString(),
+                    ZoneName = zd.Zone.Name,
+                    TotalSlots = zd.Total,
+                    OccupiedSlots = zd.Occupied,
+                    Status = zStatus
+                };
+            }).ToList();
+
+            var lotSessions = sessions.Where(s => s.ParkingLotId == lot.Id).ToList();
+            var recentFlow = buckets.Select(b => new HourlyFlowModel
+            {
+                Hour = b.HourLabel,
+                CheckIns = lotSessions.Count(s => s.EntryTime >= b.StartUtc && s.EntryTime < b.EndUtc),
+                CheckOuts = lotSessions.Count(s => s.ExitTime != null && s.ExitTime >= b.StartUtc && s.ExitTime < b.EndUtc)
+            }).ToList();
+
+            result.Add(new ParkingLotCapacityModel
+            {
+                Id = lot.Id.ToString(),
+                Code = lot.Code,
+                Name = lot.Name,
+                Address = address,
+                ManagerOnDuty = manager,
+                Status = lotStatus,
+                LastUpdated = lastUpdatedDt.ToString("o"),
+                OverallOccupancyPercentage = overallPercentage,
+                CapacityByVehicle = capacityByVehicle,
+                Zones = zoneDtos,
+                LayoutTemplate = lot.LayoutTemplate,
+                RecentHourlyFlow = recentFlow
+            });
+        }
+
+        return result;
+    }
+
     public async Task<ParkingLotResponseModel> GetByIdAsync(int id)
     {
         var lot = await pmsContext.ParkingLots

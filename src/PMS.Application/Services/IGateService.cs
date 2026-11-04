@@ -60,9 +60,6 @@ public interface IGateService
     /// <summary>One uploaded paper of the latest lost-ticket case.</summary>
     Task<(Stream Content, string ContentType)> GetLostTicketPaperAsync(long sessionId, string kind);
 
-    /// <summary>Manager decision on a lost ticket case.</summary>
-    Task<SessionResponseModel> DecideLostTicketAsync(long sessionId, bool approve, string reason);
-
     /// <summary>FR-OPS-12 (Manager): close a ghost session; its fee is waived.</summary>
     Task<SessionResponseModel> CloseAbnormallyAsync(long sessionId, string reason);
 

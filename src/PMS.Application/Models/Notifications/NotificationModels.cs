@@ -14,8 +14,10 @@ public static class NotificationTypes
     public const string CheckIn = "CheckIn";
     /// <summary>The vehicle left a lot (or the session was closed by a Manager).</summary>
     public const string CheckOut = "CheckOut";
+    /// <summary>A Manager changed a lot's price.</summary>
+    public const string PriceChanged = "PriceChanged";
 
-    public static readonly string[] All = [VehicleApproved, VehicleRejected, CheckIn, CheckOut];
+    public static readonly string[] All = [VehicleApproved, VehicleRejected, CheckIn, CheckOut, PriceChanged];
 }
 
 /// <summary>One notification as the customer sees it.</summary>

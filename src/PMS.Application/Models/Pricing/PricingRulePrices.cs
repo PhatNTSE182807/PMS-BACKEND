@@ -4,9 +4,9 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Models.Pricing;
 
 /// <summary>
-/// The charging fields of a pricing rule: everything that decides what a customer pays. A Manager's change to
-/// these waits for an empty lot; the other fields of the rule (name, zone, vehicle type, priority, validity,
-/// status) take effect at once. Stored as JSON in <see cref="PendingPriceChange.ProposedValuesJson"/>.
+/// The charging fields of a pricing rule: everything that decides what a customer pays. Comparing them tells whether
+/// an update changed the price, as opposed to the other fields of the rule (name, zone, vehicle type, priority,
+/// validity, status).
 /// </summary>
 public sealed record PricingRulePrices
 {
@@ -108,34 +108,29 @@ public sealed record PricingRulePrices
         rule.NoShowFee = NoShowFee;
     }
 
-    /// <summary>The headline price in words, for notifications: "25,000 VND per 60 min".</summary>
+    /// <summary>
+    /// The price in words, for customer notifications, the same way for every vehicle type:
+    /// "5,000 VND for the first 2 hours, then 2,000 VND per hour, at most 20,000 VND a day".
+    /// </summary>
     public string Describe()
     {
-        static string Money(decimal? value) => (value ?? 0).ToString("N0", CultureInfo.InvariantCulture);
-        var minutes = BlockMinutes ?? 60;
+        static string Money(decimal? value) => $"{(value ?? 0).ToString("N0", CultureInfo.InvariantCulture)} VND";
+        // "hour", "4 hours", "90 min"
+        static string Span(int minutes) => minutes == 60 ? "hour" : minutes % 60 == 0 ? $"{minutes / 60} hours" : $"{minutes} min";
 
         if (string.Equals(ChargeModel, "PerEntry", StringComparison.OrdinalIgnoreCase))
-            return $"{Money(EntryFee)} VND per entry";
-        if (string.Equals(ChargeModel, "DayNight", StringComparison.OrdinalIgnoreCase))
-            return $"{Money(DayPrice)} VND by day and {Money(NightPrice)} VND by night per {minutes} min";
-        return $"{Money(BlockPrice)} VND per {minutes} min";
+            return $"{Money(EntryFee)} per day";
+
+        var minutes = BlockMinutes is > 0 ? BlockMinutes.Value : 60;
+        var text = string.Equals(ChargeModel, "DayNight", StringComparison.OrdinalIgnoreCase)
+            ? $"{Money(DayPrice)} by day and {Money(NightPrice)} by night per {Span(minutes)}"
+            : $"{Money(BlockPrice)} per {Span(minutes)}";
+        if (FirstBlockMinutes is > 0 && FirstBlockPrice != null)
+            text = $"{Money(FirstBlockPrice)} for the first {Span(FirstBlockMinutes.Value)}, then {text}";
+        if (EntryFee > 0)
+            text = $"{Money(EntryFee)} on entry, plus {text}";
+        if (MaxDailyFee is > 0)
+            text += $", at most {Money(MaxDailyFee)} a day";
+        return text;
     }
-}
-
-/// <summary>A price change that is waiting for the lot to become empty.</summary>
-public class PendingPriceModel
-{
-    public PricingRulePrices Prices { get; set; }
-
-    /// <summary>The same price in words ("25,000 VND per 60 min").</summary>
-    public string Summary { get; set; }
-
-    /// <summary>1 for the first request; +1 each time the Manager replaced it before it was applied.</summary>
-    public int RevisionNo { get; set; }
-
-    public string RequestedBy { get; set; }
-
-    public DateTime RequestedAt { get; set; }
-
-    public DateTime? UpdatedAt { get; set; }
 }

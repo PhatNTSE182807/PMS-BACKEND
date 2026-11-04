@@ -7,13 +7,10 @@ namespace PMS.Application.Models.Pricing;
 /// <summary>The values of <see cref="PricingRuleModel.PriceUpdateStatus"/>.</summary>
 public static class PriceUpdateStatuses
 {
-    /// <summary>The lot was empty: the new price is live now.</summary>
+    /// <summary>The new price is live now: every vehicle entering from now on is charged it.</summary>
     public const string Applied = "Applied";
 
-    /// <summary>Vehicles are inside: the new price is saved and goes live when the last one leaves.</summary>
-    public const string Pending = "Pending";
-
-    /// <summary>The request equals the live price; nothing changed and any waiting price was withdrawn.</summary>
+    /// <summary>The request equals the live price; the price did not change.</summary>
     public const string Unchanged = "Unchanged";
 }
 
@@ -98,16 +95,9 @@ public class PricingRuleModel
 
     /// <summary>
     /// What happened to the charging fields of the last update, one of <see cref="PriceUpdateStatuses"/>:
-    /// "Applied" (live now), "Pending" (waits until the lot is empty) or "Unchanged" (same as the live price, any
-    /// waiting change was withdrawn). Null outside an update response.
+    /// "Applied" (live now) or "Unchanged" (same as the live price). Null outside an update response.
     /// </summary>
     public string PriceUpdateStatus { get; set; }
-
-    /// <summary>
-    /// The price waiting for an empty lot; null when none. While it is set, the price fields of this model are still
-    /// the live price that customers pay.
-    /// </summary>
-    public PendingPriceModel PendingPrice { get; set; }
 }
 
 /// <summary>Public price of one vehicle type at a lot (what the gates charge now), for customers.</summary>
@@ -116,8 +106,10 @@ public class PublicLotPriceModel
     public int VehicleTypeId { get; set; }
     public string VehicleTypeCode { get; set; }
     public string VehicleTypeName { get; set; }
-    /// <summary>"Block" (same price all day) or "DayNight" (block price by the hour it starts).</summary>
+    /// <summary>"Block" (same price all day), "DayNight" (block price by the hour it starts) or "PerEntry" (one fee per calendar day).</summary>
     public string ChargeModel { get; set; }
+    /// <summary>"PerEntry": the fee per calendar day. Other models: added once on top of the blocks.</summary>
+    public decimal EntryFee { get; set; }
     public int GraceMinutes { get; set; }
     public int? FirstBlockMinutes { get; set; }
     public decimal? FirstBlockPrice { get; set; }

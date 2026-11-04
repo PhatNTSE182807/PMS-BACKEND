@@ -14,7 +14,7 @@ public sealed partial class DemoDataSeed
         // FPT University ---------------------------------------------------------------------------
         // A verified car parked as a walk-in: linked to An's account, payable in the app
         await ParkAsync(fptu, "51K-123.45", Car4, an, HoursAgo(3.17), withSlot: true);
-        // Lost ticket waiting for the Manager (reported by Staff, so a Manager decides: maker-checker)
+        // Lost ticket waiting for the Staff to check the driver's papers (the Staff decides lost tickets, not the Manager)
         var lostTicket = await ParkAsync(fptu, "51G-999.01", Car4, em, HoursAgo(5), withSlot: false);
         await ReportLostTicketAsync(lostTicket, fptu, employees["staff.fptu1"].Id, HoursAgo(0.25),
             "The driver lost the paper ticket; the registration papers are in the car.");
@@ -55,7 +55,7 @@ public sealed partial class DemoDataSeed
         var rejected = await ParkAsync(fsoft, "51E-246.80", Car7, null, HoursAgo(6.1), withSlot: false);
         await ReportLostTicketAsync(rejected, fsoft, employees["staff.fsoft2"].Id, HoursAgo(3),
             "Driver says the ticket blew away at the payment kiosk.",
-            decidedBy: fsoft.ManagerId, decidedAt: HoursAgo(2.7),
+            decidedBy: employees["staff.fsoft2"].Id, decidedAt: HoursAgo(2.7),
             decisionNote: "The driver could not show the registration papers. Come back with them and report again.");
 
         // An arrives in 10 minutes on a paid booking and already asked the lane to open from the app
@@ -146,8 +146,8 @@ public sealed partial class DemoDataSeed
     }
 
     /// <summary>
-    /// A lost-ticket report as GateService.ReportLostTicketAsync writes it (waiting for a Manager), or, with
-    /// <paramref name="decidedBy"/>, the same case rejected by that Manager (the vehicle stays, IsLostCard set).
+    /// A lost-ticket report as GateService.ReportLostTicketAsync writes it (waiting for the Staff's check), or, with
+    /// <paramref name="decidedBy"/>, the same case rejected by that Staff (the vehicle stays, IsLostCard set).
     /// </summary>
     private async Task ReportLostTicketAsync(ParkingSession session, LotInfo lot, string reporterId, DateTime reportedAt, string note,
         string decidedBy = null, DateTime? decidedAt = null, string decisionNote = null)
@@ -162,7 +162,7 @@ public sealed partial class DemoDataSeed
             ReportedBy = reporterId,
             ReportedAt = reportedAt,
             Status = LostTicketCaseStatus.Pending,
-            ApprovalMode = LostTicketApproval.Manager
+            ApprovalMode = LostTicketApproval.Staff
         };
         session.IsLostCard = true;
         session.Status = SessionStatus.LostTicketPending;

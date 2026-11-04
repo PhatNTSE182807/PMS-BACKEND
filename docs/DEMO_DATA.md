@@ -82,7 +82,7 @@ The Admin comes from the base seed: `systemadmin` / `admin@gmail.com`, password 
 | --- | --- | --- | --- | --- |
 | FPT University (`LOT-FPTU-01`) | Wide deck, 3 × 50 | `mgr.fptu`, 2 Staff | IN-1, IN-2, OUT-1, OUT-2 | hourly blocks: car 20,000/h (cap 150,000), 7-seat 25,000/h, motorbike 5,000 per 4 h; car rule is version 2 (price change in its history) |
 | Fsoft (`LOT-FSOFT-01`) | Tower, 4 × 30 | `mgr.fsoft`, 2 Staff | IN-1, OUT-1 | day 06:00-18:00 / night: car 25,000 / 15,000 per hour, 7-seat 30,000 / 20,000, motorbike 6,000 per 4 h |
-| Cong Hoa (`LOT-CONGHOA-01`) | Compact deck, 3 × 20 | `mgr.conghoa`, 1 active Staff | IN-1, OUT-1 | first 2 h car 30,000 then 15,000/h, 7-seat 40,000 then 20,000/h, motorbike 5,000 per day |
+| Cong Hoa (`LOT-CONGHOA-01`) | Compact deck, 3 × 20 | `mgr.conghoa`, 1 active Staff | IN-1, OUT-1 | first 2 h car 30,000 then 15,000/h, 7-seat 40,000 then 20,000/h, motorbike 5,000 then 2,000/h (at most 20,000/day) |
 | Ben Thanh (`LOT-BENTHANH-01`) | Compact deck, 3 × 20 | none (its Manager is deactivated) | added on first use | none: the default tariff applies |
 
 Ben Thanh is shown as **under maintenance** and refuses bookings until it has an active Manager and
@@ -96,7 +96,7 @@ expired 2 days ago); blacklist `51K-666.66` (all lots), `30E-404.04` (Fsoft).
 | Lot | Plate | Situation |
 | --- | --- | --- |
 | FPT | 51K-123.45 | An's car, walk-in, about 3 h, on a bay |
-| FPT | 51G-999.01 | Em's car, **lost ticket waiting for the Manager** (reported by `staff.fptu1`) |
+| FPT | 51G-999.01 | Em's car, **lost ticket waiting for the Staff's papers check** (reported by `staff.fptu1`) |
 | FPT | 51D-357.91 | guest car, about 1 h |
 | FPT | 51B-468.24 | guest 7-seat, **over 24 h** (overdue alert) |
 | FPT | 59P1-111.11 | guest motorbike |
@@ -128,7 +128,7 @@ late fee, wallet top-ups and refunds, and the customers' notifications.
 
 **Manager**
 1. `mgr.spare`: add a Staff account at Ben Thanh; the lot becomes bookable.
-2. `mgr.fptu`: approve or reject Em's lost ticket (reported by `staff.fptu1`, who cannot decide it).
+2. `staff.fptu1` (Exceptions & Alerts): check Em's papers and approve or disapprove the lost ticket. Managers no longer decide lost tickets.
 3. `mgr.fsoft`: close the 8-day-old 61A-135.24 session abnormally; cancel a booking of the lot.
 4. Pricing page: see the rules, simulate a fee, read the FPT car rule's history.
 5. Plate lists: add or remove a whitelist / blacklist entry.
@@ -138,7 +138,7 @@ late fee, wallet top-ups and refunds, and the customers' notifications.
    motorbike (photo check), 51B-468.24 (more than one day, capped per day).
 2. `staff.fsoft1`: check out Bình's 30G-555.88 (deposit deducted); handle Hải's check-out request and
    An's check-in request; enter 30E-404.04 (blacklisted) or 51D-357.91 at another lot (already parked).
-3. `staff.fsoft2`: 51E-246.80 cannot be paid; report the lost ticket again for `mgr.fsoft`.
+3. `staff.fsoft2`: 51E-246.80 cannot be paid; report the lost ticket again and decide it in Exceptions & Alerts.
 4. Vehicle verification: approve Cường's 51F-246.80; reject Dung's 43A-777.99 (the owner on the paper
    is someone else).
 5. `staff.conghoa1`: Giang's 51L-202.02 leaves free inside the exit window; after it, a late fee is due.

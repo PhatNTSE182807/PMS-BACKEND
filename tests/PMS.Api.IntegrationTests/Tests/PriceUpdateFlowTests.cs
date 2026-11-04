@@ -14,6 +14,7 @@ using PMS.Api.IntegrationTests.Common;
 using PMS.Api.IntegrationTests.Helpers;
 using PMS.Application.Helpers;
 using PMS.Application.Helpers.Parking;
+using PMS.Application.Jobs;
 using PMS.Application.Models.Operations;
 using PMS.Application.Models.Pricing;
 using PMS.DataAccess.Identity;
@@ -24,10 +25,10 @@ using Xunit;
 namespace PMS.Api.IntegrationTests.Tests;
 
 /// <summary>
-/// The whole deferred price update through the HTTP API: a Manager changes a price, vehicles come and go at the gate,
-/// and the new price goes live when the lot is empty.
+/// A price update through the HTTP API: a Manager changes a price while vehicles come and go at the gate. The new
+/// price is live at once for vehicles entering afterwards; those already inside keep theirs.
 /// </summary>
-public class DeferredPriceUpdateFlowTests
+public class PriceUpdateFlowTests
 {
     private readonly ApiApplicationFactory<Program> _factory = new();
 
@@ -85,9 +86,6 @@ public class DeferredPriceUpdateFlowTests
         return (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(response)).Result;
     }
 
-    private static async Task<PricingRuleModel> ReadRuleAsync(Lot lot) =>
-        (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(await lot.Manager.GetAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{lot.Rule.Id}"))).Result;
-
     /// <summary>Check-in plus the loop sensor: the vehicle is inside.</summary>
     private static async Task<long> EnterAsync(Lot lot, string plate)
     {
@@ -106,28 +104,6 @@ public class DeferredPriceUpdateFlowTests
         return (await ResponseHelper.GetApiResultAsync<CheckoutQuoteModel>(response)).Result.AmountDue;
     }
 
-    /// <summary>Quote, pay in cash and pass the exit barrier.</summary>
-    private static async Task LeaveAsync(Lot lot, long sessionId, string plate)
-    {
-        var due = await QuoteAsync(lot, sessionId, plate);
-        (await lot.Manager.PostAsync($"/api/staff/sessions/{sessionId}/payments/cash", new JsonContent(new CashPaymentModel { Amount = due + 1_000 }))).StatusCode.Should().Be(HttpStatusCode.OK);
-        var exit = await lot.Manager.PostAsync($"/api/staff/sessions/{sessionId}/check-out", new JsonContent(new CheckoutModel { PlateNumber = plate }));
-        exit.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await ResponseHelper.GetApiResultAsync<CheckoutResultModel>(exit)).Result.BarrierOpen.Should().BeTrue();
-    }
-
-    private async Task<int> OccupiedBaysAsync(Lot lot)
-    {
-        using var scope = _factory.Services.CreateScope();
-        return await scope.ServiceProvider.GetRequiredService<PmsDbContext>().ParkingLots.AsNoTracking().Where(l => l.Id == lot.Id).Select(l => l.OccupiedBays).SingleAsync();
-    }
-
-    private async Task<int> WaitingChangesAsync(Lot lot)
-    {
-        using var scope = _factory.Services.CreateScope();
-        return await scope.ServiceProvider.GetRequiredService<PmsDbContext>().PendingPriceChanges.CountAsync(p => p.ParkingLotId == lot.Id);
-    }
-
     private async Task<decimal> SnapshotPriceAsync(long sessionId)
     {
         using var scope = _factory.Services.CreateScope();
@@ -136,70 +112,22 @@ public class DeferredPriceUpdateFlowTests
     }
 
     [Fact]
-    public async Task A_Price_Change_Waits_For_The_Last_Vehicle_And_Every_Stay_Keeps_Its_Own_Price()
+    public async Task A_Price_Change_Is_Live_At_Once_And_Every_Stay_Keeps_The_Price_It_Entered_With()
     {
         var lot = await NewLotWithRuleAsync(20_000);
+        var inside = await EnterAsync(lot, "51A-111.11");
+        (await SnapshotPriceAsync(inside)).Should().Be(20_000);
 
-        // 1. Empty lot: live at once
-        var applied = await UpdateAsync(lot, 25_000);
-        applied.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Applied);
-        applied.VersionNo.Should().Be(2);
-        (await UpdateAsync(lot, 20_000)).PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Applied);
+        var updated = await UpdateAsync(lot, 30_000);
+        updated.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Applied);
+        updated.BlockPrice.Should().Be(30_000);
+        updated.VersionNo.Should().Be(2);
 
-        // 2. Two cars come in at 20,000
-        var carA = await EnterAsync(lot, "51A-111.11");
-        var carB = await EnterAsync(lot, "51B-222.22");
-        (await OccupiedBaysAsync(lot)).Should().Be(2);
-        (await SnapshotPriceAsync(carA)).Should().Be(20_000);
+        (await QuoteAsync(lot, inside, "51A-111.11")).Should().Be(20_000);
 
-        // 3. Vehicles inside: the new price waits, a second request replaces it
-        var pending = await UpdateAsync(lot, 30_000);
-        pending.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Pending);
-        pending.BlockPrice.Should().Be(20_000);
-        pending.PendingPrice.Prices.BlockPrice.Should().Be(30_000);
-        var replaced = await UpdateAsync(lot, 35_000);
-        replaced.PendingPrice.RevisionNo.Should().Be(2);
-        (await WaitingChangesAsync(lot)).Should().Be(1);
-        (await UpdateAsync(lot, 20_000)).PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Unchanged);
-        (await WaitingChangesAsync(lot)).Should().Be(0, "asking for the live price withdraws the waiting one");
-        (await UpdateAsync(lot, 30_000)).PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Pending);
-
-        // 4. Cars inside are still charged the price they entered with
-        (await QuoteAsync(lot, carA, "51A-111.11")).Should().Be(20_000);
-
-        // 5. First car leaves: one is still inside, nothing changes
-        await LeaveAsync(lot, carA, "51A-111.11");
-        (await OccupiedBaysAsync(lot)).Should().Be(1);
-        (await ReadRuleAsync(lot)).BlockPrice.Should().Be(20_000);
-        (await WaitingChangesAsync(lot)).Should().Be(1);
-
-        // 6. Last car leaves (still paying the old price): the waiting price goes live
-        await LeaveAsync(lot, carB, "51B-222.22");
-        (await OccupiedBaysAsync(lot)).Should().Be(0);
-        var live = await ReadRuleAsync(lot);
-        live.BlockPrice.Should().Be(30_000);
-        live.PendingPrice.Should().BeNull();
-        (await WaitingChangesAsync(lot)).Should().Be(0);
-
-        // 7. A car coming in now gets the new price
-        var carC = await EnterAsync(lot, "51C-333.33");
-        (await SnapshotPriceAsync(carC)).Should().Be(30_000);
-        (await QuoteAsync(lot, carC, "51C-333.33")).Should().Be(30_000);
-    }
-
-    [Fact]
-    public async Task A_Vehicle_Turned_Back_At_The_Barrier_Counts_Out_And_Lets_The_Waiting_Price_Through()
-    {
-        var lot = await NewLotWithRuleAsync(20_000);
-        var entry = await lot.Manager.PostAsync($"/api/staff/lots/{lot.Id}/check-in", new JsonContent(new CheckInModel { PlateNumber = "51A-444.44", VehicleTypeId = lot.CarTypeId }));
-        var sessionId = (await ResponseHelper.GetApiResultAsync<CheckInResultModel>(entry)).Result.Session.Id;
-        (await OccupiedBaysAsync(lot)).Should().Be(1, "the barrier is open, so the bay is spoken for");
-        (await UpdateAsync(lot, 30_000)).PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Pending);
-
-        (await lot.Manager.PostAsync($"/api/staff/sessions/{sessionId}/entry-cancel", null)).StatusCode.Should().Be(HttpStatusCode.OK);
-
-        (await OccupiedBaysAsync(lot)).Should().Be(0);
-        (await ReadRuleAsync(lot)).BlockPrice.Should().Be(30_000);
+        var after = await EnterAsync(lot, "51C-333.33");
+        (await SnapshotPriceAsync(after)).Should().Be(30_000);
+        (await QuoteAsync(lot, after, "51C-333.33")).Should().Be(30_000);
     }
 
     [Fact]
@@ -221,5 +149,28 @@ public class DeferredPriceUpdateFlowTests
         var allowed = await admin.PutAsync($"/api/manager/lots/{lot.Id}/pricing-rules/{lot.Rule.Id}", new JsonContent(Change(lot.Rule, 30_000)));
         allowed.StatusCode.Should().Be(HttpStatusCode.OK);
         (await ResponseHelper.GetApiResultAsync<PricingRuleModel>(allowed)).Result.PriceUpdateStatus.Should().Be(PriceUpdateStatuses.Applied);
+    }
+
+    [Fact]
+    public async Task A_Price_Change_Reaches_Every_Active_Customers_Notifications()
+    {
+        var lot = await NewLotWithRuleAsync(20_000);
+        using var scope = _factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var tag = Guid.NewGuid().ToString("N")[..8];
+        var customer = new ApplicationUser { EmailConfirmed = true, Email = $"cus_{tag}@test.com", UserName = $"cus_{tag}", Role = "User", IsActive = true };
+        var inactive = new ApplicationUser { EmailConfirmed = true, Email = $"off_{tag}@test.com", UserName = $"off_{tag}", Role = "User", IsActive = false };
+        (await userManager.CreateAsync(customer, "Password.1!")).Succeeded.Should().BeTrue();
+        (await userManager.CreateAsync(inactive, "Password.1!")).Succeeded.Should().BeTrue();
+
+        await UpdateAsync(lot, 30_000);
+
+        // The test host has no Hangfire server, so the job the update queued is run here
+        var jobs = ActivatorUtilities.CreateInstance<NotificationJobs>(scope.ServiceProvider);
+        await jobs.LotPriceChangedAsync("Price changed", "Changed", $"test-{tag}", lot.Id, "Lot");
+
+        var db = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
+        var told = await db.UserNotifications.AsNoTracking().Where(n => n.RefId == $"test-{tag}").Select(n => n.UserId).ToListAsync();
+        told.Should().Contain(customer.Id).And.NotContain(inactive.Id);
     }
 }

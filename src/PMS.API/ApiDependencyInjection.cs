@@ -66,6 +66,7 @@ public static class ApiDependencyInjection
         // Customer notification bell
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IUserNotificationPublisher, HangfireUserNotificationPublisher>();
+        services.AddScoped<ICustomerAudience, IdentityCustomerAudience>();
         services.AddScoped<IUserNotificationNotifier, SignalRUserNotificationNotifier>();
 
         var database = configuration.GetSection("Database").Get<DatabaseConfiguration>() ?? new DatabaseConfiguration();
@@ -102,8 +103,8 @@ public static class ApiDependencyInjection
         jobs.AddOrUpdate<ParkingJobs>(ParkingJobs.MinutelyJobId, j => j.RunMinutelyAsync(), Cron.Minutely());
         // BR-20: overdue and abandoned vehicles
         jobs.AddOrUpdate<ParkingJobs>(ParkingJobs.OverdueJobId, j => j.FlagOverdueSessionsAsync(), "*/15 * * * *");
-        // Deferred price updates: lots that are empty but still have a price waiting (an exit could not finish)
-        jobs.AddOrUpdate<PriceUpdateJobs>(PriceUpdateJobs.IdleLotsJobId, j => j.PromoteIdleLotsAsync(), Cron.Minutely());
+        // Prices go live at once now: the job that promoted waiting prices stays out of Hangfire's stored schedule
+        jobs.RemoveIfExists("price-update-idle-lots");
         // Customer notifications: daily purge of old read/unread items
         jobs.AddOrUpdate<NotificationJobs>(NotificationJobs.PurgeJobId, j => j.PurgeOldNotificationsAsync(), Cron.Daily(4));
     }

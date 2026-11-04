@@ -7,3 +7,4 @@ models/
 generated*/
 test-set/
 *.pt
+test/

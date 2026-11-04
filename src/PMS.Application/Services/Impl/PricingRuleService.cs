@@ -22,7 +22,6 @@ public class PricingRuleService(
     PmsDbContext pmsContext,
     LotScopeService lotScopeService,
     TariffProvider tariffProvider,
-    DeferredPriceService deferredPrices,
     ParkingOptions parkingOptions,
     TimeProvider clock,
     ILotPriceNotifier priceNotifier = null,
@@ -75,14 +74,11 @@ public class PricingRuleService(
 
         var vehicleTypes = await pmsContext.VehicleTypes.AsNoTracking()
             .ToDictionaryAsync(v => v.Id, v => new { v.Code, v.Name });
-        var waiting = await pmsContext.PendingPriceChanges.AsNoTracking()
-            .Where(p => p.ParkingLotId == lotId)
-            .ToDictionaryAsync(p => p.PricingRuleId);
 
         return rules.Select(r =>
         {
             vehicleTypes.TryGetValue(r.VehicleTypeId, out var vt);
-            return ToModelWithPending(r, vt?.Code, vt?.Name, waiting.GetValueOrDefault(r.Id));
+            return ToModel(r, vt?.Code, vt?.Name);
         }).ToList();
     }
 
@@ -93,10 +89,8 @@ public class PricingRuleService(
         var rule = await FindRuleAsync(lotId, ruleId, tracking: false);
         var vehicleType = await pmsContext.VehicleTypes.AsNoTracking()
             .FirstOrDefaultAsync(v => v.Id == rule.VehicleTypeId);
-        var waiting = await pmsContext.PendingPriceChanges.AsNoTracking()
-            .FirstOrDefaultAsync(p => p.PricingRuleId == rule.Id);
 
-        return ToModelWithPending(rule, vehicleType?.Code, vehicleType?.Name, waiting);
+        return ToModel(rule, vehicleType?.Code, vehicleType?.Name);
     }
 
     public async Task<PricingRuleModel> CreatePricingRuleAsync(int lotId, CreatePricingRuleModel model)
@@ -205,10 +199,8 @@ public class PricingRuleService(
         if (existing.ParkingLotId != null && existing.ParkingLotId != lotId)
             throw new ForbiddenException("Cannot modify a pricing rule that does not belong to this parking lot.");
 
-        // A rule of the whole system belongs to no single lot, so there is no "empty lot" to wait for:
-        // a Manager may not change it (an Admin still can, and it takes effect at once)
-        var sharedRule = existing.ParkingLotId == null;
-        if (sharedRule && lotScopeService.Role != "Admin")
+        // A rule of the whole system reaches beyond the Manager's lot: only an Admin may change it
+        if (existing.ParkingLotId == null && lotScopeService.Role != "Admin")
             throw new BadRequestException("The shared pricing rule of the whole system cannot be changed here.");
 
         var vehicleType = await pmsContext.VehicleTypes.AsNoTracking()
@@ -229,18 +221,17 @@ public class PricingRuleService(
         var now = clock.GetUtcNow().UtcDateTime;
         var proposed = PricingRulePrices.From(model);
 
-        var (rule, oldModel, outcome) = await LotConcurrency.RunAsync(pmsContext, async () =>
+        var (rule, oldModel, previous) = await LotConcurrency.RunAsync(pmsContext, async () =>
         {
-            // Concurrency: the lot row is read first and saved last. The decision "is the lot empty?" rests on
-            // its OccupiedBays, which the row's RowVersion protects. If a vehicle enters or leaves (or another
-            // price request is saved) between this read and our save, SaveChangesAsync throws
-            // DbUpdateConcurrencyException and writes nothing; RunAsync undoes this attempt and runs it again
-            // with the new count, which may turn "apply now" into "wait" or the other way round.
+            // Concurrency: the lot row is read first and saved last. If another price request is saved (or a
+            // vehicle enters or leaves) between this read and our save, SaveChangesAsync throws
+            // DbUpdateConcurrencyException and writes nothing; RunAsync undoes this attempt and runs it again. A
+            // vehicle entering at the same moment is redone the same way, so it gets the new price.
             var trackedLot = await pmsContext.ParkingLots.FirstAsync(p => p.Id == lotId);
             var tracked = await FindRuleAsync(lotId, ruleId, tracking: true);
             var before = ToModel(tracked, vehicleType.Code, vehicleType.Name);
+            var livePrices = PricingRulePrices.From(tracked);
 
-            // Everything that is not a charging field takes effect at once
             tracked.Name = model.Name.Trim();
             tracked.ZoneId = model.ZoneId;
             tracked.VehicleTypeId = model.VehicleTypeId;
@@ -250,48 +241,27 @@ public class PricingRuleService(
             if (!string.IsNullOrWhiteSpace(model.Status))
                 tracked.Status = model.Status;
 
-            // The charging fields go live now (empty lot) or wait for the last vehicle to leave
-            var result = await deferredPrices.StageUpdateAsync(trackedLot, tracked, proposed, lotScopeService.UserId, applyNow: sharedRule);
-
-            // A request that only waits leaves the rule as it is, so it keeps its version
-            pmsContext.ChangeTracker.DetectChanges();
-            if (result != PriceUpdateOutcome.Pending || pmsContext.Entry(tracked).State == EntityState.Modified)
-            {
-                tracked.VersionNo += 1;
-                tracked.UpdatedAt = now;
-            }
+            // Live at once: stays in progress keep the price copied onto their session at entry
+            proposed.ApplyTo(tracked);
+            tracked.VersionNo += 1;
+            tracked.UpdatedAt = now;
 
             LotConcurrency.Touch(pmsContext, trackedLot);
             await pmsContext.SaveChangesAsync();
-            return (tracked, before, result);
+            return (tracked, before, livePrices);
         });
 
         var newModel = ToModel(rule, vehicleType.Code, vehicleType.Name);
-        newModel.PriceUpdateStatus = outcome switch
+        var priceChanged = proposed != previous;
+        newModel.PriceUpdateStatus = priceChanged ? PriceUpdateStatuses.Applied : PriceUpdateStatuses.Unchanged;
+
+        await TryRecordHistoryAsync(rule.Id, "Update", JsonSerializer.Serialize(oldModel), JsonSerializer.Serialize(newModel), model.Reason ?? "Updated pricing rule parameters", now);
+
+        // A rule that is not Active charges nobody, so there is nothing to tell customers
+        if (priceChanged && string.Equals(rule.Status, "Active", StringComparison.OrdinalIgnoreCase))
         {
-            PriceUpdateOutcome.Applied => PriceUpdateStatuses.Applied,
-            PriceUpdateOutcome.Pending => PriceUpdateStatuses.Pending,
-            _ => PriceUpdateStatuses.Unchanged
-        };
-        var notice = new LotPriceNotice(lotId, lot.Name, vehicleType.Name, proposed.Describe());
-
-        switch (outcome)
-        {
-            case PriceUpdateOutcome.Pending:
-                newModel.PendingPrice = ToPendingModel(await pmsContext.PendingPriceChanges.AsNoTracking().FirstOrDefaultAsync(p => p.PricingRuleId == rule.Id));
-                await TryRecordHistoryAsync(rule.Id, "PriceDeferred", JsonSerializer.Serialize(PricingRulePrices.From(rule)), JsonSerializer.Serialize(proposed),
-                    model.Reason ?? "Price change waits until the lot is empty", now);
-                await TryNotifyAsync(() => priceNotifier?.PriceScheduledAsync(notice));
-                break;
-
-            case PriceUpdateOutcome.Applied:
-                await TryRecordHistoryAsync(rule.Id, "Update", JsonSerializer.Serialize(oldModel), JsonSerializer.Serialize(newModel), model.Reason ?? "Updated pricing rule parameters", now);
-                await TryNotifyAsync(() => priceNotifier?.PriceAppliedAsync(notice));
-                break;
-
-            default:
-                await TryRecordHistoryAsync(rule.Id, "Update", JsonSerializer.Serialize(oldModel), JsonSerializer.Serialize(newModel), model.Reason ?? "Updated pricing rule parameters", now);
-                break;
+            var notice = new LotPriceNotice(lotId, lot.Name, vehicleType.Name, proposed.Describe(), previous.Describe(), $"rule-{rule.Id}-{now:yyyyMMddHHmmssfff}");
+            await TryNotifyAsync(() => priceNotifier?.PriceChangedAsync(notice));
         }
 
         return newModel;
@@ -388,7 +358,8 @@ public class PricingRuleService(
                 VehicleTypeId = type.Id,
                 VehicleTypeCode = type.Code,
                 VehicleTypeName = type.Name,
-                ChargeModel = dayNight ? "DayNight" : "Block",
+                ChargeModel = dayNight ? "DayNight" : string.Equals(tariff.ChargeModel, "PerEntry", StringComparison.OrdinalIgnoreCase) ? "PerEntry" : "Block",
+                EntryFee = tariff.EntryFee,
                 GraceMinutes = tariff.GraceMinutes,
                 FirstBlockMinutes = tariff.FirstBlockMinutes,
                 FirstBlockPrice = tariff.FirstBlockPrice,
@@ -500,38 +471,6 @@ public class PricingRuleService(
             throw new NotFoundException($"Pricing rule with ID {ruleId} not found for lot {lotId}.");
 
         return rule;
-    }
-
-    private static PendingPriceModel ToPendingModel(PendingPriceChange change)
-    {
-        if (change == null)
-            return null;
-
-        try
-        {
-            var prices = JsonSerializer.Deserialize<PricingRulePrices>(change.ProposedValuesJson);
-            return new PendingPriceModel
-            {
-                Prices = prices,
-                Summary = prices.Describe(),
-                RevisionNo = change.RevisionNo,
-                RequestedBy = change.RequestedBy,
-                RequestedAt = DateTime.SpecifyKind(change.RequestedAt, DateTimeKind.Utc),
-                UpdatedAt = change.UpdatedAt.HasValue ? DateTime.SpecifyKind(change.UpdatedAt.Value, DateTimeKind.Utc) : null
-            };
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>The rule as the API shows it, with the price that is waiting for an empty lot (if any).</summary>
-    private static PricingRuleModel ToModelWithPending(PricingRule r, string vehicleTypeCode, string vehicleTypeName, PendingPriceChange pending)
-    {
-        var model = ToModel(r, vehicleTypeCode, vehicleTypeName);
-        model.PendingPrice = ToPendingModel(pending);
-        return model;
     }
 
     internal static PricingRuleModel ToModel(PricingRule r, string vehicleTypeCode = null, string vehicleTypeName = null) => new()

@@ -109,7 +109,8 @@ public class NotificationTests : IDisposable
             NotificationTypes.VehicleApproved,
             NotificationTypes.VehicleRejected,
             NotificationTypes.CheckIn,
-            NotificationTypes.CheckOut);
+            NotificationTypes.CheckOut,
+            NotificationTypes.PriceChanged);
         NotificationTypes.All.Should().OnlyHaveUniqueItems();
     }
 
