@@ -35,33 +35,37 @@ public class WalkInSimulationService(
     public async Task<DeployWalkInsResultModel> DeployAsync(DeployWalkInsModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
-        if (model.Count is < 1 or > DeployWalkInsModel.MaxCount)
-            throw new BadRequestException($"Send between 1 and {DeployWalkInsModel.MaxCount} vehicles at a time.");
-        if (model.CarPercent is < 0 or > 100 || model.NoPlatePercent is < 0 or > 100)
+        if (model.CarPercent is < 0 or > 100 || model.Car7Percent is < 0 or > 100 || model.NoPlatePercent is < 0 or > 100)
             throw new BadRequestException("Percentages must be between 0 and 100.");
+        if (model.CarPercent + model.Car7Percent > 100)
+            throw new BadRequestException("4-seat and 7-seat cars together cannot be more than 100%.");
         if (model.MinStayHours <= 0 || model.MaxStayHours < model.MinStayHours || model.MaxStayHours > MaxStayHours)
             throw new BadRequestException($"The stay must be more than 0 and at most {MaxStayHours} hours, the shortest no longer than the longest.");
 
         await EnsureOpenAsync(model.LotId);
+        // Each vehicle parks in a real free bay (as when Staff picks one at the lane), so lists and the 3D map show where it is
+        var freeBays = await FreeBaysAsync(model.LotId);
+        // The batch is capped by the lot itself: never more vehicles than it has free bays
+        if (freeBays.Count == 0)
+            throw new BadRequestException("No free bay is left in this lot.");
+        if (model.Count < 1 || model.Count > freeBays.Count)
+            throw new BadRequestException($"This lot has {freeBays.Count} free bays: send between 1 and {freeBays.Count} vehicles.");
+
         var types = await pmsContext.VehicleTypes.AsNoTracking().Where(t => t.IsActive).ToListAsync();
-        var carTypes = types.Where(t => t.Code.StartsWith("CAR", StringComparison.OrdinalIgnoreCase)).ToList();
+        var car4 = types.FirstOrDefault(t => t.Code == "CAR_4");
+        var car7 = types.FirstOrDefault(t => t.Code == "CAR_7");
         var motorbike = types.FirstOrDefault(t => t.Code == "MOTORBIKE");
-        if (carTypes.Count == 0 && motorbike == null)
+        if (car4 == null && car7 == null && motorbike == null)
             throw new BadRequestException("No vehicle type is active.");
 
         var adminId = lotScope.UserId;
         var result = new DeployWalkInsResultModel { Requested = model.Count };
         var taken = new HashSet<string>();
-        // Each vehicle parks in a real free bay (as when Staff picks one at the lane), so lists and the 3D map show where it is
-        var freeBays = await FreeBaysAsync(model.LotId);
         var typesById = types.ToDictionary(t => t.Id);
         for (var i = 0; i < model.Count; i++)
         {
-            var isCar = motorbike == null || (carTypes.Count > 0 && RandomNumberGenerator.GetInt32(100) < model.CarPercent);
-            // 4-seat cars are the most common; 7-seat ones show up now and then
-            var type = isCar
-                ? carTypes.OrderBy(t => t.Code).ElementAt(carTypes.Count > 1 && RandomNumberGenerator.GetInt32(100) < 25 ? 1 : 0)
-                : motorbike;
+            var type = PickType(model, car4, car7, motorbike);
+            var isCar = type != motorbike;
             var noPlate = RandomNumberGenerator.GetInt32(100) < model.NoPlatePercent;
             var plate = noPlate ? null : await FreePlateAsync(isCar, taken);
             var bay = PickBay(freeBays, typesById, type.Id);
@@ -137,7 +141,11 @@ public class WalkInSimulationService(
         {
             Inside = inside,
             CompletedCount = await completed.CountAsync(),
-            Revenue = await completed.SumAsync(s => (decimal?)s.FinalFee) ?? 0
+            Revenue = await completed.SumAsync(s => (decimal?)s.FinalFee) ?? 0,
+            TotalBays = lotId is { } id
+                ? await pmsContext.Slots.CountAsync(s => s.Zone.ParkingLotId == id && s.Zone.IsActive && s.IsActive)
+                : null,
+            FreeBays = lotId is { } lot ? await FreeBaysQuery(lot).CountAsync() : null
         };
     }
 
@@ -241,13 +249,29 @@ public class WalkInSimulationService(
 
     // ---- helpers ----------------------------------------------------------------------------------
 
+    /// <summary>
+    /// The vehicle type of the next walk-in from the batch's shares (4-seat, 7-seat, the rest motorbikes); when a
+    /// type is not active, the nearest one stands in.
+    /// </summary>
+    private static VehicleType PickType(DeployWalkInsModel model, VehicleType car4, VehicleType car7, VehicleType motorbike)
+    {
+        var roll = RandomNumberGenerator.GetInt32(100);
+        var wantsCar = roll < model.CarPercent + model.Car7Percent;
+        var wanted = roll < model.CarPercent ? car4 : wantsCar ? car7 : motorbike;
+        if (wanted != null)
+            return wanted;
+        // A car stands in for the other car size; a motorbike only when no car type is active
+        return wantsCar ? car4 ?? car7 ?? motorbike : car4 ?? car7;
+    }
+
     /// <summary>Active, free bays of the lot that no open session stands in.</summary>
-    private async Task<List<Slot>> FreeBaysAsync(int lotId)
+    private Task<List<Slot>> FreeBaysAsync(int lotId) => FreeBaysQuery(lotId).ToListAsync();
+
+    private IQueryable<Slot> FreeBaysQuery(int lotId)
     {
         var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
-        return await pmsContext.Slots.AsNoTracking()
-            .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available && !occupied.Contains(s.Id))
-            .ToListAsync();
+        return pmsContext.Slots.AsNoTracking()
+            .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available && !occupied.Contains(s.Id));
     }
 
     /// <summary>A random free bay that takes this vehicle type (cars share bays), or null when none is left.</summary>
