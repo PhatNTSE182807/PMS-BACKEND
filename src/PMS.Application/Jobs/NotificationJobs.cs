@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using PMS.Application.Helpers.Parking;
 using PMS.Application.Models.Notifications;
 using PMS.Application.Models.Operations;
@@ -18,14 +19,16 @@ namespace PMS.Application.Jobs;
 
 /// <summary>
 /// Customer notifications, run by Hangfire (see PMS.API): fire-and-forget jobs enqueued by
-/// <see cref="IUserNotificationPublisher"/> once a registration is decided or a vehicle checks in / out,
-/// and a daily clean-up of old read notifications. Each job reads the saved record, writes one
+/// <see cref="IUserNotificationPublisher"/> once a registration is decided, a vehicle checks in / out or a lot's
+/// price changes, and a daily clean-up of old read notifications. Each job reads the saved record, writes one
 /// notification (never twice for the same event, so Hangfire retries are safe) and pushes it live.
 /// </summary>
 public class NotificationJobs(
     PmsDbContext pmsContext,
     TimeProvider clock,
-    IUserNotificationNotifier notifier = null)
+    IUserNotificationNotifier notifier = null,
+    ICustomerAudience audience = null,
+    ILogger<NotificationJobs> logger = null)
 {
     public const string PurgeJobId = "purge-user-notifications";
 
@@ -138,6 +141,67 @@ public class NotificationJobs(
             RefId = session.Id.ToString(),
             EventAt = at
         }, data);
+    }
+
+    /// <summary>
+    /// A lot's price changed: one notification per active customer, for any customer may park at any lot.
+    /// A Hangfire retry only adds the customers it missed. Returns the number of notifications written.
+    /// </summary>
+    public async Task<int> LotPriceChangedAsync(string title, string message, string eventKey, int lotId, string lotName)
+    {
+        if (audience == null)
+            return 0;
+
+        var told = await pmsContext.UserNotifications
+            .Where(n => n.Type == NotificationTypes.PriceChanged && n.RefId == eventKey)
+            .Select(n => n.UserId)
+            .ToListAsync();
+        var recipients = (await audience.ActiveCustomerIdsAsync()).Except(told).ToList();
+
+        var dataJson = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["lotId"] = lotId.ToString(CultureInfo.InvariantCulture),
+            ["lotName"] = lotName
+        });
+
+        var notifications = recipients.Select(userId => new UserNotification
+        {
+            UserId = userId,
+            Type = NotificationTypes.PriceChanged,
+            Title = title,
+            Message = message,
+            RefType = "LotPriceChange",
+            RefId = eventKey,
+            EventAt = Now,
+            DataJson = dataJson,
+            CreatedAt = Now
+        }).ToList();
+        pmsContext.UserNotifications.AddRange(notifications);
+        await pmsContext.SaveChangesAsync();
+
+        if (notifier != null && notifications.Count > 0)
+        {
+            var unread = await pmsContext.UserNotifications
+                .Where(n => n.ReadAt == null && recipients.Contains(n.UserId))
+                .GroupBy(n => n.UserId)
+                .Select(g => new { UserId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.UserId, g => g.Count);
+
+            foreach (var notification in notifications)
+            {
+                try
+                {
+                    await notifier.NotificationCreatedAsync(notification.UserId, NotificationService.ToModel(notification), unread.GetValueOrDefault(notification.UserId));
+                }
+                catch (Exception ex)
+                {
+                    // Already saved, so the customer sees it on the next read; one dead connection must not stop the others
+                    logger?.LogWarning(ex, "Could not push price notification {NotificationId} to its owner", notification.Id);
+                }
+            }
+        }
+
+        return notifications.Count;
     }
 
     /// <summary>Daily: drops read notifications after 60 days and unread ones after 180. Returns the number deleted.</summary>

@@ -361,15 +361,14 @@ public class GateService(
                 throw new ConflictException("This reservation has already checked in.");
 
             // Concurrency: count the vehicle in (this reads the lot row and remembers its RowVersion) BEFORE the
-            // price is read, and save the session and the counter together. If a price becomes live or another
+            // price is read, and save the session and the counter together. If the price changes or another
             // vehicle enters between our read and our save, SaveChangesAsync throws DbUpdateConcurrencyException,
             // RunAsync drops the unsaved session and runs this block again, so the session never keeps a price
             // that was replaced while it was being created.
             await occupancy.StageEntryAsync(lotId);
 
-            // A booking locked its price when it was made: the booked vehicle keeps it whatever the lot charges now
-            var tariff = TariffSnapshot.Read(reservation?.PriceSnapshotJson)
-                         ?? await tariffs.ForAsync(lotId, reservation?.ZoneId, vehicleTypeId, Now);
+            // The price in force at entry, booked or not (BR-22); it stays on the session whatever changes later
+            var tariff = await tariffs.ForAsync(lotId, reservation?.ZoneId, vehicleTypeId, Now);
             var created = new ParkingSession
             {
                 SessionCode = ParkingText.NewCode("SS", Now),
@@ -654,8 +653,7 @@ public class GateService(
 
         await pmsContext.SaveChangesAsync();
 
-        // The session is Completed: count the vehicle out. When it was the last one, the prices that waited for an
-        // empty lot become live here (see LotOccupancy.ReleaseAsync for the concurrency handling).
+        // The session is Completed: count the vehicle out (see LotOccupancy.ReleaseAsync for the concurrency handling)
         await occupancy.ReleaseAsync(session.ParkingLotId);
 
         QueueSessionPush(session);
