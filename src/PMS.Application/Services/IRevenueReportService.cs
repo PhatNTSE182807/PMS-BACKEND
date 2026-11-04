@@ -18,6 +18,14 @@ public interface IRevenueReportService
     /// </summary>
     Task<ManagerRevenueReportResponse> GetManagerAllTimeRevenueAsync(string managerUserId, int? parkingLotId = null);
 
+    /// <param name="vehicleType">"ALL" (or null), "CAR" or "MOTORBIKE".</param>
     Task<AdminRevenueReportResponse> GetAdminRevenueAsync(
-        string startDate, string endDate, int? parkingLotId = null);
+        string startDate, string endDate, int? parkingLotId = null, string vehicleType = null);
+
+    /// <summary>
+    /// The same settled revenue per day, week, month or year of the range, split into cars and motorbikes and by lot.
+    /// </summary>
+    /// <param name="granularity">"DAY", "WEEK", "MONTH", "YEAR", or null to pick the finest that keeps about a month of points.</param>
+    Task<AdminRevenueTimeSeriesResponse> GetAdminRevenueTimeSeriesAsync(
+        string startDate, string endDate, int? parkingLotId = null, string vehicleType = null, string granularity = null);
 }

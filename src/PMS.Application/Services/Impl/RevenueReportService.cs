@@ -114,25 +114,14 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
     }
 
     public async Task<AdminRevenueReportResponse> GetAdminRevenueAsync(
-        string startDate, string endDate, int? parkingLotId = null)
+        string startDate, string endDate, int? parkingLotId = null, string vehicleType = null)
     {
-        List<ParkingLot> targetLots;
-        if (parkingLotId.HasValue)
-        {
-            var lot = await pmsContext.ParkingLots.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Id == parkingLotId.Value && !p.IsDeleted)
-                ?? throw new NotFoundException("Parking lot not found.");
-            targetLots = [lot];
-        }
-        else
-        {
-            targetLots = await pmsContext.ParkingLots.AsNoTracking()
-                .Where(p => !p.IsDeleted)
-                .OrderBy(p => p.Name)
-                .ToListAsync();
-        }
+        var kind = ParseVehicleType(vehicleType);
+        var targetLots = await ResolveAdminLotsAsync(parkingLotId);
+        var kinds = await LoadVehicleKindsAsync();
+        IReadOnlyList<VehicleKindRevenueModel> byVehicleType = [];
 
-        return await AggregateRevenueForLotsAsync(
+        var response = await AggregateRevenueForLotsAsync(
             targetLots,
             startDate,
             endDate,
@@ -145,14 +134,82 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
                 ActiveLotsCount = targetLots.Count,
                 ByLot = byLot,
                 PaymentMethods = methods
-            });
+            },
+            s => kind == null || KindOf(s, kinds) == kind,
+            sessions => byVehicleType = SplitByVehicleKind(sessions, kinds));
+
+        response.ByVehicleType = byVehicleType;
+        return response;
+    }
+
+    public async Task<AdminRevenueTimeSeriesResponse> GetAdminRevenueTimeSeriesAsync(
+        string startDate, string endDate, int? parkingLotId = null, string vehicleType = null, string granularity = null)
+    {
+        var kind = ParseVehicleType(vehicleType);
+        var step = ParseGranularity(granularity);
+        var targetLots = await ResolveAdminLotsAsync(parkingLotId);
+        var tz = targetLots.Count == 1 ? ParkingText.FindTimeZone(targetLots[0].TimeZoneId) : ParkingText.FindTimeZone(null);
+        var (sDate, eDate, startUtc, endUtc) = ResolveDateInterval(startDate, endDate, tz);
+        step ??= AutoGranularity(sDate, eDate);
+
+        var kinds = await LoadVehicleKindsAsync();
+        var lotNames = targetLots.ToDictionary(l => l.Id, l => l.Name);
+        var sessions = (await LoadEligibleSessionsAsync(lotNames.Keys.ToList(), startUtc, endUtc))
+            .Where(s => kind == null || KindOf(s, kinds) == kind)
+            .ToList();
+
+        var periods = SplitRange(sDate, eDate, step);
+        var buckets = sessions
+            .GroupBy(s => PeriodIndex(periods, ReportedLocalDate(s, tz)))
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var points = periods.Select((period, i) =>
+        {
+            var inPeriod = buckets.TryGetValue(i, out var list) ? list : [];
+            var cars = inPeriod.Where(s => KindOf(s, kinds) == CarKind).ToList();
+            var motorbikes = inPeriod.Where(s => KindOf(s, kinds) == MotorbikeKind).ToList();
+            return new RevenueTimeSeriesPointModel
+            {
+                StartDate = period.Start.ToString("yyyy-MM-dd"),
+                EndDate = period.End.ToString("yyyy-MM-dd"),
+                TotalRevenue = inPeriod.Sum(s => s.FinalFee),
+                TotalSessions = inPeriod.Count,
+                CarRevenue = cars.Sum(s => s.FinalFee),
+                CarSessions = cars.Count,
+                MotorbikeRevenue = motorbikes.Sum(s => s.FinalFee),
+                MotorbikeSessions = motorbikes.Count,
+                ByLot = inPeriod
+                    .GroupBy(s => s.ParkingLotId)
+                    .Select(g => new RevenueTimeSeriesLotModel
+                    {
+                        ParkingLotId = g.Key,
+                        ParkingLotName = lotNames[g.Key],
+                        TotalRevenue = g.Sum(s => s.FinalFee),
+                        TotalSessions = g.Count(),
+                        CarSessions = g.Count(s => KindOf(s, kinds) == CarKind),
+                        MotorbikeSessions = g.Count(s => KindOf(s, kinds) == MotorbikeKind)
+                    })
+                    .OrderBy(l => l.ParkingLotName)
+                    .ToList()
+            };
+        }).ToList();
+
+        return new AdminRevenueTimeSeriesResponse
+        {
+            StartDate = sDate.ToString("yyyy-MM-dd"),
+            EndDate = eDate.ToString("yyyy-MM-dd"),
+            Granularity = step,
+            Points = points
+        };
     }
 
     private async Task<TResponse> AggregateRevenueForLotsAsync<TResponse>(
         List<ParkingLot> targetLots,
         string startDateStr,
         string endDateStr,
-        Func<string, string, decimal, int, IReadOnlyList<ParkingLotRevenueModel>, IReadOnlyList<PaymentMethodBreakdownModel>, TResponse> responseFactory)
+        Func<string, string, decimal, int, IReadOnlyList<ParkingLotRevenueModel>, IReadOnlyList<PaymentMethodBreakdownModel>, TResponse> responseFactory,
+        Func<ParkingSession, bool> sessionFilter = null,
+        Action<IReadOnlyList<ParkingSession>> onSessions = null)
     {
         var tz = targetLots.Count == 1
             ? ParkingText.FindTimeZone(targetLots[0].TimeZoneId)
@@ -168,11 +225,10 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
         // Deterministic reporting timestamp rule:
         // - Completed session: ExitTime is the deterministic timestamp when the session was closed at barrier.
         // - Paid session: Paid at kiosk/app, ExitTime is null; UpdatedAt records the exact timestamp when status became Paid.
-        var eligibleSessions = await pmsContext.ParkingSessions.AsNoTracking()
-            .Where(s => targetLotIds.Contains(s.ParkingLotId))
-            .Where(s => (s.Status == SessionStatus.Completed && s.ExitTime >= startUtc && s.ExitTime < endUtc)
-                     || (s.Status == SessionStatus.Paid && s.ExitTime == null && s.UpdatedAt >= startUtc && s.UpdatedAt < endUtc))
-            .ToListAsync();
+        var eligibleSessions = await LoadEligibleSessionsAsync(targetLotIds, startUtc, endUtc);
+        if (sessionFilter != null)
+            eligibleSessions = eligibleSessions.Where(sessionFilter).ToList();
+        onSessions?.Invoke(eligibleSessions);
 
         var totalRevenue = eligibleSessions.Sum(s => s.FinalFee);
         var totalSessions = eligibleSessions.Count;
@@ -361,6 +417,131 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
             totalSessions,
             byLot,
             methodList);
+    }
+
+    private const string CarKind = "CAR";
+    private const string MotorbikeKind = "MOTORBIKE";
+    private const string OtherKind = "OTHER";
+
+    /// <summary>Settled sessions of the lots reported in [startUtc, endUtc): Completed by exit time, Paid (not yet out) by payment time.</summary>
+    private Task<List<ParkingSession>> LoadEligibleSessionsAsync(List<int> lotIds, DateTime startUtc, DateTime endUtc) =>
+        pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => lotIds.Contains(s.ParkingLotId))
+            .Where(s => (s.Status == SessionStatus.Completed && s.ExitTime >= startUtc && s.ExitTime < endUtc)
+                     || (s.Status == SessionStatus.Paid && s.ExitTime == null && s.UpdatedAt >= startUtc && s.UpdatedAt < endUtc))
+            .ToListAsync();
+
+    private async Task<List<ParkingLot>> ResolveAdminLotsAsync(int? parkingLotId)
+    {
+        if (parkingLotId.HasValue)
+        {
+            var lot = await pmsContext.ParkingLots.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == parkingLotId.Value && !p.IsDeleted)
+                ?? throw new NotFoundException("Parking lot not found.");
+            return [lot];
+        }
+
+        return await pmsContext.ParkingLots.AsNoTracking()
+            .Where(p => !p.IsDeleted)
+            .OrderBy(p => p.Name)
+            .ToListAsync();
+    }
+
+    /// <summary>Vehicle type id to family: CAR_4 and CAR_7 are cars, MOTORBIKE is motorbikes, anything else OTHER.</summary>
+    private async Task<Dictionary<int, string>> LoadVehicleKindsAsync() =>
+        (await pmsContext.VehicleTypes.AsNoTracking().Select(t => new { t.Id, t.Code }).ToListAsync())
+            .ToDictionary(t => t.Id, t => KindOfCode(t.Code));
+
+    private static string KindOfCode(string code)
+    {
+        var upper = (code ?? string.Empty).Trim().ToUpperInvariant();
+        if (upper == MotorbikeKind) return MotorbikeKind;
+        return upper.StartsWith(CarKind, StringComparison.Ordinal) ? CarKind : OtherKind;
+    }
+
+    private static string KindOf(ParkingSession session, Dictionary<int, string> kinds) =>
+        session.VehicleTypeId is { } id && kinds.TryGetValue(id, out var kind) ? kind : OtherKind;
+
+    private static string ParseVehicleType(string vehicleType)
+    {
+        var value = (vehicleType ?? string.Empty).Trim().ToUpperInvariant();
+        return value switch
+        {
+            "" or "ALL" => null,
+            CarKind or MotorbikeKind => value,
+            _ => throw new BadRequestException("Invalid 'vehicleType'. Use ALL, CAR or MOTORBIKE.")
+        };
+    }
+
+    private static List<VehicleKindRevenueModel> SplitByVehicleKind(IReadOnlyList<ParkingSession> sessions, Dictionary<int, string> kinds)
+    {
+        var groups = sessions.GroupBy(s => KindOf(s, kinds)).ToDictionary(g => g.Key, g => g.ToList());
+        var result = new List<VehicleKindRevenueModel>();
+        foreach (var kind in new[] { CarKind, MotorbikeKind, OtherKind })
+        {
+            var list = groups.TryGetValue(kind, out var found) ? found : [];
+            if (kind == OtherKind && list.Count == 0) continue;
+            result.Add(new VehicleKindRevenueModel { VehicleType = kind, TotalRevenue = list.Sum(s => s.FinalFee), TotalSessions = list.Count });
+        }
+        return result;
+    }
+
+    private static string ParseGranularity(string granularity)
+    {
+        var value = (granularity ?? string.Empty).Trim().ToUpperInvariant();
+        return value switch
+        {
+            "" or "AUTO" => null,
+            "DAY" or "WEEK" or "MONTH" or "YEAR" => value,
+            _ => throw new BadRequestException("Invalid 'granularity'. Use DAY, WEEK, MONTH or YEAR.")
+        };
+    }
+
+    /// <summary>The finest step that keeps about a month of points: days up to 31 days, weeks up to 16 weeks, months up to 24 months.</summary>
+    private static string AutoGranularity(DateOnly start, DateOnly end)
+    {
+        var days = end.DayNumber - start.DayNumber + 1;
+        if (days <= 31) return "DAY";
+        if (days <= 16 * 7) return "WEEK";
+        var months = (end.Year - start.Year) * 12 + end.Month - start.Month + 1;
+        return months <= 24 ? "MONTH" : "YEAR";
+    }
+
+    /// <summary>Calendar days, Monday-to-Sunday weeks, months or years covering the range; the first and last are clipped to it.</summary>
+    private static List<(DateOnly Start, DateOnly End)> SplitRange(DateOnly start, DateOnly end, string step)
+    {
+        var periods = new List<(DateOnly, DateOnly)>();
+        for (var cursor = start; cursor <= end;)
+        {
+            var next = step switch
+            {
+                "WEEK" => cursor.AddDays(7 - ((int)cursor.DayOfWeek + 6) % 7),
+                "MONTH" => new DateOnly(cursor.Year, cursor.Month, 1).AddMonths(1),
+                "YEAR" => new DateOnly(cursor.Year + 1, 1, 1),
+                _ => cursor.AddDays(1)
+            };
+            var last = next.AddDays(-1);
+            periods.Add((cursor, last < end ? last : end));
+            cursor = next;
+        }
+        return periods;
+    }
+
+    private static int PeriodIndex(List<(DateOnly Start, DateOnly End)> periods, DateOnly date)
+    {
+        for (var i = 0; i < periods.Count; i++)
+            if (date >= periods[i].Start && date <= periods[i].End) return i;
+        // The query already keeps sessions inside the range; clamp anything on its edge.
+        return date < periods[0].Start ? 0 : periods.Count - 1;
+    }
+
+    /// <summary>Local calendar day a session counts on: exit time when Completed, payment time when Paid and not yet out.</summary>
+    private static DateOnly ReportedLocalDate(ParkingSession session, TimeZoneInfo tz)
+    {
+        var utc = session.Status == SessionStatus.Completed && session.ExitTime.HasValue
+            ? session.ExitTime.Value
+            : session.UpdatedAt ?? session.EntryTime;
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz));
     }
 
     private static (DateOnly StartDate, DateOnly EndDate, DateTime StartUtc, DateTime EndUtc) ResolveDateInterval(
