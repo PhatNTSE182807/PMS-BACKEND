@@ -108,16 +108,29 @@ public sealed record PricingRulePrices
         rule.NoShowFee = NoShowFee;
     }
 
-    /// <summary>The headline price in words, for notifications: "25,000 VND per 60 min".</summary>
+    /// <summary>
+    /// The price in words, for customer notifications, the same way for every vehicle type:
+    /// "5,000 VND for the first 2 hours, then 2,000 VND per hour, at most 20,000 VND a day".
+    /// </summary>
     public string Describe()
     {
-        static string Money(decimal? value) => (value ?? 0).ToString("N0", CultureInfo.InvariantCulture);
-        var minutes = BlockMinutes ?? 60;
+        static string Money(decimal? value) => $"{(value ?? 0).ToString("N0", CultureInfo.InvariantCulture)} VND";
+        // "hour", "4 hours", "90 min"
+        static string Span(int minutes) => minutes == 60 ? "hour" : minutes % 60 == 0 ? $"{minutes / 60} hours" : $"{minutes} min";
 
         if (string.Equals(ChargeModel, "PerEntry", StringComparison.OrdinalIgnoreCase))
-            return $"{Money(EntryFee)} VND per entry";
-        if (string.Equals(ChargeModel, "DayNight", StringComparison.OrdinalIgnoreCase))
-            return $"{Money(DayPrice)} VND by day and {Money(NightPrice)} VND by night per {minutes} min";
-        return $"{Money(BlockPrice)} VND per {minutes} min";
+            return $"{Money(EntryFee)} per day";
+
+        var minutes = BlockMinutes is > 0 ? BlockMinutes.Value : 60;
+        var text = string.Equals(ChargeModel, "DayNight", StringComparison.OrdinalIgnoreCase)
+            ? $"{Money(DayPrice)} by day and {Money(NightPrice)} by night per {Span(minutes)}"
+            : $"{Money(BlockPrice)} per {Span(minutes)}";
+        if (FirstBlockMinutes is > 0 && FirstBlockPrice != null)
+            text = $"{Money(FirstBlockPrice)} for the first {Span(FirstBlockMinutes.Value)}, then {text}";
+        if (EntryFee > 0)
+            text = $"{Money(EntryFee)} on entry, plus {text}";
+        if (MaxDailyFee is > 0)
+            text += $", at most {Money(MaxDailyFee)} a day";
+        return text;
     }
 }

@@ -27,7 +27,7 @@ public class LotPriceNotifier(
 
         try
         {
-            notifications?.LotPriceChanged($"Price changed at {notice.LotName}", notice.Message, notice.EventKey, notice.LotId, notice.LotName);
+            notifications?.LotPriceChanged(notice.Title, notice.Message, notice.EventKey, notice.LotId, notice.LotName);
         }
         catch (Exception ex)
         {
