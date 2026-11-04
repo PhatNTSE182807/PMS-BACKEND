@@ -12,13 +12,12 @@ using Xunit;
 namespace PMS.Application.UnitTests.Operations;
 
 /// <summary>
-/// Lost ticket / card (FR-OPS-05, SRS 4.2.4): conditional approval (BR-13), Manager approval with
-/// Maker-Checker (BR-14), and a rejected vehicle staying in the lot.
+/// Lost ticket / card (FR-OPS-05, SRS 4.2.4): the Staff decides every case (team decision 2026-11-04, no Manager
+/// approval): on the spot (BR-13), after checking the papers, and a rejected vehicle staying in the lot.
 /// </summary>
 public class LostTicketFlowTests
 {
     private const string Plate = "51G-555.66";
-    private const string AdminUserId = "admin-1";
 
     /// <summary>Default CAR_4 tariff (no pricing rule seeded).</summary>
     private const decimal CarLostTicketFee = 100_000;
@@ -40,8 +39,12 @@ public class LostTicketFlowTests
     private static LostTicketModel Report(bool conditionsMet = false) =>
         new() { Reason = "Paper ticket lost; registration and ID checked", ConditionsMet = conditionsMet };
 
+    private static LostTicketReviewModel Approve(string note = null) => new() { Approve = true, Note = note };
+
+    private static LostTicketReviewModel Refuse(string note) => new() { Approve = false, Note = note };
+
     [Fact]
-    public async Task A_Manager_Approval_Leaves_The_Vehicle_Parked_With_The_Fine_On_Its_Bill()
+    public async Task A_Staff_Approval_Leaves_The_Vehicle_Parked_With_The_Fine_On_Its_Bill()
     {
         var t = await new OperationsTestContext().SeedAsync();
         var id = await ParkedCarAsync(t);
@@ -50,22 +53,21 @@ public class LostTicketFlowTests
 
         reported.Status.Should().Be(SessionStatus.LostTicketPending);
         reported.LostTicketStatus.Should().Be(LostTicketCaseStatus.Pending);
+        reported.LostTicketApprovalMode.Should().Be(LostTicketApproval.Staff, "the Staff decides lost tickets, not the Manager");
         reported.LostTicketReportedBy.Should().Be(t.StaffUserId);
         reported.LostTicketReason.Should().Be("Paper ticket lost; registration and ID checked");
 
-        t.ActAs(t.ManagerUserId, "Manager");
-        var decided = await t.Gates.DecideLostTicketAsync(id, true, "Papers match the entry photo");
+        var decided = await t.Gates.ReviewLostTicketAsync(id, Approve("Papers match the entry photo"));
 
         decided.Status.Should().Be(SessionStatus.Active, "the vehicle stays until it checks out");
         decided.LostTicketStatus.Should().Be(LostTicketCaseStatus.Approved);
         decided.LostTicketDecisionNote.Should().Be("Papers match the entry photo");
         var lostCase = Cases(t, id).Single();
-        lostCase.ApprovalMode.Should().Be(LostTicketApproval.Manager);
-        lostCase.DecidedBy.Should().Be(t.ManagerUserId);
+        lostCase.ApprovalMode.Should().Be(LostTicketApproval.Staff);
+        lostCase.DecidedBy.Should().Be(t.StaffUserId);
         lostCase.DecidedAt.Should().NotBeNull();
-        lostCase.IsResolved.Should().BeTrue();
+        lostCase.IsResolved.Should().BeTrue("no Manager review follows");
 
-        t.ActAs(t.StaffUserId, "Staff");
         var quote = await t.Gates.RequestPaymentAsync(id, new CheckoutQuoteRequestModel());
         quote.LostTicketFee.Should().Be(CarLostTicketFee);
         quote.AmountDue.Should().Be(quote.Fee + CarLostTicketFee);
@@ -78,14 +80,12 @@ public class LostTicketFlowTests
         var id = await ParkedCarAsync(t);
         await t.Gates.ReportLostTicketAsync(id, Report());
 
-        t.ActAs(t.ManagerUserId, "Manager");
-        var rejected = await t.Gates.DecideLostTicketAsync(id, false, "Registration does not match the driver");
+        var rejected = await t.Gates.ReviewLostTicketAsync(id, Refuse("Registration does not match the driver"));
 
         rejected.Status.Should().Be(SessionStatus.Active);
         rejected.LostTicketStatus.Should().Be(LostTicketCaseStatus.Rejected);
 
         // No payment point and no exit lane takes the fee while the rejection stands
-        t.ActAs(t.StaffUserId, "Staff");
         var quote = () => t.Gates.RequestPaymentAsync(id, new CheckoutQuoteRequestModel());
         var cash = () => t.Gates.PayCashAsync(id, new CashPaymentModel { Amount = 1_000_000 });
         var exit = () => t.Gates.CheckoutAsync(id, new CheckoutModel { PlateNumber = Plate });
@@ -96,10 +96,8 @@ public class LostTicketFlowTests
 
         // The owner comes back with full papers: a new case, approved this time
         await t.Gates.ReportLostTicketAsync(id, Report());
-        t.ActAs(t.ManagerUserId, "Manager");
-        await t.Gates.DecideLostTicketAsync(id, true, null);
+        await t.Gates.ReviewLostTicketAsync(id, Approve());
 
-        t.ActAs(t.StaffUserId, "Staff");
         var due = await t.Gates.RequestPaymentAsync(id, new CheckoutQuoteRequestModel());
         due.LostTicketFee.Should().Be(CarLostTicketFee, "the fine is charged once, however many cases were opened");
         await t.Gates.PayCashAsync(id, new CashPaymentModel { Amount = due.AmountDue });
@@ -111,29 +109,25 @@ public class LostTicketFlowTests
     }
 
     [Fact]
-    public async Task The_Person_Who_Reported_The_Case_Cannot_Decide_It()
+    public async Task A_Case_Left_Waiting_For_A_Manager_Is_Decided_By_The_Staff()
     {
         var t = await new OperationsTestContext().SeedAsync();
         var id = await ParkedCarAsync(t);
-
-        t.ActAs(t.ManagerUserId, "Manager");
         await t.Gates.ReportLostTicketAsync(id, Report());
-        var approveOwn = () => t.Gates.DecideLostTicketAsync(id, true, null);
-        var rejectOwn = () => t.Gates.DecideLostTicketAsync(id, false, "Not the owner");
+        // A case reported before the change, still waiting for a Manager
+        Cases(t, id).Single().ApprovalMode = LostTicketApproval.Manager;
+        await t.Db.SaveChangesAsync();
 
-        await approveOwn.Should().ThrowAsync<ForbiddenException>().WithMessage("*another Manager or an Admin*");
-        await rejectOwn.Should().ThrowAsync<ForbiddenException>();
-        Cases(t, id).Single().Status.Should().Be(LostTicketCaseStatus.Pending);
+        var decided = await t.Gates.ReviewLostTicketAsync(id, Approve());
 
-        t.ActAs(AdminUserId, "Admin");
-        var decided = await t.Gates.DecideLostTicketAsync(id, true, "Checked by Admin");
-
-        decided.Status.Should().Be(SessionStatus.Active);
-        Cases(t, id).Single().DecidedBy.Should().Be(AdminUserId);
+        decided.LostTicketStatus.Should().Be(LostTicketCaseStatus.Approved);
+        var lostCase = Cases(t, id).Single();
+        lostCase.ApprovalMode.Should().Be(LostTicketApproval.Staff);
+        lostCase.DecidedBy.Should().Be(t.StaffUserId);
     }
 
     [Fact]
-    public async Task A_Conditional_Approval_Leaves_The_Vehicle_Parked_And_Waits_For_The_Manager_Review()
+    public async Task A_Conditional_Approval_Leaves_The_Vehicle_Parked_With_No_Manager_Review()
     {
         var t = await new OperationsTestContext().SeedAsync();
         var id = await ParkedCarAsync(t);
@@ -145,7 +139,7 @@ public class LostTicketFlowTests
         var lostCase = Cases(t, id).Single();
         lostCase.ApprovalMode.Should().Be(LostTicketApproval.Conditional);
         lostCase.DecidedBy.Should().Be(t.StaffUserId);
-        lostCase.IsResolved.Should().BeFalse("the Manager still reviews a conditional approval");
+        lostCase.IsResolved.Should().BeTrue("the Staff's on-the-spot approval is final");
 
         var quote = await t.Gates.RequestPaymentAsync(id, new CheckoutQuoteRequestModel());
         quote.LostTicketFee.Should().Be(CarLostTicketFee, "the fine is added when the vehicle checks out");
@@ -179,7 +173,8 @@ public class LostTicketFlowTests
 
         approved.Status.Should().Be(SessionStatus.Active);
         approved.LostTicketStatus.Should().Be(LostTicketCaseStatus.Approved);
-        Cases(t, id).Single().ApprovalMode.Should().Be(LostTicketApproval.Conditional);
+        Cases(t, id).Single().ApprovalMode.Should().Be(LostTicketApproval.Staff);
+        Cases(t, id).Single().IsResolved.Should().BeTrue();
         var quote = await t.Gates.RequestPaymentAsync(id, new CheckoutQuoteRequestModel());
         quote.LostTicketFee.Should().Be(CarLostTicketFee);
     }
@@ -192,7 +187,7 @@ public class LostTicketFlowTests
         await t.Gates.ReportLostTicketWithPapersAsync(id, Papers());
 
         var noReason = () => t.Gates.ReviewLostTicketAsync(id, new LostTicketReviewModel { Approve = false });
-        await noReason.Should().ThrowAsync<BadRequestException>().WithMessage("*why the papers do not match*");
+        await noReason.Should().ThrowAsync<BadRequestException>().WithMessage("Say why you refuse the lost ticket*");
 
         var refused = await t.Gates.ReviewLostTicketAsync(id, new LostTicketReviewModel { Approve = false, Note = "Name on the ID differs" });
 
@@ -234,10 +229,9 @@ public class LostTicketFlowTests
         var id = await ParkedCarAsync(t);
         await t.Gates.ReportLostTicketAsync(id, Report());
 
-        t.ActAs(t.ManagerUserId, "Manager");
-        var reject = () => t.Gates.DecideLostTicketAsync(id, false, "  ");
+        var reject = () => t.Gates.ReviewLostTicketAsync(id, Refuse("  "));
 
-        await reject.Should().ThrowAsync<BadRequestException>().WithMessage("A reason is required to reject a lost-ticket case.");
+        await reject.Should().ThrowAsync<BadRequestException>().WithMessage("Say why you refuse the lost ticket*");
         t.Db.ParkingSessions.Single(s => s.Id == id).Status.Should().Be(SessionStatus.LostTicketPending);
         Cases(t, id).Single().Status.Should().Be(LostTicketCaseStatus.Pending);
     }
@@ -248,8 +242,7 @@ public class LostTicketFlowTests
         var t = await new OperationsTestContext().SeedAsync();
         var id = await ParkedCarAsync(t);
         await t.Gates.ReportLostTicketAsync(id, Report());
-        t.ActAs(t.ManagerUserId, "Manager");
-        await t.Gates.DecideLostTicketAsync(id, true, null);
+        await t.Gates.ReviewLostTicketAsync(id, Approve());
 
         // Nobody paid: the job sends the session back to parked
         t.Clock.Advance(TimeSpan.FromMinutes(t.Options.Gate.PaymentLinkMinutes + 1));
