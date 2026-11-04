@@ -94,7 +94,7 @@ public class PriceUpdateTests
         result.VersionNo.Should().Be(2);
         (await LivePriceAsync(s)).Should().Be(NewPrice);
         await s.Notifier.Received(1).PriceChangedAsync(Arg.Is<LotPriceNotice>(n =>
-            n.Message.Contains("from 20,000 VND per 60 min to 30,000 VND per 60 min") && n.Message.Contains("already parked keep the price")));
+            n.Message.Contains("from 20,000 VND per hour to 30,000 VND per hour") && n.Message.Contains("already parked keep the price")));
     }
 
     [Fact]
@@ -296,7 +296,7 @@ public class PriceUpdateTests
 
         await new LotPriceNotifier(realtime, notifications: publisher).PriceChangedAsync(notice);
 
-        publisher.Received(1).LotPriceChanged("Price changed at Central", notice.Message, EventKey, 7, "Central");
+        publisher.Received(1).LotPriceChanged("4-Seat Car price changed at Central", notice.Message, EventKey, 7, "Central");
     }
 
     [Fact]

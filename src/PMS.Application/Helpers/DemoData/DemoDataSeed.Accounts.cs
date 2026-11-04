@@ -63,11 +63,14 @@ public sealed partial class DemoDataSeed
         new("fsoft", Car4, "4-seat cars, day / night", "DayNight", 60, 25_000, 200_000, 120_000, DayPrice: 25_000, NightPrice: 15_000),
         new("fsoft", Car7, "7-seat cars, day / night", "DayNight", 60, 30_000, 250_000, 150_000, DayPrice: 30_000, NightPrice: 20_000),
         new("fsoft", Motorbike, "Motorbikes", "Block", 240, 6_000, 24_000, 60_000),
-        // Cong Hoa: a 2-hour first block, then hourly; motorbikes pay once per day
+        // Cong Hoa: a 2-hour first block, then hourly, for cars and motorbikes alike
         new("conghoa", Car4, "4-seat cars, first 2 hours", "Block", 60, 15_000, 160_000, 100_000, FirstBlockMinutes: 120, FirstBlockPrice: 30_000),
         new("conghoa", Car7, "7-seat cars, first 2 hours", "Block", 60, 20_000, 200_000, 120_000, FirstBlockMinutes: 120, FirstBlockPrice: 40_000),
-        new("conghoa", Motorbike, "Motorbikes, per day", "PerEntry", 60, 0, null, 50_000, EntryFee: 5_000)
+        new("conghoa", Motorbike, "Motorbikes, first 2 hours", "Block", 60, 2_000, 20_000, 50_000, FirstBlockMinutes: 120, FirstBlockPrice: 5_000)
     ];
+
+    /// <summary>The once-per-day motorbike rule that older demo databases still have at Cong Hoa.</summary>
+    private const string LegacyMotorbikePerDayName = "Motorbikes, per day";
 
     private static string EmailOf(string userName) => $"{userName}@{EmailDomain}";
 
@@ -274,11 +277,53 @@ public sealed partial class DemoDataSeed
 
             if (!await db.PricingRules.AnyAsync(r => r.ParkingLotId == info.Id))
                 await AddPricingRulesAsync(info);
+            else
+                await MoveMotorbikesToBlocksAsync(info);
         }
 
         // Staff lists of a lot run by another Manager (assigned before the demo) still work; log it for clarity
         foreach (var key in OperatingLots.Where(k => lots[k].StaffIds.Count == 0))
             logger?.LogWarning("Demo lot {Code} has no active Staff; it will show as under maintenance.", lots[key].Lot.Code);
+    }
+
+    /// <summary>
+    /// Team decision (2026-11-04): motorbikes are charged by block like cars, never once per day. Older demo databases
+    /// still have Cong Hoa's "Motorbikes, per day" rule: it is moved to the block prices above, once (a new version with
+    /// its history). A rule a Manager has renamed or re-priced since is left alone. Motorbikes already parked keep the
+    /// price they entered with.
+    /// </summary>
+    private async Task MoveMotorbikesToBlocksAsync(LotInfo lot)
+    {
+        var def = PriceDefs.FirstOrDefault(p => p.LotKey == lot.Key && p.TypeCode == Motorbike);
+        if (def == null || def.ChargeModel != "Block") return;
+        var type = types[Motorbike];
+        var rule = await db.PricingRules.FirstOrDefaultAsync(r => r.ParkingLotId == lot.Id && r.VehicleTypeId == type.Id
+                                                                 && r.ChargeModel == "PerEntry" && r.Name == LegacyMotorbikePerDayName);
+        if (rule == null) return;
+
+        var old = new { rule.Name, rule.ChargeModel, rule.EntryFee, rule.BlockMinutes, rule.BlockPrice, rule.MaxDailyFee, rule.VersionNo };
+        rule.Name = def.Name;
+        rule.ChargeModel = def.ChargeModel;
+        rule.EntryFee = def.EntryFee;
+        rule.FirstBlockMinutes = def.FirstBlockMinutes;
+        rule.FirstBlockPrice = def.FirstBlockPrice;
+        rule.BlockMinutes = def.BlockMinutes;
+        rule.BlockPrice = def.BlockPrice;
+        rule.MaxDailyFee = def.MaxDailyFee;
+        rule.VersionNo += 1;
+        rule.UpdatedAt = now;
+        db.PricingRuleHistories.Add(new PricingRuleHistory
+        {
+            PricingRuleId = rule.Id,
+            ChangeType = "Update",
+            OldValuesJson = JsonSerializer.Serialize(old),
+            NewValuesJson = JsonSerializer.Serialize(new { rule.Name, rule.ChargeModel, rule.FirstBlockMinutes, rule.FirstBlockPrice, rule.BlockMinutes, rule.BlockPrice, rule.MaxDailyFee, rule.VersionNo }),
+            ChangedBy = lot.ManagerId,
+            ChangedAt = now,
+            Reason = "Motorbikes are charged by block like cars"
+        });
+        await db.SaveChangesAsync();
+        logger?.LogInformation("Demo lot {Code}: motorbikes now pay by block instead of once per day.", lot.Lot.Code);
     }
 
     private async Task AddPricingRulesAsync(LotInfo lot)

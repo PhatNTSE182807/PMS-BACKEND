@@ -207,6 +207,48 @@ public class DemoDataSeedTests(DemoDataFixture fixture) : IClassFixture<DemoData
     }
 
     [Fact]
+    public async Task An_Old_Once_Per_Day_Motorbike_Price_Moves_To_Blocks_Like_Cars()
+    {
+        // An older demo database: Cong Hoa motorbikes paid 5,000 VND once per day
+        int ruleId, version;
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
+            var lotId = await db.ParkingLots.Where(p => p.Code == "LOT-CONGHOA-01").Select(p => p.Id).SingleAsync();
+            var typeId = await db.VehicleTypes.Where(v => v.Code == "MOTORBIKE").Select(v => v.Id).SingleAsync();
+            var rule = await db.PricingRules.SingleAsync(r => r.ParkingLotId == lotId && r.VehicleTypeId == typeId && r.Status == "Active");
+            rule.Name = "Motorbikes, per day";
+            rule.ChargeModel = "PerEntry";
+            rule.EntryFee = 5_000;
+            rule.FirstBlockMinutes = null;
+            rule.FirstBlockPrice = null;
+            rule.BlockPrice = 0;
+            rule.MaxDailyFee = null;
+            await db.SaveChangesAsync();
+            (ruleId, version) = (rule.Id, rule.VersionNo);
+        }
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+            await DemoDataSeed.SeedAsync(scope.ServiceProvider);
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
+            var rule = await db.PricingRules.AsNoTracking().SingleAsync(r => r.Id == ruleId);
+            rule.ChargeModel.Should().Be("Block");
+            rule.EntryFee.Should().Be(0);
+            rule.FirstBlockMinutes.Should().Be(120);
+            rule.FirstBlockPrice.Should().Be(5_000);
+            rule.BlockMinutes.Should().Be(60);
+            rule.BlockPrice.Should().Be(2_000);
+            rule.MaxDailyFee.Should().Be(20_000);
+            rule.VersionNo.Should().Be(version + 1);
+            (await db.PricingRuleHistories.AnyAsync(h => h.PricingRuleId == ruleId && h.Reason == "Motorbikes are charged by block like cars"))
+                .Should().BeTrue();
+        }
+    }
+
+    [Fact]
     public async Task Staff_Takes_Cash_And_Lets_A_Seeded_Walk_In_Out()
     {
         var staff = await SignInAsync("staff.fptu1");

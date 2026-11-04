@@ -82,7 +82,7 @@ The Admin comes from the base seed: `systemadmin` / `admin@gmail.com`, password 
 | --- | --- | --- | --- | --- |
 | FPT University (`LOT-FPTU-01`) | Wide deck, 3 × 50 | `mgr.fptu`, 2 Staff | IN-1, IN-2, OUT-1, OUT-2 | hourly blocks: car 20,000/h (cap 150,000), 7-seat 25,000/h, motorbike 5,000 per 4 h; car rule is version 2 (price change in its history) |
 | Fsoft (`LOT-FSOFT-01`) | Tower, 4 × 30 | `mgr.fsoft`, 2 Staff | IN-1, OUT-1 | day 06:00-18:00 / night: car 25,000 / 15,000 per hour, 7-seat 30,000 / 20,000, motorbike 6,000 per 4 h |
-| Cong Hoa (`LOT-CONGHOA-01`) | Compact deck, 3 × 20 | `mgr.conghoa`, 1 active Staff | IN-1, OUT-1 | first 2 h car 30,000 then 15,000/h, 7-seat 40,000 then 20,000/h, motorbike 5,000 per day |
+| Cong Hoa (`LOT-CONGHOA-01`) | Compact deck, 3 × 20 | `mgr.conghoa`, 1 active Staff | IN-1, OUT-1 | first 2 h car 30,000 then 15,000/h, 7-seat 40,000 then 20,000/h, motorbike 5,000 then 2,000/h (at most 20,000/day) |
 | Ben Thanh (`LOT-BENTHANH-01`) | Compact deck, 3 × 20 | none (its Manager is deactivated) | added on first use | none: the default tariff applies |
 
 Ben Thanh is shown as **under maintenance** and refuses bookings until it has an active Manager and
