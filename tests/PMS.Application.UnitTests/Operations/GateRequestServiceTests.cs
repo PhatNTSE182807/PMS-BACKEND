@@ -272,6 +272,89 @@ public class GateRequestServiceTests
         decision.Request.Status.Should().Be(GateRequestStatus.Completed);
     }
 
+    // ---- Paid vehicles go to the Check-out lane on their own ----
+
+    /// <summary>A walk-in (no booking, no account) parked two hours ago and paid in cash at the POS.</summary>
+    private static async Task<long> PaidWalkInAsync(OperationsTestContext t, string plate = "30E-555.55")
+    {
+        var entry = await t.Gates.CheckInAsync(t.Lot.Id, new CheckInModel { PlateNumber = plate, VehicleTypeId = t.TypeId("CAR_4") });
+        await t.Gates.ConfirmEntryAsync(entry.Session.Id);
+        t.Clock.Advance(TimeSpan.FromHours(2));
+        var due = await t.Gates.RequestPaymentAsync(entry.Session.Id, new CheckoutQuoteRequestModel());
+        await t.Gates.PayCashAsync(entry.Session.Id, new CashPaymentModel { Amount = due.AmountDue });
+        return entry.Session.Id;
+    }
+
+    [Fact]
+    public async Task GetQueueAsync_Should_Queue_A_Paid_Walk_In_For_The_Check_Out_Lane()
+    {
+        var (t, service, notifier, _) = await BookedAsync();
+        var sessionId = await PaidWalkInAsync(t);
+
+        var queue = await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut);
+
+        var request = queue.Should().ContainSingle().Subject;
+        request.SessionId.Should().Be(sessionId);
+        request.PlateNumber.Should().Be("30E-555.55");
+        request.CustomerName.Should().BeNull();
+        request.VehicleTypeName.Should().NotBeNullOrEmpty();
+        request.Problem.Should().BeNull();
+        await notifier.Received().GateRequestChangedAsync(t.Lot.Id, null, request.Id, GateRequestKind.CheckOut, GateRequestStatus.Waiting);
+
+        // Reading the queue again does not add a second request
+        (await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut)).Should().ContainSingle();
+        (await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckIn)).Should().BeEmpty();
+
+        var decision = await service.ApproveAsync(request.Id, new ApproveGateRequestModel());
+        decision.BarrierOpen.Should().BeTrue();
+        (await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetQueueAsync_Should_Queue_A_Paid_Customer_With_Their_Account()
+    {
+        var (t, service, _, reservation) = await BookedAsync();
+        var sessionId = await ParkedAsync(t, reservation);
+        t.Clock.Advance(TimeSpan.FromHours(2));
+        var due = await t.Gates.RequestPaymentAsync(sessionId, new CheckoutQuoteRequestModel());
+        await t.Gates.PayCashAsync(sessionId, new CashPaymentModel { Amount = due.AmountDue });
+
+        var request = (await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut)).Should().ContainSingle().Subject;
+
+        request.SessionId.Should().Be(sessionId);
+        request.CustomerName.Should().NotBeNull();
+        // The customer follows it in the app, and pressing "Check out" there reuses it
+        (await service.GetMineAsync(t.CustomerUserId)).Should().ContainSingle(r => r.Id == request.Id);
+        (await service.RequestCheckOutAsync(t.CustomerUserId, sessionId)).Id.Should().Be(request.Id);
+    }
+
+    [Fact]
+    public async Task GetQueueAsync_Should_Not_Queue_Unpaid_Or_Simulated_Vehicles()
+    {
+        var (t, service, _, _) = await BookedAsync();
+        var unpaid = await t.Gates.CheckInAsync(t.Lot.Id, new CheckInModel { PlateNumber = "30E-111.11", VehicleTypeId = t.TypeId("CAR_4") });
+        await t.Gates.ConfirmEntryAsync(unpaid.Session.Id);
+        var simulatedId = await PaidWalkInAsync(t, "30E-222.22");
+        t.Db.ParkingSessions.Single(s => s.Id == simulatedId).IsSimulated = true;
+        await t.Db.SaveChangesAsync();
+
+        (await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetQueueAsync_Should_Not_Requeue_A_Refused_Vehicle_Until_It_Pays_Again()
+    {
+        var (t, service, _, _) = await BookedAsync();
+        var sessionId = await PaidWalkInAsync(t);
+        var request = (await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut)).Single();
+
+        t.Clock.Advance(TimeSpan.FromMinutes(1));
+        await service.RefuseAsync(request.Id, new RefuseGateRequestModel { Reason = "The plate at the lane does not match the parked vehicle." });
+
+        (await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut)).Should().BeEmpty();
+        t.Db.ParkingSessions.Single(s => s.Id == sessionId).Status.Should().Be(SessionStatus.Paid);
+    }
+
     [Fact]
     public async Task Waiting_CheckIn_Request_Should_Explain_Why_The_Barrier_Would_Not_Open()
     {

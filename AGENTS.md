@@ -374,6 +374,13 @@ Keep this list current; it is the first place to look when code and SRS disagree
   Not built yet: the 10-minute approval deadline with escalation to Admin (BR-14), the Manager's 24-hour
   review of conditional approvals (BR-13; those rows keep `IsResolved = false`), a stored BR-13 checklist
   (only the `ConditionsMet` flag), and locking the lost ticket QR.
+- Exit barrier only at the Check-out lane (team decision, 2026-11-04): the Staff POS (`/staff/checkout`) only
+  takes the fee; it has no barrier button. Every paid vehicle of the lot (paid at the POS, in the app or 0 VND,
+  walk-ins included) gets a waiting check-out `GateRequest` (`GateRequestService.QueuePaidVehiclesAsync`, run when
+  the queue is read), shown in the Check-out tab of the gate dashboard, where the Staff opens the barrier (the
+  normal exit checks run). Walk-in requests have no `UserId` / `CustomerId`; a customer's request carries their
+  account, so the app shows it. Simulated walk-ins are skipped, and a request refused or cancelled after the last
+  payment is not opened again.
 - Lost ticket papers (team decision, 2026-11-04): Lost ticket (Vehicles in the lot on the gate dashboard, or the
   Exceptions desk after a plate lookup) opens a popup where the Staff uploads photos of the driver's Citizen ID and
   vehicle registration certificate (JPEG / PNG / PDF, 8 MB each; `POST /api/staff/sessions/{id}/lost-ticket/papers`,
