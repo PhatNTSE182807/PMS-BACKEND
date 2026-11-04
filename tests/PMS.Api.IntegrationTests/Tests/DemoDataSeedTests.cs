@@ -268,18 +268,25 @@ public class DemoDataSeedTests(DemoDataFixture fixture) : IClassFixture<DemoData
     }
 
     [Fact]
-    public async Task Manager_Approves_The_Seeded_Lost_Ticket()
+    public async Task Staff_Approves_The_Seeded_Lost_Ticket_And_Managers_No_Longer_Can()
     {
-        var manager = await SignInAsync("mgr.fptu");
         long sessionId;
         await using (var scope = _factory.Services.CreateAsyncScope())
             sessionId = await scope.ServiceProvider.GetRequiredService<PmsDbContext>().ParkingSessions
                 .Where(s => s.Status == SessionStatus.LostTicketPending).Select(s => s.Id).SingleAsync();
 
-        var approved = await manager.PostAsync($"/api/manager/sessions/{sessionId}/lost-ticket/approve", Json(new { reason = "Papers checked" }));
+        // The Manager's approval route is gone: lost tickets are the Staff's call
+        var manager = await SignInAsync("mgr.fptu");
+        var byManager = await manager.PostAsync($"/api/manager/sessions/{sessionId}/lost-ticket/approve", Json(new { reason = "Papers checked" }));
+        byManager.IsSuccessStatusCode.Should().BeFalse();
+
+        var staff = await SignInAsync("staff.fptu1");
+        var approved = await staff.PostAsync($"/api/staff/sessions/{sessionId}/lost-ticket/review", Json(new { approve = true, note = "Papers checked" }));
 
         approved.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await Body(approved))["result"]!["status"]!.Value<string>().Should().Be(SessionStatus.PendingPayment);
+        var session = (await Body(approved))["result"]!;
+        session["status"]!.Value<string>().Should().Be(SessionStatus.Active, "the vehicle stays parked; the fine is added at check-out");
+        session["lostTicketStatus"]!.Value<string>().Should().Be(LostTicketCaseStatus.Approved);
     }
 
     [Fact]

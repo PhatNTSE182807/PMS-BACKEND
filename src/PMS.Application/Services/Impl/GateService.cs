@@ -664,11 +664,11 @@ public class GateService(
         return new CheckoutResultModel { Session = await ToModelAsync(session), BarrierOpen = true, DepositRefund = refunded };
     }
 
-    public Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model) =>
-        ReportLostTicketAsync(sessionId, model, LostTicketApproval.Manager);
-
-    /// <param name="pendingMode">Who decides a case that is not approved on the spot: the Manager, or the Staff after uploading papers.</param>
-    private async Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model, string pendingMode)
+    /// <summary>
+    /// Team decision (2026-11-04): the Staff decides every lost-ticket case, the Manager no longer does. A case that is
+    /// not approved on the spot waits for the Staff's check (ReviewLostTicketAsync).
+    /// </summary>
+    public async Task<SessionResponseModel> ReportLostTicketAsync(long sessionId, LostTicketModel model)
     {
         var session = await ScopedSessionAsync(sessionId, tracked: true);
         // Lost tickets are for walk-ins with a paper ticket or card: a booked vehicle leaves with its booking QR,
@@ -703,24 +703,25 @@ public class GateService(
             ReportedBy = reporter,
             ReportedAt = Now,
             Status = LostTicketCaseStatus.Pending,
-            ApprovalMode = pendingMode
+            ApprovalMode = LostTicketApproval.Staff
         };
         pmsContext.SessionViolations.Add(lostCase);
 
         if (model.ConditionsMet)
         {
-            // BR-13: approved on the spot; IsResolved stays false until the Manager reviews it (24 h)
+            // BR-13: approved on the spot by the Staff; no Manager review follows (team decision, 2026-11-04)
             lostCase.Status = LostTicketCaseStatus.Approved;
             lostCase.ApprovalMode = LostTicketApproval.Conditional;
             lostCase.DecidedBy = reporter;
             lostCase.DecidedAt = Now;
+            lostCase.IsResolved = true;
             // The vehicle stays parked; the fine is added to its bill when it checks out
             session.Status = SessionStatus.Active;
         }
-        else if (pendingMode == LostTicketApproval.Manager)
+        else
         {
             var (lotId, id, code) = (session.ParkingLotId, session.Id, session.SessionCode);
-            inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "LOST_TICKET_APPROVAL", $"Lost ticket {code} needs a Manager's approval.", id) ?? Task.CompletedTask);
+            inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "LOST_TICKET_REVIEW", $"Lost ticket {code}: check the driver's papers in Exceptions & Alerts.", id) ?? Task.CompletedTask);
         }
 
         await pmsContext.SaveChangesAsync();
@@ -745,7 +746,7 @@ public class GateService(
 
         var citizen = await ReadPaperAsync(model.CitizenIdPhoto, model.CitizenIdLength, "Citizen ID");
         var registration = await ReadPaperAsync(model.RegistrationPhoto, model.RegistrationLength, "registration certificate");
-        await ReportLostTicketAsync(sessionId, new LostTicketModel { Reason = model.Reason }, LostTicketApproval.Staff);
+        await ReportLostTicketAsync(sessionId, new LostTicketModel { Reason = model.Reason });
 
         var lostCase = await CurrentLostTicketCaseAsync(sessionId);
         var folder = $"lost-tickets/{sessionId}";
@@ -756,9 +757,10 @@ public class GateService(
     }
 
     /// <summary>
-    /// The Staff compared the uploaded papers with the vehicle. Approved: the fine goes on the bill and the vehicle
-    /// stays parked until it checks out (a Manager reviews it later, BR-13). Refused: it stays and cannot leave until
-    /// a new case is approved (SRS 4.2.4).
+    /// The Staff checked the driver's papers (uploaded or shown at the counter) against the vehicle and decides the case;
+    /// the Manager no longer does (team decision, 2026-11-04). Approved: the fine goes on the bill and the vehicle stays
+    /// parked until it checks out. Refused: it stays and cannot leave until a new case is approved (SRS 4.2.4).
+    /// Cases left waiting for a Manager before the change are decided here too.
     /// </summary>
     public async Task<SessionResponseModel> ReviewLostTicketAsync(long sessionId, LostTicketReviewModel model)
     {
@@ -766,21 +768,21 @@ public class GateService(
         if (session.Status != SessionStatus.LostTicketPending)
             throw new BadRequestException("No lost-ticket case is waiting for this vehicle.");
         var lostCase = await CurrentLostTicketCaseAsync(session.Id);
-        if (lostCase is not { Status: LostTicketCaseStatus.Pending, ApprovalMode: LostTicketApproval.Staff })
-            throw new BadRequestException("This lost-ticket case waits for a Manager, not for the papers check.");
+        if (lostCase is not { Status: LostTicketCaseStatus.Pending })
+            throw new BadRequestException("No lost-ticket case is waiting for this vehicle.");
         var note = model?.Note?.Trim();
         if (model?.Approve != true && string.IsNullOrEmpty(note))
-            throw new BadRequestException("Say why the papers do not match before refusing.");
+            throw new BadRequestException("Say why you refuse the lost ticket (for example, the papers do not match).");
         if (note?.Length > 500)
             throw new BadRequestException("The note is too long (500 characters at most).");
 
         lostCase.Status = model.Approve ? LostTicketCaseStatus.Approved : LostTicketCaseStatus.Rejected;
-        lostCase.ApprovalMode = model.Approve ? LostTicketApproval.Conditional : LostTicketApproval.Staff;
+        lostCase.ApprovalMode = LostTicketApproval.Staff;
         lostCase.DecidedBy = lotScope.UserId;
         lostCase.DecidedAt = Now;
         lostCase.DecisionNote = string.IsNullOrEmpty(note) ? null : note;
-        // An approval is reviewed by the Manager later (BR-13); a refusal is final for this case
-        lostCase.IsResolved = !model.Approve;
+        // The Staff's decision is final for this case: no Manager review follows
+        lostCase.IsResolved = true;
         session.Status = SessionStatus.Active;
         session.UpdatedAt = Now;
         await pmsContext.SaveChangesAsync();
@@ -821,41 +823,6 @@ public class GateService(
             throw new BadRequestException($"The {what} must be a JPEG, PNG or PDF file.");
         buffer.Position = 0;
         return buffer;
-    }
-
-    public async Task<SessionResponseModel> DecideLostTicketAsync(long sessionId, bool approve, string reason)
-    {
-        var session = await pmsContext.ParkingSessions.FirstOrDefaultAsync(s => s.Id == sessionId)
-                      ?? throw new NotFoundException("Session not found.");
-        await lotScope.EnsureCanManageAsync(session.ParkingLotId);
-        if (session.Status != SessionStatus.LostTicketPending)
-            throw new BadRequestException("No lost-ticket case is waiting.");
-        var lostCase = await CurrentLostTicketCaseAsync(session.Id)
-                       ?? throw new BadRequestException("No lost-ticket case is waiting.");
-
-        // BR-14 Maker-Checker: whoever reported the case never decides it
-        var decider = lotScope.UserId;
-        if (lostCase.ReportedBy == decider)
-            throw new ForbiddenException("You reported this lost ticket, so another Manager or an Admin has to decide it.");
-        if (!approve && string.IsNullOrWhiteSpace(reason))
-            throw new BadRequestException("A reason is required to reject a lost-ticket case.");
-
-        lostCase.Status = approve ? LostTicketCaseStatus.Approved : LostTicketCaseStatus.Rejected;
-        lostCase.ApprovalMode = LostTicketApproval.Manager;
-        lostCase.DecidedBy = decider;
-        lostCase.DecidedAt = Now;
-        lostCase.DecisionNote = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
-        lostCase.IsResolved = true;
-
-        // Approved: the fine is on the bill and the vehicle stays until it checks out. Rejected (4.2.4): it stays
-        // in the lot until the customer comes back with full papers and a new case is approved.
-        session.Status = SessionStatus.Active;
-
-        session.UpdatedAt = Now;
-        await pmsContext.SaveChangesAsync();
-        QueueSessionPush(session);
-        await inventory.FlushAsync();
-        return await ToModelAsync(session);
     }
 
     public async Task<SessionResponseModel> CloseAbnormallyAsync(long sessionId, string reason)

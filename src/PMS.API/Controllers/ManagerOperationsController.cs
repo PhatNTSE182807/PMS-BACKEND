@@ -66,14 +66,6 @@ public class ManagerOperationsController(
     public async Task<IActionResult> CloseAbnormallyAsync(long id, [FromBody] SessionDecisionModel model) =>
         Ok(ApiResult<SessionResponseModel>.Success(await gateService.CloseAbnormallyAsync(id, model?.Reason)));
 
-    [HttpPost("sessions/{id:long}/lost-ticket/approve")]
-    public async Task<IActionResult> ApproveLostTicketAsync(long id, [FromBody] SessionDecisionModel model) =>
-        Ok(ApiResult<SessionResponseModel>.Success(await gateService.DecideLostTicketAsync(id, true, model?.Reason)));
-
-    [HttpPost("sessions/{id:long}/lost-ticket/reject")]
-    public async Task<IActionResult> RejectLostTicketAsync(long id, [FromBody] SessionDecisionModel model) =>
-        Ok(ApiResult<SessionResponseModel>.Success(await gateService.DecideLostTicketAsync(id, false, model?.Reason)));
-
     [HttpGet("lots/{lotId:int}/plate-lists")]
     public async Task<IActionResult> GetPlateListsAsync(int lotId, [FromQuery] string listType = null) =>
         Ok(ApiResult<IReadOnlyList<PlateListEntryModel>>.Success(await plateLists.GetAsync(lotId, listType)));
