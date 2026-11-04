@@ -4,6 +4,7 @@ using PMS.Application.Exceptions;
 using PMS.Application.Helpers;
 using PMS.Application.Helpers.Parking;
 using PMS.Application.Models.Layout;
+using PMS.Application.Models.Operations;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
 
@@ -85,6 +86,10 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
         var layout = await FindPublishedAsync(lotId);
         var slots = await PlacedSlotsAsync(layout);
         var zones = await pmsContext.Zones.Where(z => z.ParkingLotId == lotId).ToDictionaryAsync(z => z.Id);
+        var parked = level == LayoutDetail.Slots ? await ParkedVehiclesAsync(lotId) : [];
+        var parkedInSlot = parked.Where(p => p.SlotId != null)
+            .GroupBy(p => p.SlotId.Value)
+            .ToDictionary(g => g.Key, g => g.First().Vehicle);
 
         var floors = ReadFloors(layout).Select(floor =>
         {
@@ -111,7 +116,9 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
                     Row = s.Placement.Row,
                     Col = s.Placement.Col,
                     Rotation = s.Placement.Rotation,
-                    Status = s.Slot.Status
+                    Status = s.Slot.Status,
+                    VehicleColor = parkedInSlot.GetValueOrDefault(s.Slot.Id)?.VehicleColor,
+                    ParkedVehicleTypeCode = parkedInSlot.GetValueOrDefault(s.Slot.Id)?.VehicleTypeCode
                 }).OrderBy(c => c.Row).ThenBy(c => c.Col).ToList();
             }
             else
@@ -137,6 +144,10 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
             return result;
         }).ToList();
 
+        var counters = await ZoneAvailabilityAsync(lotId);
+        foreach (var counter in counters)
+            counter.WalkIns = parked.Where(p => p.SlotId == null && p.ZoneId == counter.ZoneId).Select(p => p.Vehicle).ToList();
+
         return new Layout2DResponseModel
         {
             ParkingLotId = lot.Id,
@@ -146,11 +157,39 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
             Detail = level,
             Floors = floors,
             // Live free spaces per zone (walk-ins only move the counter), so the map can show walk-ins too
-            ZoneCounters = await ZoneAvailabilityAsync(lotId)
+            ZoneCounters = counters
         };
     }
 
     /* Helpers -------------------------------------------------------- */
+
+    /// <summary>Colour and type of every vehicle with an open session in the lot, oldest entry first.</summary>
+    private async Task<List<(int? SlotId, int? ZoneId, ParkedVehicleModel Vehicle)>> ParkedVehiclesAsync(int lotId)
+    {
+        var sessions = await pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => s.ParkingLotId == lotId && SessionStatus.Open.Contains(s.Status))
+            .OrderBy(s => s.EntryTime).ThenBy(s => s.Id)
+            .Select(s => new { s.SlotId, s.ZoneId, s.VehicleId, s.VehicleTypeId })
+            .ToListAsync();
+
+        var vehicleIds = sessions.Where(s => s.VehicleId != null).Select(s => s.VehicleId.Value).Distinct().ToList();
+        var vehicles = await pmsContext.Vehicles.AsNoTracking()
+            .Where(v => vehicleIds.Contains(v.Id))
+            .Select(v => new { v.Id, v.Color, v.VehicleTypeId })
+            .ToDictionaryAsync(v => v.Id);
+        var typeCodes = await pmsContext.VehicleTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Code);
+
+        return sessions.Select(s =>
+        {
+            var vehicle = s.VehicleId is { } id ? vehicles.GetValueOrDefault(id) : null;
+            var typeId = s.VehicleTypeId ?? vehicle?.VehicleTypeId;
+            return (s.SlotId, s.ZoneId, new ParkedVehicleModel
+            {
+                VehicleColor = string.IsNullOrWhiteSpace(vehicle?.Color) ? null : vehicle.Color,
+                VehicleTypeCode = typeId is { } type ? typeCodes.GetValueOrDefault(type) : null
+            });
+        }).ToList();
+    }
 
     private async Task<ParkingLot> FindLotAsync(int lotId) =>
         await pmsContext.ParkingLots.FirstOrDefaultAsync(p => p.Id == lotId && !p.IsDeleted)
