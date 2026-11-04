@@ -1338,6 +1338,9 @@ public class GateService(
                 .GroupBy(v => v.SessionId)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(v => v.ReportedAt).ThenByDescending(v => v.Id).First());
         var overdueBefore = Now.AddHours(-Rules.OverdueHours);
+        var registered = await VehiclePaint.RegisteredAsync(pmsContext,
+            sessions.Where(s => s.VehicleId != null).Select(s => s.VehicleId.Value),
+            sessions.Where(s => s.HasPlate).Select(s => s.EntryPlateNormalized));
 
         return sessions.Select(s => new SessionResponseModel
         {
@@ -1350,6 +1353,7 @@ public class GateService(
             HasPlate = s.HasPlate,
             VehicleTypeId = s.VehicleTypeId,
             VehicleTypeName = s.VehicleTypeId != null ? typeNames.GetValueOrDefault(s.VehicleTypeId.Value) : null,
+            PaintColor = VehiclePaint.ForSession(s, registered),
             EntryTime = Utc(s.EntryTime),
             EntryConfirmedAt = s.EntryConfirmedAt is { } c ? Utc(c) : null,
             EntryGateId = s.EntryGateId,

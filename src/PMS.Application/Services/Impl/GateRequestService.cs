@@ -351,6 +351,11 @@ public class GateRequestService(
         // Walk-ins have no registered vehicle: their type comes from the session (the lane's choice)
         var typeIds = sessions.Values.Where(s => s.VehicleTypeId != null).Select(s => s.VehicleTypeId!.Value).Distinct().ToList();
         var typeNames = await pmsContext.VehicleTypes.AsNoTracking().Where(t => typeIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Name);
+        // Same paint as the session and the lot map, so a vehicle keeps its colour at both lanes and in its bay
+        var registered = await VehiclePaint.RegisteredAsync(pmsContext,
+            sessions.Values.Where(s => s.VehicleId != null).Select(s => s.VehicleId!.Value),
+            sessions.Values.Where(s => s.HasPlate).Select(s => s.EntryPlateNormalized)
+                .Concat(requests.Select(r => ParkingText.NormalizePlate(r.PlateNumber))));
 
         return requests.Select(r =>
         {
@@ -370,6 +375,12 @@ public class GateRequestService(
                 PlateNumber = r.PlateNumber ?? vehicle?.PlateNumber,
                 VehicleLabel = vehicle == null ? null : string.Join(" ", new[] { vehicle.Brand, vehicle.Model }.Where(x => !string.IsNullOrWhiteSpace(x))),
                 VehicleColor = vehicle?.Color,
+                // Before check-in there is no session yet: the booked vehicle's colour, or one picked from the plate
+                PaintColor = session != null
+                    ? VehiclePaint.ForSession(session, registered)
+                    : VehiclePaint.Of(
+                        vehicle?.Color ?? registered.ByPlate.GetValueOrDefault(ParkingText.NormalizePlate(r.PlateNumber)),
+                        ParkingText.NormalizePlate(r.PlateNumber ?? vehicle?.PlateNumber)),
                 VehicleTypeId = vehicle?.VehicleTypeId ?? session?.VehicleTypeId,
                 VehicleTypeName = vehicle?.VehicleType?.Name
                                   ?? (session?.VehicleTypeId != null ? typeNames.GetValueOrDefault(session.VehicleTypeId.Value) : null),

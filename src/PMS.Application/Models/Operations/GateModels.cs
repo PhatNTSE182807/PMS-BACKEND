@@ -107,6 +107,9 @@ public class SessionResponseModel
 
     public string VehicleTypeName { get; set; }
 
+    /// <summary>Colour the 3D gate cameras and lot map paint this vehicle: registered, or picked from the plate (see VehiclePaint).</summary>
+    public string PaintColor { get; set; }
+
     public DateTime EntryTime { get; set; }
 
     public DateTime? EntryConfirmedAt { get; set; }
