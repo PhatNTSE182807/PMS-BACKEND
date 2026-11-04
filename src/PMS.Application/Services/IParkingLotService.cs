@@ -13,6 +13,8 @@ public interface IParkingLotService
     /// <summary>Live occupied / free bays of a lot, in total, per vehicle family and per zone (zone counters).</summary>
     Task<LotOccupancyModel> GetOccupancyAsync(int lotId);
 
+    Task<IReadOnlyList<ParkingLotCapacityModel>> GetCapacityOverviewAsync(System.Threading.CancellationToken cancellationToken = default);
+
     Task<ParkingLotResponseModel> GetByIdAsync(int id);
 
     Task<ParkingLotResponseModel> CreateAsync(CreateParkingLotModel model, string createdBy = null);

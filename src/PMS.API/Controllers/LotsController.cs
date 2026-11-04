@@ -30,6 +30,19 @@ public class LotsController(
             await parkingLotService.GetAllAsync(searchTerm, status, includeDeleted)));
     }
 
+    /// <summary>
+    /// Real-time occupancy and performance of every active lot for the Admin Lot Performance dashboard.
+    /// </summary>
+    [HttpGet("capacity")]
+    [HttpGet("/api/v1/parking/lots/capacity")]
+    [HttpGet("/api/admin/lots/capacity")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<IActionResult> GetCapacityOverviewAsync(System.Threading.CancellationToken cancellationToken)
+    {
+        return Ok(ApiResult<IReadOnlyList<ParkingLotCapacityModel>>.Success(
+            await parkingLotService.GetCapacityOverviewAsync(cancellationToken)));
+    }
+
     [HttpGet("/api/public/lots")]
     [HttpGet("/api/public/parking-lots")]
     [AllowAnonymous]
