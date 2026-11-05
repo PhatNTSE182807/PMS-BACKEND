@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using PMS.Application.Models.Notifications;
 
@@ -36,15 +35,8 @@ public interface IUserNotificationPublisher
     /// <summary>A vehicle left, or its session was closed (check-out time).</summary>
     void SessionCheckedOut(long sessionId);
 
-    /// <summary>A lot's price changed: tells every customer.</summary>
-    void LotPriceChanged(string title, string message, string eventKey, int lotId, string lotName);
-}
-
-/// <summary>Who hears about something that concerns every customer.</summary>
-public interface ICustomerAudience
-{
-    /// <summary>The user ids of all active customer accounts.</summary>
-    Task<IReadOnlyList<string>> ActiveCustomerIdsAsync();
+    /// <summary>A lot's price for one vehicle type changed: tells the customers with an upcoming booking for that type there.</summary>
+    void LotPriceChanged(string title, string message, string eventKey, int lotId, int vehicleTypeId, string lotName);
 }
 
 /// <summary>Real-time push of a new notification to its owner (SignalR in PMS.API).</summary>

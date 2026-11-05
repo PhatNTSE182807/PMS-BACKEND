@@ -43,7 +43,7 @@ public class PriceDescriptionTests
     }
 
     [Fact]
-    public void A_Motorbike_Notice_Names_The_Vehicle_Type_In_Title_And_Message()
+    public void A_Motorbike_Notice_Names_The_Vehicle_Type_In_The_Lot_Message()
     {
         var before = new PricingRulePrices { ChargeModel = "PerEntry", EntryFee = 5_000 };
         var after = new PricingRulePrices
@@ -51,11 +51,11 @@ public class PriceDescriptionTests
             ChargeModel = "Block", FirstBlockMinutes = 120, FirstBlockPrice = 5_000, BlockMinutes = 60, BlockPrice = 2_000, MaxDailyFee = 20_000
         };
 
-        var notice = new LotPriceNotice(3, "Cong Hoa Parking Lot", "Motorbike", after.Describe(), before.Describe(), "rule-9");
+        var notice = new LotPriceNotice(3, "Cong Hoa Parking Lot", 2, "Motorbike", after.Describe(), before.Describe(), "rule-9");
 
-        notice.Title.Should().Be("Motorbike price changed at Cong Hoa Parking Lot");
         notice.Message.Should().Be(
             "Price for Cong Hoa Parking Lot (Motorbike) changed from 5,000 VND per day to 5,000 VND for the first 2 hours, " +
             "then 2,000 VND per hour, at most 20,000 VND a day. Vehicles already parked keep the price they entered with.");
+        notice.BookingMessage.Should().Be("The pricing rules for Cong Hoa Parking Lot have been updated. Please check your booking details.");
     }
 }

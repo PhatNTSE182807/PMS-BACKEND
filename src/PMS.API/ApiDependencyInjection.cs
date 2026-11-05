@@ -66,7 +66,6 @@ public static class ApiDependencyInjection
         // Customer notification bell
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IUserNotificationPublisher, HangfireUserNotificationPublisher>();
-        services.AddScoped<ICustomerAudience, IdentityCustomerAudience>();
         services.AddScoped<IUserNotificationNotifier, SignalRUserNotificationNotifier>();
 
         var database = configuration.GetSection("Database").Get<DatabaseConfiguration>() ?? new DatabaseConfiguration();

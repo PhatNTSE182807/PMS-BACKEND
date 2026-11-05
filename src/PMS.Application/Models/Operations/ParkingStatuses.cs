@@ -36,6 +36,9 @@ public static class ReservationStatus
     /// parked on it. A checked-in booking counts until the vehicle leaves, so a parked car cannot book again.
     /// </summary>
     public static readonly string[] Active = [PendingDeposit, Confirmed, CheckedIn];
+
+    /// <summary>Bookings whose vehicle has not entered yet, so they will pay the price in force at entry.</summary>
+    public static readonly string[] Upcoming = [PendingDeposit, Confirmed];
 }
 
 /// <summary>Parking session states (SRS 4.3.2) plus the two pre-entry states before the sensor confirms passage.</summary>
