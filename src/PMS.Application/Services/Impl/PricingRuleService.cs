@@ -260,7 +260,7 @@ public class PricingRuleService(
         // A rule that is not Active charges nobody, so there is nothing to tell customers
         if (priceChanged && string.Equals(rule.Status, "Active", StringComparison.OrdinalIgnoreCase))
         {
-            var notice = new LotPriceNotice(lotId, lot.Name, vehicleType.Name, proposed.Describe(), previous.Describe(), $"rule-{rule.Id}-{now:yyyyMMddHHmmssfff}");
+            var notice = new LotPriceNotice(lotId, lot.Name, vehicleType.Id, vehicleType.Name, proposed.Describe(), previous.Describe(), $"rule-{rule.Id}-{now:yyyyMMddHHmmssfff}");
             await TryNotifyAsync(() => priceNotifier?.PriceChangedAsync(notice));
         }
 

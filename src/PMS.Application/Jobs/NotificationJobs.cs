@@ -27,7 +27,6 @@ public class NotificationJobs(
     PmsDbContext pmsContext,
     TimeProvider clock,
     IUserNotificationNotifier notifier = null,
-    ICustomerAudience audience = null,
     ILogger<NotificationJobs> logger = null)
 {
     public const string PurgeJobId = "purge-user-notifications";
@@ -144,19 +143,28 @@ public class NotificationJobs(
     }
 
     /// <summary>
-    /// A lot's price changed: one notification per active customer, for any customer may park at any lot.
+    /// A lot's price for one vehicle type changed: one notification per customer with an upcoming booking for that
+    /// type there. A checked-in booking is left out, for its vehicle keeps the price it entered with.
     /// A Hangfire retry only adds the customers it missed. Returns the number of notifications written.
     /// </summary>
-    public async Task<int> LotPriceChangedAsync(string title, string message, string eventKey, int lotId, string lotName)
+    public async Task<int> LotPriceChangedAsync(string title, string message, string eventKey, int lotId, int vehicleTypeId, string lotName)
     {
-        if (audience == null)
-            return 0;
-
         var told = await pmsContext.UserNotifications
             .Where(n => n.Type == NotificationTypes.PriceChanged && n.RefId == eventKey)
             .Select(n => n.UserId)
             .ToListAsync();
-        var recipients = (await audience.ActiveCustomerIdsAsync()).Except(told).ToList();
+        // No arrival-time filter: a late customer who has not entered yet still pays the price in force at entry
+        var booked = await pmsContext.Reservations.AsNoTracking()
+            .Where(r => r.ParkingLotId == lotId
+                        && ReservationStatus.Upcoming.Contains(r.Status)
+                        && r.UserId != null
+                        // Older bookings have no type of their own: their vehicle's type decides
+                        && (r.VehicleTypeId == vehicleTypeId
+                            || (r.VehicleTypeId == null && pmsContext.Vehicles.Any(v => v.Id == r.VehicleId && v.VehicleTypeId == vehicleTypeId))))
+            .Select(r => r.UserId)
+            .Distinct()
+            .ToListAsync();
+        var recipients = booked.Except(told).ToList();
 
         var dataJson = JsonSerializer.Serialize(new Dictionary<string, string>
         {

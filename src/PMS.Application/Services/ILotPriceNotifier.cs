@@ -6,6 +6,7 @@ namespace PMS.Application.Services;
 public sealed record LotPriceNotice(
     int LotId,
     string LotName,
+    int VehicleTypeId,
     string VehicleTypeName,
     string Summary,
     string PreviousSummary = null,
@@ -16,9 +17,13 @@ public sealed record LotPriceNotice(
     /// <summary>Only a fee outside the headline price may have changed; "from X to X" would make no sense.</summary>
     private bool HeadlineChanged => !string.IsNullOrEmpty(PreviousSummary) && PreviousSummary != Summary;
 
-    /// <summary>"Motorbike price changed at Cong Hoa Parking Lot": the vehicle type first, so a customer sees at once whether it concerns them.</summary>
-    public string Title => string.IsNullOrWhiteSpace(VehicleTypeName) ? $"Price changed at {LotName}" : $"{VehicleTypeName} price changed at {LotName}";
+    /// <summary>Title of the notification sent to customers with an upcoming booking for this vehicle type at the lot.</summary>
+    public const string BookingTitle = "Parking Lot Price Update";
 
+    /// <summary>Text of the notification sent to customers with an upcoming booking for this vehicle type at the lot.</summary>
+    public string BookingMessage => $"The pricing rules for {LotName} have been updated. Please check your booking details.";
+
+    /// <summary>The full price change, for the clients watching the lot.</summary>
     public string Message =>
         (HeadlineChanged ? $"Price for {Subject} changed from {PreviousSummary} to {Summary}." : $"Price for {Subject} is now {Summary}.")
         + " Vehicles already parked keep the price they entered with.";

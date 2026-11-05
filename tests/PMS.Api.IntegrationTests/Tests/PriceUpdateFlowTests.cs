@@ -152,25 +152,41 @@ public class PriceUpdateFlowTests
     }
 
     [Fact]
-    public async Task A_Price_Change_Reaches_Every_Active_Customers_Notifications()
+    public async Task A_Price_Change_Reaches_Only_Customers_With_An_Upcoming_Booking_For_That_Vehicle_Type()
     {
         var lot = await NewLotWithRuleAsync(20_000);
         using var scope = _factory.Services.CreateScope();
-        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var db = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
         var tag = Guid.NewGuid().ToString("N")[..8];
-        var customer = new ApplicationUser { EmailConfirmed = true, Email = $"cus_{tag}@test.com", UserName = $"cus_{tag}", Role = "User", IsActive = true };
-        var inactive = new ApplicationUser { EmailConfirmed = true, Email = $"off_{tag}@test.com", UserName = $"off_{tag}", Role = "User", IsActive = false };
-        (await userManager.CreateAsync(customer, "Password.1!")).Succeeded.Should().BeTrue();
-        (await userManager.CreateAsync(inactive, "Password.1!")).Succeeded.Should().BeTrue();
+        var booked = $"booked-{tag}";
+        var parked = $"parked-{tag}";
+        var otherType = $"other-type-{tag}";
+        Reservation Booking(string userId, string status, int vehicleTypeId) => new()
+        {
+            VehicleTypeId = vehicleTypeId,
+            ReservationCode = $"RSV-{Guid.NewGuid():N}",
+            CustomerId = 1,
+            UserId = userId,
+            VehicleId = Guid.NewGuid(),
+            ParkingLotId = lot.Id,
+            StartTime = DateTime.UtcNow.AddHours(2),
+            EndTime = DateTime.UtcNow.AddHours(3),
+            Status = status,
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Reservations.AddRange(
+            Booking(booked, ReservationStatus.Confirmed, lot.CarTypeId),
+            Booking(parked, ReservationStatus.CheckedIn, lot.CarTypeId),
+            Booking(otherType, ReservationStatus.Confirmed, lot.CarTypeId + 1));
+        await db.SaveChangesAsync();
 
         await UpdateAsync(lot, 30_000);
 
         // The test host has no Hangfire server, so the job the update queued is run here
         var jobs = ActivatorUtilities.CreateInstance<NotificationJobs>(scope.ServiceProvider);
-        await jobs.LotPriceChangedAsync("Price changed", "Changed", $"test-{tag}", lot.Id, "Lot");
+        await jobs.LotPriceChangedAsync("Price changed", "Changed", $"test-{tag}", lot.Id, lot.CarTypeId, "Lot");
 
-        var db = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
         var told = await db.UserNotifications.AsNoTracking().Where(n => n.RefId == $"test-{tag}").Select(n => n.UserId).ToListAsync();
-        told.Should().Contain(customer.Id).And.NotContain(inactive.Id);
+        told.Should().Equal(booked);
     }
 }
