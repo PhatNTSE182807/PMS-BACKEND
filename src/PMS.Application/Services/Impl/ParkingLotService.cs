@@ -408,6 +408,8 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             Address = model.Address.Trim(),
             City = model.City?.Trim(),
             District = model.District?.Trim(),
+            Latitude = model.Latitude,
+            Longitude = model.Longitude,
             OpenTime = model.OpenTime,
             CloseTime = model.CloseTime,
             Is24Hours = model.Is24Hours,
@@ -458,6 +460,8 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         lot.Address = model.Address.Trim();
         lot.City = model.City?.Trim();
         lot.District = model.District?.Trim();
+        lot.Latitude = model.Latitude;
+        lot.Longitude = model.Longitude;
         lot.OpenTime = model.OpenTime;
         lot.CloseTime = model.CloseTime;
         lot.Is24Hours = model.Is24Hours;
@@ -550,6 +554,8 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             Address = p.Address,
             City = p.City,
             District = p.District,
+            Latitude = p.Latitude,
+            Longitude = p.Longitude,
             OpenTime = p.OpenTime,
             CloseTime = p.CloseTime,
             Is24Hours = p.Is24Hours,

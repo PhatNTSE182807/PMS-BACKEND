@@ -13,6 +13,10 @@ public class CurrentSessionModel
     public string LotAddress { get; set; }
     public string LotDistrict { get; set; }
 
+    /// <summary>Map position of the lot, for the directions map; null when the Admin has not set it.</summary>
+    public decimal? LotLatitude { get; set; }
+    public decimal? LotLongitude { get; set; }
+
     /// <summary>Name of the entry lane, e.g. "Entry lane 1".</summary>
     public string EntryGateName { get; set; }
 

@@ -937,6 +937,8 @@ public class GateService(
                 LotName = lot?.Name,
                 LotAddress = lot?.Address,
                 LotDistrict = lot?.District,
+                LotLatitude = lot?.Latitude,
+                LotLongitude = lot?.Longitude,
                 EntryGateName = gateNames.GetValueOrDefault(session.EntryGateId),
                 EntryMethod = session.ReservationId != null ? "Reservation" : session.IsManualEntry ? "Manual" : "Plate",
                 VehicleLabel = vehicle == null ? null : string.Join(' ', new[] { vehicle.Brand, vehicle.Model }.Where(s => !string.IsNullOrWhiteSpace(s))),

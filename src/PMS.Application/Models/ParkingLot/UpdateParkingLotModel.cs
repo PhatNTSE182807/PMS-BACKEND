@@ -12,6 +12,11 @@ public class UpdateParkingLotModel
 
     public string District { get; set; }
 
+    /// <summary>Map position of the lot entrance (WGS 84); both or neither. Null: the map finds the lot by address.</summary>
+    public decimal? Latitude { get; set; }
+
+    public decimal? Longitude { get; set; }
+
     public TimeOnly? OpenTime { get; set; }
 
     public TimeOnly? CloseTime { get; set; }
