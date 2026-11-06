@@ -212,6 +212,74 @@ public class NotificationJobs(
         return notifications.Count;
     }
 
+    /// <summary>
+    /// A walk-in took a customer's booked bay (BookedBayCase): tells the booking's customer what happened, never the
+    /// walk-in's plate. One notification per case and type.
+    /// </summary>
+    public async Task<bool> BookedBayCaseAsync(long caseId, string notificationType)
+    {
+        var bayCase = await pmsContext.BookedBayCases.AsNoTracking().FirstOrDefaultAsync(c => c.Id == caseId);
+        if (bayCase == null)
+            return false;
+        var reservation = await pmsContext.Reservations.AsNoTracking().FirstOrDefaultAsync(r => r.Id == bayCase.ReservationId);
+        if (string.IsNullOrEmpty(reservation?.UserId))
+            return false;
+
+        var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == bayCase.ParkingLotId);
+        var slotIds = new[] { bayCase.SlotId, bayCase.NewSlotId ?? 0 };
+        var codes = await pmsContext.Slots.AsNoTracking().Where(s => slotIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Code);
+        var bookedBay = codes.GetValueOrDefault(bayCase.SlotId) ?? "your bay";
+        var newBay = bayCase.NewSlotId is { } id ? codes.GetValueOrDefault(id) : null;
+        var lotName = lot?.Name ?? "the parking lot";
+        var arrival = LocalTime(reservation.StartTime, lot);
+        static string Money(decimal value) => $"{value.ToString("N0", CultureInfo.InvariantCulture)} VND";
+
+        (string Title, string Message)? text = notificationType switch
+        {
+            NotificationTypes.BookedBayTaken => ("Your booked bay is taken",
+                $"Another vehicle parked in bay {bookedBay} you booked at {lotName} for {arrival}. Staff will move your booking to another bay and let you know."),
+            NotificationTypes.BookedBayReassigned => ("Your booking moved to another bay",
+                $"Your booking {reservation.ReservationCode} at {lotName} now has bay {newBay ?? "a new bay"} instead of {bookedBay}. The first hour is free."),
+            NotificationTypes.BookedBayFreed => ("Your booked bay is free again",
+                $"The vehicle in bay {bookedBay} at {lotName} has left. Your booking {reservation.ReservationCode} keeps that bay."),
+            NotificationTypes.BookingCancelledByLot => ("Your booking was cancelled by the lot",
+                $"Bay {bookedBay} you booked at {lotName} was taken and no other bay of your vehicle type was free, so the lot cancelled booking {reservation.ReservationCode}. Sorry for the trouble."),
+            NotificationTypes.DepositRefunded when bayCase.DepositRefunded > 0 => ("Deposit refunded to your XXIV wallet",
+                $"{Money(bayCase.DepositRefunded)} deposit of booking {reservation.ReservationCode} is back in your XXIV wallet."),
+            NotificationTypes.CompensationPaid when bayCase.CompensationPaid > 0 => ("Compensation paid to your XXIV wallet",
+                $"{lotName} paid you {Money(bayCase.CompensationPaid)} because bay {bookedBay} you booked was taken. It is in your XXIV wallet."),
+            _ => null
+        };
+        if (text == null)
+            return false;
+
+        var data = new Dictionary<string, string>
+        {
+            ["reservationId"] = reservation.Id.ToString(CultureInfo.InvariantCulture),
+            ["reservationCode"] = reservation.ReservationCode,
+            ["lotId"] = bayCase.ParkingLotId.ToString(CultureInfo.InvariantCulture),
+            ["lotName"] = lot?.Name,
+            ["bayCode"] = bookedBay,
+            ["newBayCode"] = newBay,
+            ["amount"] = notificationType switch
+            {
+                NotificationTypes.DepositRefunded => bayCase.DepositRefunded.ToString(CultureInfo.InvariantCulture),
+                NotificationTypes.CompensationPaid => bayCase.CompensationPaid.ToString(CultureInfo.InvariantCulture),
+                _ => null
+            }
+        };
+        return await SaveAndPushAsync(new UserNotification
+        {
+            UserId = reservation.UserId,
+            Type = notificationType,
+            Title = text.Value.Title,
+            Message = text.Value.Message,
+            RefType = "BookedBayCase",
+            RefId = bayCase.Id.ToString(CultureInfo.InvariantCulture),
+            EventAt = bayCase.ResolvedAt ?? bayCase.CreatedAt
+        }, data);
+    }
+
     /// <summary>Daily: drops read notifications after 60 days and unread ones after 180. Returns the number deleted.</summary>
     public async Task<int> PurgeOldNotificationsAsync()
     {

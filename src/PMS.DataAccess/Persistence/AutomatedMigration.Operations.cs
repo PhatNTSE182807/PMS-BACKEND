@@ -94,7 +94,10 @@ public static partial class AutomatedMigration
         ("Payments", "FailureReason", "[nvarchar](500) NULL"),
         ("Payments", "PayUrl", "[nvarchar](2000) NULL"),
         ("Payments", "LastCheckedAt", "[datetime2](3) NULL"),
-        ("Payments", "UpdatedAt", "[datetime2](3) NULL")
+        ("Payments", "UpdatedAt", "[datetime2](3) NULL"),
+
+        // Compensation when a walk-in took a booked bay and no other bay was free (BR-08, team addition)
+        ("PricingRules", "BookedBayCompensation", "[decimal](18,2) NOT NULL DEFAULT 0")
     ];
 
     private static async Task EnsureOperationsTablesAsync(PmsDbContext pmsContext)
@@ -383,6 +386,33 @@ public static partial class AutomatedMigration
                     [ChangedAt] [datetime2](3) NOT NULL DEFAULT (sysutcdatetime())
                 );
                 CREATE NONCLUSTERED INDEX [IX_ReservationChangeLogs_ReservationId] ON [dbo].[ReservationChangeLogs]([ReservationId] ASC);
+            END
+
+            -- A walk-in parked in a booked bay: Staff move the booking, or cancel it with a refund and a compensation
+            -- (BR-08). After Reservations and ParkingSessions, which its keys point to.
+            IF OBJECT_ID('dbo.BookedBayCases', 'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[BookedBayCases](
+                    [Id] [bigint] IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    [ParkingLotId] [int] NOT NULL,
+                    [ReservationId] [bigint] NOT NULL,
+                    [SlotId] [int] NOT NULL,
+                    [SessionId] [bigint] NOT NULL,
+                    [Status] [varchar](20) NOT NULL,
+                    [NewSlotId] [int] NULL,
+                    [DepositRefunded] [decimal](18,2) NOT NULL DEFAULT 0,
+                    [CompensationPaid] [decimal](18,2) NOT NULL DEFAULT 0,
+                    [CompensationPaymentId] [bigint] NULL,
+                    [ResolutionNote] [nvarchar](500) NULL,
+                    [ResolvedBy] [nvarchar](450) NULL,
+                    [ResolvedAt] [datetime2](3) NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL,
+                    CONSTRAINT [FK_BookedBayCases_ParkingLots] FOREIGN KEY([ParkingLotId]) REFERENCES [dbo].[ParkingLots] ([Id]),
+                    CONSTRAINT [FK_BookedBayCases_Reservations] FOREIGN KEY([ReservationId]) REFERENCES [dbo].[Reservations] ([Id]),
+                    CONSTRAINT [FK_BookedBayCases_ParkingSessions] FOREIGN KEY([SessionId]) REFERENCES [dbo].[ParkingSessions] ([Id])
+                );
+                CREATE NONCLUSTERED INDEX [IX_BookedBayCases_Lot] ON [dbo].[BookedBayCases]([ParkingLotId] ASC, [Status] ASC, [CreatedAt] ASC);
+                CREATE NONCLUSTERED INDEX [IX_BookedBayCases_Reservation] ON [dbo].[BookedBayCases]([ReservationId] ASC);
             END
         ";
 

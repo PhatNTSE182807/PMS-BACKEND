@@ -52,7 +52,14 @@ public interface IPaymentService
     Task<decimal> DepositHeldAsync(long reservationId);
 
     /// <summary>Refunds part or all of a reservation's deposit to its source (FR-PAY-10). Returns the amount refunded or queued.</summary>
-    Task<decimal> RefundDepositAsync(Reservation reservation, decimal amount, string reason, string requestedBy);
+    /// <param name="toWallet">Credit the customer's XXIV wallet instead of the original method (VNPay, MoMo).</param>
+    Task<decimal> RefundDepositAsync(Reservation reservation, decimal amount, string reason, string requestedBy, bool toWallet = false);
+
+    /// <summary>
+    /// Pays a compensation from the lot into the booking customer's XXIV wallet: a settled Payment with purpose
+    /// "Compensation" (subtracted from the lot's revenue) and a wallet transaction. Null when the amount is 0.
+    /// </summary>
+    Task<Payment> PayCompensationAsync(Reservation reservation, decimal amount, string reason, string paidBy);
 
     /// <summary>Job: expires stale links and asks the gateway about payments waiting longer than BR-11.</summary>
     Task<int> CheckPendingPaymentsAsync();

@@ -38,6 +38,7 @@ public static class OperationsDependencyInjection
         services.AddScoped<IAdminDashboardService, AdminDashboardService>();
         services.AddScoped<ReservationService>();
         services.AddScoped<IReservationService>(sp => sp.GetRequiredService<ReservationService>());
+        services.AddScoped<BookedBayCaseService>();
         services.AddScoped<GateService>();
         services.AddScoped<WalkInSimulationService>();
         services.AddScoped<CashDrawerService>();

@@ -16,8 +16,24 @@ public static class NotificationTypes
     public const string CheckOut = "CheckOut";
     /// <summary>A Manager changed a lot's price.</summary>
     public const string PriceChanged = "PriceChanged";
+    /// <summary>A walk-in parked in the customer's booked bay; Staff will move the booking.</summary>
+    public const string BookedBayTaken = "BookedBayTaken";
+    /// <summary>Staff moved the booking to another bay.</summary>
+    public const string BookedBayReassigned = "BookedBayReassigned";
+    /// <summary>The walk-in left before Staff had to move the booking: the booked bay is free again.</summary>
+    public const string BookedBayFreed = "BookedBayFreed";
+    /// <summary>No bay was left: the lot cancelled the booking.</summary>
+    public const string BookingCancelledByLot = "BookingCancelledByLot";
+    /// <summary>The deposit went back to the XXIV wallet.</summary>
+    public const string DepositRefunded = "DepositRefunded";
+    /// <summary>A compensation was paid into the XXIV wallet.</summary>
+    public const string CompensationPaid = "CompensationPaid";
 
-    public static readonly string[] All = [VehicleApproved, VehicleRejected, CheckIn, CheckOut, PriceChanged];
+    public static readonly string[] All =
+    [
+        VehicleApproved, VehicleRejected, CheckIn, CheckOut, PriceChanged,
+        BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid
+    ];
 }
 
 /// <summary>One notification as the customer sees it.</summary>

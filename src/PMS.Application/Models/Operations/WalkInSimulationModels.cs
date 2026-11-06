@@ -97,7 +97,10 @@ public class WalkInCheckOutResultModel
     public int Skipped { get; set; }
 }
 
-/// <summary>A simulated walk-in now stands in a booked bay; the booking's customer meets it at check-in.</summary>
+/// <summary>
+/// A simulated walk-in now stands in a booked bay: a case is open for the lot's Staff and the booking's customer was
+/// told their bay is taken.
+/// </summary>
 public class BookedBayTakenModel
 {
     public long SessionId { get; set; }
@@ -109,4 +112,7 @@ public class BookedBayTakenModel
     public long ReservationId { get; set; }
 
     public string ReservationCode { get; set; }
+
+    /// <summary>The case opened for the lot's Staff (Exceptions & Alerts); null when one was already open.</summary>
+    public long? CaseId { get; set; }
 }

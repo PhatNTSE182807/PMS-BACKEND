@@ -19,7 +19,8 @@ public class WalkInSimulationService(
     GateService gates,
     LotScopeService lotScope,
     ParkingOptions options,
-    TimeProvider clock)
+    TimeProvider clock,
+    BookedBayCaseService bookedBays = null)
 {
     private const string AdminRole = "Admin";
     private const int MaxStayHours = 72;
@@ -74,7 +75,7 @@ public class WalkInSimulationService(
                 result.StoppedReason = $"No free {(isCar ? "car" : "motorbike")} bay is left in this lot.";
                 break;
             }
-            freeBays.Remove(bay);
+            freeBays.RemoveAll(b => b.Slot.Id == bay.Id);
 
             var entry = await gates.CheckInAsync(model.LotId, new CheckInModel
             {
@@ -145,7 +146,7 @@ public class WalkInSimulationService(
             TotalBays = lotId is { } id
                 ? await pmsContext.Slots.CountAsync(s => s.Zone.ParkingLotId == id && s.Zone.IsActive && s.IsActive)
                 : null,
-            FreeBays = lotId is { } lot ? await FreeBaysQuery(lot).CountAsync() : null
+            FreeBays = lotId is { } lot ? (await FreeBaysAsync(lot)).Count : null
         };
     }
 
@@ -237,13 +238,17 @@ public class WalkInSimulationService(
         session.SimulatedExitAt = Now + StayLength(2, 4);
         await pmsContext.SaveChangesAsync();
 
+        // Staff get the case in Exceptions & Alerts, the booking's customer a "your bay is taken" notification
+        var bayCase = bookedBays == null ? null : await bookedBays.OpenIfBookedAsync(session.Id);
+
         return new BookedBayTakenModel
         {
             SessionId = session.Id,
             Plate = plate,
             BayCode = bay.Code,
             ReservationId = booking.Id,
-            ReservationCode = booking.ReservationCode
+            ReservationCode = booking.ReservationCode,
+            CaseId = bayCase?.Id
         };
     }
 
@@ -264,21 +269,25 @@ public class WalkInSimulationService(
         return wantsCar ? car4 ?? car7 ?? motorbike : car4 ?? car7;
     }
 
-    /// <summary>Active, free bays of the lot that no open session stands in.</summary>
-    private Task<List<Slot>> FreeBaysAsync(int lotId) => FreeBaysQuery(lotId).ToListAsync();
+    /// <summary>
+    /// Bays a walk-in may park in, by the same rule as the entry lane (never a bay with a vehicle or a booking due
+    /// soon), bays without any booking first.
+    /// </summary>
+    private Task<List<ParkingInventory.WalkInBay>> FreeBaysAsync(int lotId) =>
+        new ParkingInventory(pmsContext).WalkInBaysAsync(lotId, null, Now, TimeSpan.FromMinutes(options.Reservations.HoldAheadMinutes));
 
-    private IQueryable<Slot> FreeBaysQuery(int lotId)
+    /// <summary>
+    /// A random free bay that takes this vehicle type (cars share bays) and has no booking; only when none is left,
+    /// the bay whose booking is furthest ahead. Null when no bay fits.
+    /// </summary>
+    private static Slot PickBay(List<ParkingInventory.WalkInBay> freeBays, IReadOnlyDictionary<int, VehicleType> types, int vehicleTypeId)
     {
-        var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
-        return pmsContext.Slots.AsNoTracking()
-            .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available && !occupied.Contains(s.Id));
-    }
-
-    /// <summary>A random free bay that takes this vehicle type (cars share bays), or null when none is left.</summary>
-    private static Slot PickBay(List<Slot> freeBays, IReadOnlyDictionary<int, VehicleType> types, int vehicleTypeId)
-    {
-        var fitting = freeBays.Where(s => ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId)).ToList();
-        return fitting.Count == 0 ? null : fitting[RandomNumberGenerator.GetInt32(fitting.Count)];
+        var fitting = freeBays.Where(b => ParkingInventory.Compatible(types, b.Slot.VehicleTypeId, vehicleTypeId)).ToList();
+        var unbooked = fitting.Where(b => b.NextBookingAt == null).ToList();
+        if (unbooked.Count > 0)
+            return unbooked[RandomNumberGenerator.GetInt32(unbooked.Count)].Slot;
+        // Already ordered with the furthest booking first
+        return fitting.FirstOrDefault()?.Slot;
     }
 
     /// <summary>

@@ -37,6 +37,13 @@ public interface IUserNotificationPublisher
 
     /// <summary>A lot's price for one vehicle type changed: tells the customers with an upcoming booking for that type there.</summary>
     void LotPriceChanged(string title, string message, string eventKey, int lotId, int vehicleTypeId, string lotName);
+
+    /// <summary>
+    /// Something happened to a booked bay a walk-in took (BookedBayCase): <paramref name="notificationType"/> is one of the
+    /// NotificationTypes BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded or
+    /// CompensationPaid. Tells the booking's customer.
+    /// </summary>
+    void BookedBayCaseChanged(long caseId, string notificationType);
 }
 
 /// <summary>Real-time push of a new notification to its owner (SignalR in PMS.API).</summary>

@@ -64,6 +64,10 @@ public class CreatePricingRuleModelValidator : AbstractValidator<CreatePricingRu
         RuleFor(x => x.NoShowFee)
             .GreaterThanOrEqualTo(0).WithMessage("No show fee must be greater than or equal to 0.");
 
+        RuleFor(x => x.BookedBayCompensation)
+            .GreaterThanOrEqualTo(0).WithMessage("The compensation for a taken booked bay must be 0 or more.")
+            .LessThanOrEqualTo(10_000_000).WithMessage("The compensation for a taken booked bay can be at most 10,000,000 VND.");
+
         RuleFor(x => x.Currency)
             .MaximumLength(3).WithMessage("Currency code must not exceed 3 characters.");
 
@@ -131,6 +135,10 @@ public class UpdatePricingRuleModelValidator : AbstractValidator<UpdatePricingRu
 
         RuleFor(x => x.NoShowFee)
             .GreaterThanOrEqualTo(0).WithMessage("No show fee must be greater than or equal to 0.");
+
+        RuleFor(x => x.BookedBayCompensation)
+            .GreaterThanOrEqualTo(0).WithMessage("The compensation for a taken booked bay must be 0 or more.")
+            .LessThanOrEqualTo(10_000_000).WithMessage("The compensation for a taken booked bay can be at most 10,000,000 VND.");
 
         RuleFor(x => x.Status)
             .Must(s => string.IsNullOrEmpty(s) || ValidStatuses.Contains(s, StringComparer.OrdinalIgnoreCase))
