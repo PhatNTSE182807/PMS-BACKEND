@@ -22,6 +22,12 @@ public interface IGateService
 
     Task<SessionResponseModel> GetSessionAsync(long sessionId);
 
+    /// <summary>
+    /// The open session parked in a bay of the lot, with the customer type, time parked and a read-only fee so far
+    /// (the 3D lot model's bay popup). Lot-scoped like every Staff call; NotFound when no vehicle is tracked in the bay.
+    /// </summary>
+    Task<BaySessionModel> GetBaySessionAsync(int lotId, int slotId);
+
     /// <summary>Find the open session of a plate, a ticket QR or a session code at an exit lane.</summary>
     Task<SessionResponseModel> LookupAsync(int lotId, string plate, string ticket, string code);
 

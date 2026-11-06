@@ -92,6 +92,11 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> CheckInAsync(int lotId, [FromBody] CheckInModel model) =>
         Ok(ApiResult<CheckInResultModel>.Success(await gateService.CheckInAsync(lotId, model)));
 
+    /// <summary>The vehicle parked in a bay, for the 3D lot model's popup: customer type, plate, time parked, fee so far.</summary>
+    [HttpGet("lots/{lotId:int}/slots/{slotId:int}/session")]
+    public async Task<IActionResult> GetBaySessionAsync(int lotId, int slotId) =>
+        Ok(ApiResult<BaySessionModel>.Success(await gateService.GetBaySessionAsync(lotId, slotId)));
+
     [HttpGet("sessions/{id:long}")]
     public async Task<IActionResult> GetSessionAsync(long id) =>
         Ok(ApiResult<SessionResponseModel>.Success(await gateService.GetSessionAsync(id)));

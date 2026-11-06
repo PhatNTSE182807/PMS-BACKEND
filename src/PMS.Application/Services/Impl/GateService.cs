@@ -138,6 +138,35 @@ public class GateService(
     public async Task<SessionResponseModel> GetSessionAsync(long sessionId) =>
         await ToModelAsync(await ScopedSessionAsync(sessionId));
 
+    public async Task<BaySessionModel> GetBaySessionAsync(int lotId, int slotId)
+    {
+        await lotScope.EnsureCanOperateAsync(lotId);
+        var session = await pmsContext.ParkingSessions.AsNoTracking()
+                          .Where(s => s.ParkingLotId == lotId && s.SlotId == slotId && SessionStatus.Open.Contains(s.Status))
+                          .OrderByDescending(s => s.EntryTime)
+                          .FirstOrDefaultAsync()
+                      ?? throw new NotFoundException("No vehicle is parked in this bay.");
+
+        var customerName = session.CustomerId is { } customerId
+            ? await pmsContext.Customers.AsNoTracking().Where(c => c.Id == customerId).Select(c => c.FullName).FirstOrDefaultAsync()
+            : null;
+        // A read-only quote, the same one the payment points use; a session that cannot be charged yet has no fee
+        var priceable = SessionStatus.Inside.Contains(session.Status) && session.Status != SessionStatus.LostTicketPending;
+        var quote = priceable ? await QuoteAsync(session, null, null, mutate: false) : null;
+
+        return new BaySessionModel
+        {
+            Session = await ToModelAsync(session),
+            CustomerType = session.CustomerId != null ? "Member" : "Guest",
+            CustomerName = customerName,
+            ElapsedMinutes = Math.Max(0, (int)Math.Floor((Now - session.EntryTime).TotalMinutes)),
+            FeeSoFar = quote == null ? null : quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee,
+            DepositApplied = quote?.DepositApplied ?? session.DepositApplied,
+            AlreadyPaid = quote?.AlreadyPaid ?? session.PaidAmount,
+            AmountDue = quote?.AmountDue
+        };
+    }
+
     public async Task<SessionResponseModel> LookupAsync(int lotId, string plate, string ticket, string code)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
