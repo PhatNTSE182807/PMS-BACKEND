@@ -120,6 +120,8 @@ public sealed partial class DemoDataSeed
             };
         }
 
+        // Ben Thanh is created here, after the lot seed: give it its map position too
+        await ParkingLotDataSeed.FillMissingCoordinatesAsync(db);
         return true;
     }
 
