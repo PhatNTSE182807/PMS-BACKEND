@@ -215,6 +215,12 @@ public class Layout2DCellModel
 
     /// <summary>Type of the vehicle parked here, which a car bay does not fix (CAR_4 or CAR_7); null when none is known.</summary>
     public string ParkedVehicleTypeCode { get; set; }
+
+    /// <summary>
+    /// Free now but booked for later (its hold has not started): the map draws counted walk-ins in bays without a
+    /// booking first, as the entry lane and the simulation park them. Never who booked it.
+    /// </summary>
+    public bool BookedLater { get; set; }
 }
 
 /// <summary>The cells a zone covers on one floor, as a bounding box of rows and columns.</summary>

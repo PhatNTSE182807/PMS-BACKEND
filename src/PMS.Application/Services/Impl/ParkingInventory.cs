@@ -50,6 +50,47 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
         }
     }
 
+    /// <summary>A bay a walk-in may park in, and the arrival of the next booking of that bay (null: none).</summary>
+    public sealed record WalkInBay(Slot Slot, DateTime? NextBookingAt);
+
+    /// <summary>
+    /// The one rule for where a walk-in may park (lane, simulation, map): an active, free bay of the lot that no
+    /// vehicle stands in and whose next booking is more than <paramref name="holdAhead"/> away (bays booked sooner are
+    /// held or about to be). Best first: bays with no booking at all, then those booked furthest ahead, so a booking
+    /// keeps its bay whenever the lot can manage. <paramref name="vehicleTypeId"/> keeps the bays that fit it.
+    /// </summary>
+    public async Task<List<WalkInBay>> WalkInBaysAsync(int lotId, int? vehicleTypeId, DateTime nowUtc, TimeSpan holdAhead)
+    {
+        var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
+        var free = await pmsContext.Slots.AsNoTracking()
+            .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available
+                        && !occupied.Contains(s.Id))
+            .ToListAsync();
+        if (vehicleTypeId is { } typeId)
+        {
+            var types = await VehicleTypesAsync();
+            free = free.Where(s => Compatible(types, s.VehicleTypeId, typeId)).ToList();
+        }
+
+        var ids = free.Select(s => s.Id).ToList();
+        var nextBooking = (await pmsContext.Reservations.AsNoTracking()
+                .Where(r => r.SlotId != null && ids.Contains(r.SlotId.Value)
+                            && (r.Status == ReservationStatus.PendingDeposit || r.Status == ReservationStatus.Confirmed))
+                .Select(r => new { SlotId = r.SlotId!.Value, r.StartTime })
+                .ToListAsync())
+            .GroupBy(r => r.SlotId)
+            .ToDictionary(g => g.Key, g => g.Min(r => r.StartTime));
+
+        var soon = nowUtc + holdAhead;
+        return free
+            .Select(s => new WalkInBay(s, nextBooking.TryGetValue(s.Id, out var at) ? at : null))
+            .Where(b => b.NextBookingAt == null || b.NextBookingAt > soon)
+            .OrderBy(b => b.NextBookingAt == null ? 0 : 1)
+            .ThenByDescending(b => b.NextBookingAt)
+            .ThenBy(b => b.Slot.Code, StringComparer.Ordinal)
+            .ToList();
+    }
+
     /// <summary>Vehicle family for slot / lane matching: all cars share bays; motorbikes use motorbike floors.</summary>
     public static string Family(string vehicleTypeCode) =>
         vehicleTypeCode?.StartsWith("CAR", StringComparison.OrdinalIgnoreCase) == true ? "car"
@@ -190,6 +231,14 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
                 // Real-time is best effort; clients poll as a fallback
             }
         }
+    }
+
+    /// <summary>Sets a bay's status without touching its zone counter (the caller accounts for the space) and pushes it.</summary>
+    public void MarkSlot(int lotId, Slot slot, string status)
+    {
+        if (slot.Status == status) return;
+        slot.Status = status;
+        QueueSlot(lotId, slot);
     }
 
     private void QueueSlot(int lotId, Slot slot)

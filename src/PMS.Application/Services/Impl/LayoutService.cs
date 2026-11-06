@@ -90,6 +90,14 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
         var parkedInSlot = parked.Where(p => p.SlotId != null)
             .GroupBy(p => p.SlotId.Value)
             .ToDictionary(g => g.Key, g => g.First().Vehicle);
+        // Free bays with a booking still to come: counted walk-ins are drawn elsewhere first
+        var bookedLater = level == LayoutDetail.Slots
+            ? (await pmsContext.Reservations.AsNoTracking()
+                .Where(r => r.ParkingLotId == lotId && r.SlotId != null
+                            && (r.Status == ReservationStatus.PendingDeposit || r.Status == ReservationStatus.Confirmed))
+                .Select(r => r.SlotId!.Value)
+                .ToListAsync()).ToHashSet()
+            : [];
 
         var floors = ReadFloors(layout).Select(floor =>
         {
@@ -118,7 +126,8 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
                     Rotation = s.Placement.Rotation,
                     Status = s.Slot.Status,
                     VehicleColor = parkedInSlot.GetValueOrDefault(s.Slot.Id)?.VehicleColor,
-                    ParkedVehicleTypeCode = parkedInSlot.GetValueOrDefault(s.Slot.Id)?.VehicleTypeCode
+                    ParkedVehicleTypeCode = parkedInSlot.GetValueOrDefault(s.Slot.Id)?.VehicleTypeCode,
+                    BookedLater = s.Slot.Status == Available && bookedLater.Contains(s.Slot.Id)
                 }).OrderBy(c => c.Row).ThenBy(c => c.Col).ToList();
             }
             else

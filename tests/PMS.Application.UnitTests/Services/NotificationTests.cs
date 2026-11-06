@@ -110,7 +110,13 @@ public class NotificationTests : IDisposable
             NotificationTypes.VehicleRejected,
             NotificationTypes.CheckIn,
             NotificationTypes.CheckOut,
-            NotificationTypes.PriceChanged);
+            NotificationTypes.PriceChanged,
+            NotificationTypes.BookedBayTaken,
+            NotificationTypes.BookedBayReassigned,
+            NotificationTypes.BookedBayFreed,
+            NotificationTypes.BookingCancelledByLot,
+            NotificationTypes.DepositRefunded,
+            NotificationTypes.CompensationPaid);
         NotificationTypes.All.Should().OnlyHaveUniqueItems();
     }
 

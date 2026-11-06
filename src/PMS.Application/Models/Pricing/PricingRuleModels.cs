@@ -70,6 +70,9 @@ public class PricingRuleModel
 
     public decimal NoShowFee { get; set; }
 
+    /// <summary>Paid into the customer's XXIV wallet when a walk-in took their booked bay and no other bay was free.</summary>
+    public decimal BookedBayCompensation { get; set; }
+
     public string Currency { get; set; } = "VND";
 
     public int Priority { get; set; }
@@ -167,6 +170,9 @@ public class CreatePricingRuleModel
 
     public decimal NoShowFee { get; set; } = 0;
 
+    /// <summary>Paid into the customer's XXIV wallet when a walk-in took their booked bay and no other bay was free.</summary>
+    public decimal BookedBayCompensation { get; set; }
+
     public string Currency { get; set; } = "VND";
 
     public int Priority { get; set; } = 0;
@@ -220,6 +226,9 @@ public class UpdatePricingRuleModel
     public decimal LostTicketFee { get; set; } = 0;
 
     public decimal NoShowFee { get; set; } = 0;
+
+    /// <summary>Paid into the customer's XXIV wallet when a walk-in took their booked bay and no other bay was free.</summary>
+    public decimal BookedBayCompensation { get; set; }
 
     public int Priority { get; set; } = 0;
 

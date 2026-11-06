@@ -164,6 +164,7 @@ public class PricingRuleService(
             OverstaySurchargePerDay = model.OverstaySurchargePerDay,
             LostTicketFee = model.LostTicketFee,
             NoShowFee = model.NoShowFee,
+            BookedBayCompensation = model.BookedBayCompensation,
             Currency = string.IsNullOrWhiteSpace(model.Currency) ? "VND" : model.Currency.ToUpperInvariant(),
             Priority = model.Priority,
             EffectiveFrom = model.EffectiveFrom ?? now,
@@ -243,6 +244,8 @@ public class PricingRuleService(
 
             // Live at once: stays in progress keep the price copied onto their session at entry
             proposed.ApplyTo(tracked);
+            // Not a price: changing it alone never notifies customers of a price change
+            tracked.BookedBayCompensation = model.BookedBayCompensation;
             tracked.VersionNo += 1;
             tracked.UpdatedAt = now;
 
@@ -500,6 +503,7 @@ public class PricingRuleService(
         OverstaySurchargePerDay = r.OverstaySurchargePerDay,
         LostTicketFee = r.LostTicketFee,
         NoShowFee = r.NoShowFee,
+        BookedBayCompensation = r.BookedBayCompensation,
         Currency = r.Currency ?? "VND",
         Priority = r.Priority,
         EffectiveFrom = DateTime.SpecifyKind(r.EffectiveFrom, DateTimeKind.Utc),
