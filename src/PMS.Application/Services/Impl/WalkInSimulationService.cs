@@ -326,64 +326,15 @@ public class WalkInSimulationService(
     }
 
     /// <summary>
-    /// Bays a walk-in may park in, by the same rule as the entry lane (never a bay with a vehicle or a booking due
-    /// soon), bays without any booking first.
-    /// </summary>
-    /// <summary>
-    /// The bays a simulated walk-in may take: free, not held (Reserved), with no booking at all, and not one where the
-    /// 3D model already draws a walk-in that has no bay of its own (seeded or real walk-ins counted in their zone).
-    /// Bays with a parked vehicle are never offered, so the simulation never puts two vehicles in one bay.
+    /// The bays a simulated walk-in may take: free, not held (Reserved), with no booking at all, and none of the
+    /// bays kept for others (see KeptBays). Bays with a parked vehicle are never offered, so the simulation never
+    /// puts two vehicles in one bay.
     /// </summary>
     private async Task<List<ParkingInventory.WalkInBay>> FreeBaysAsync(int lotId)
     {
         var free = await new ParkingInventory(pmsContext).WalkInBaysAsync(lotId, null, Now, TimeSpan.FromMinutes(options.Reservations.HoldAheadMinutes));
-        var drawn = await CountedWalkInBaysAsync(lotId);
-        // Bays of simulated walk-ins still waiting at the entry lane
-        var queued = (await pmsContext.GateRequests.AsNoTracking()
-                .Where(g => g.ParkingLotId == lotId && g.IsSimulated && g.Kind == GateRequestKind.CheckIn
-                            && g.Status == GateRequestStatus.Waiting && g.SlotId != null)
-                .Select(g => g.SlotId!.Value)
-                .ToListAsync())
-            .ToHashSet();
-        return free.Where(b => b.NextBookingAt == null && !drawn.Contains(b.Slot.Id) && !queued.Contains(b.Slot.Id)).ToList();
-    }
-
-    /// <summary>
-    /// Bays where the 3D model draws the walk-ins counted in a zone without a bay of their own: the zone counter's
-    /// vehicles beyond the bays already taken, in free bays without a booking first, then by level, row and column
-    /// (the same rule as walkInBays in the frontend's src/lib/lot-layout.ts).
-    /// </summary>
-    private async Task<HashSet<int>> CountedWalkInBaysAsync(int lotId)
-    {
-        if (layouts == null)
-            return [];
-        Layout2DResponseModel plan;
-        try
-        {
-            plan = await layouts.Get2DAsync(lotId, LayoutDetail.Slots);
-        }
-        catch (NotFoundException)
-        {
-            // No published layout: the model draws no bay, so no bay is taken on it
-            return [];
-        }
-
-        var cells = plan.Floors
-            .SelectMany((floor, index) => (floor.Cells ?? []).Select(cell => (Cell: cell, Floor: index)))
-            .ToList();
-        var drawn = new HashSet<int>();
-        foreach (var zone in plan.ZoneCounters ?? [])
-        {
-            var inZone = cells.Where(c => c.Cell.ZoneId == zone.ZoneId).ToList();
-            var shown = inZone.Count(c => c.Cell.Status != SlotStatus.Available);
-            var missing = Math.Max(0, zone.Total - zone.Free - shown);
-            var taken = inZone.Where(c => c.Cell.Status == SlotStatus.Available)
-                .OrderBy(c => c.Cell.BookedLater).ThenBy(c => c.Floor).ThenBy(c => c.Cell.Row).ThenBy(c => c.Cell.Col)
-                .Take(missing);
-            foreach (var c in taken)
-                drawn.Add(c.Cell.SlotId);
-        }
-        return drawn;
+        var kept = await KeptBays.ForAsync(pmsContext, layouts, lotId);
+        return free.Where(b => b.NextBookingAt == null && !kept.Contains(b.Slot.Id)).ToList();
     }
 
     /// <summary>A random allowed bay that takes this vehicle type (cars share bays); null when none fits.</summary>

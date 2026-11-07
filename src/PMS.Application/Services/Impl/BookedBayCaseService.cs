@@ -25,7 +25,8 @@ public class BookedBayCaseService(
     LotScopeService lotScope,
     TimeProvider clock,
     IParkingRealtimeNotifier notifier = null,
-    IUserNotificationPublisher notifications = null)
+    IUserNotificationPublisher notifications = null,
+    ILayoutService layouts = null)
 {
     public const string SystemActor = "System";
 
@@ -353,8 +354,10 @@ public class BookedBayCaseService(
                         && s.Status == SlotStatus.Available && s.Id != bookedBayId
                         && !occupied.Contains(s.Id) && !booked.Contains(s.Id))
             .ToListAsync();
+        // Same bays as the entry lane keeps off: never one a waiting walk-in was sent to or where the 3D model draws a walk-in
+        var kept = await KeptBays.ForAsync(pmsContext, layouts, reservation.ParkingLotId, reservation.Id);
         return free
-            .Where(s => ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId))
+            .Where(s => !kept.Contains(s.Id) && ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId))
             .OrderBy(s => s.ZoneId == reservation.ZoneId ? 0 : 1)
             .ThenBy(s => s.Code, StringComparer.Ordinal)
             .ToList();
