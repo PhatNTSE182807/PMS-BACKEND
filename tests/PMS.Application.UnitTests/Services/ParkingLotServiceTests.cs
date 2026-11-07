@@ -249,7 +249,7 @@ public class ParkingLotServiceTests
             Code = "LOT-DEL",
             Name = "Delete Test Lot",
             Address = "Address",
-            Status = "Active",
+            Status = "TemporarilyClosed",
             IsDeleted = false
         };
         _context.ParkingLots.Add(lot);
@@ -271,7 +271,7 @@ public class ParkingLotServiceTests
             Code = "LOT-SESS",
             Name = "Session Lot",
             Address = "Address",
-            Status = "Active",
+            Status = "TemporarilyClosed",
             IsDeleted = false
         };
         _context.ParkingLots.Add(lot);
@@ -292,6 +292,6 @@ public class ParkingLotServiceTests
         var act = async () => await _sut.DeleteAsync(lot.Id);
 
         await act.Should().ThrowAsync<BadRequestException>()
-            .WithMessage("*active parking sessions*");
+            .WithMessage("*vehicles are still inside*");
     }
 }

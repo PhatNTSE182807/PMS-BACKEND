@@ -119,6 +119,12 @@ public class ParkingConfigurationConformanceTests
     {
         var adminClient = await _factory.CreateDefaultClientAsync();
         var lotId = await CreateTestLotAsync();
+        // Close the lot first, so the vehicle inside is the only reason the delete is refused
+        (await adminClient.PatchAsync($"/api/lots/{lotId}/status", new JsonContent(new UpdateParkingLotStatusModel
+        {
+            Status = "TemporarilyClosed",
+            ClosureReason = "Lot removed"
+        }))).StatusCode.Should().Be(HttpStatusCode.OK);
 
         var pmsContext = _factory.GetRequiredService<PmsDbContext>();
         pmsContext.ParkingSessions.Add(new ParkingSession

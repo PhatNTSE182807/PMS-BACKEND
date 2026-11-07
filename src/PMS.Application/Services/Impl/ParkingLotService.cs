@@ -518,11 +518,16 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         if (lot == null)
             throw new NotFoundException($"Parking lot with ID {id} was not found.");
 
-        var hasActiveSessions = await pmsContext.ParkingSessions
-            .AnyAsync(s => s.ParkingLotId == id && s.Status == "Active");
+        // The lot has to be closed first, so no new vehicle or booking can come in while it is removed.
+        if (lot.Status != LotStatus.TemporarilyClosed)
+            throw new BadRequestException("Close the parking lot (Temporarily closed) before deleting it.");
 
-        if (hasActiveSessions)
-            throw new BadRequestException("Cannot delete parking lot with active parking sessions.");
+        // Every vehicle must have left: any open session (entering, parked, waiting to pay or paid) blocks it.
+        var hasVehiclesInside = await pmsContext.ParkingSessions
+            .AnyAsync(s => s.ParkingLotId == id && SessionStatus.Open.Contains(s.Status));
+
+        if (hasVehiclesInside)
+            throw new BadRequestException("Cannot delete the parking lot while vehicles are still inside.");
 
         lot.IsDeleted = true;
         lot.Status = "Inactive";
