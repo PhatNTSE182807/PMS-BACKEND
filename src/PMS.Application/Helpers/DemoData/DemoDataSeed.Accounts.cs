@@ -84,6 +84,9 @@ public sealed partial class DemoDataSeed
         {
             var lot = await db.ParkingLots.FirstOrDefaultAsync(p => p.Code == def.Code && !p.IsDeleted);
             if (lot == null && def.Template != null)
+                lot = await RestoreDeletedLotAsync(def);
+
+            if (lot == null && def.Template != null)
             {
                 lot = new ParkingLot
                 {
@@ -123,6 +126,33 @@ public sealed partial class DemoDataSeed
         // Ben Thanh is created here, after the lot seed: give it its map position too
         await ParkingLotDataSeed.FillMissingCoordinatesAsync(db);
         return true;
+    }
+
+    /// <summary>
+    /// Brings back a lot the demo creates when an Admin deleted it. The lot code is unique across
+    /// deleted rows too, so adding a new lot with the same code would fail.
+    /// </summary>
+    private async Task<ParkingLot> RestoreDeletedLotAsync(LotDef def)
+    {
+        var lot = await db.ParkingLots.FirstOrDefaultAsync(p => p.Code == def.Code && p.IsDeleted);
+        if (lot == null)
+            return null;
+
+        lot.IsDeleted = false;
+        lot.Status = "Active";
+        lot.ClosureReason = null;
+        lot.MaintenanceNotice = null;
+        lot.ClosedFrom = null;
+        lot.ClosedUntil = null;
+        lot.UpdatedAt = now;
+        await db.SaveChangesAsync();
+
+        // Deleting a lot keeps its zones; build them again only when they are gone
+        if (!await db.Zones.AnyAsync(z => z.ParkingLotId == lot.Id))
+            await LotTemplates.ApplyAsync(db, lot, def.Template, adminId);
+
+        logger?.LogInformation("Demo data restored the deleted parking lot {Code}.", def.Code);
+        return lot;
     }
 
     /// <summary>Managers, Staff and customers: created when missing, with their Employee / Customer rows.</summary>
