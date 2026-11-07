@@ -22,7 +22,8 @@ public class WalkInSimulationService(
     ParkingOptions options,
     TimeProvider clock,
     BookedBayCaseService bookedBays = null,
-    ILayoutService layouts = null)
+    ILayoutService layouts = null,
+    IGateRequestService gateRequests = null)
 {
     private const string AdminRole = "Admin";
     private const int MaxStayHours = 72;
@@ -98,7 +99,7 @@ public class WalkInSimulationService(
     /// One simulated walk-in in the bay the Admin picked on the 3D model. Only a bay a walk-in may take is accepted:
     /// never one with a vehicle in it, a held or booked bay, or one where the model draws a walk-in without a bay.
     /// </summary>
-    public async Task<SimulatedWalkInModel> DeployToBayAsync(DeployWalkInToBayModel model)
+    public async Task<GateRequestModel> DeployToBayAsync(DeployWalkInToBayModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
         if (model.MinStayHours <= 0 || model.MaxStayHours < model.MinStayHours || model.MaxStayHours > MaxStayHours)
@@ -120,11 +121,11 @@ public class WalkInSimulationService(
 
         var isCar = ParkingInventory.Family(type.Code) == "car";
         var plate = await FreePlateAsync(isCar, []);
-        var stopped = await EnterAsync(model.LotId, plate, false, type, bay, lotScope.UserId, model.MinStayHours, model.MaxStayHours);
-        if (stopped != null)
-            throw new BadRequestException(stopped);
-
-        return (await GetOverviewAsync(model.LotId)).Inside.FirstOrDefault(v => v.Plate == plate);
+        if (gateRequests == null)
+            throw new BadRequestException("The entry lane queue is not available.");
+        // The walk-in drives up to the entry lane and waits there: the Staff checks it in on the gate screen
+        return await gateRequests.QueueSimulatedWalkInAsync(model.LotId, plate, type.Id, bay.Id,
+            StayLength(model.MinStayHours, model.MaxStayHours), lotScope.UserId);
     }
 
     /// <summary>
@@ -227,7 +228,8 @@ public class WalkInSimulationService(
     {
         var due = await pmsContext.ParkingSessions.AsNoTracking()
             .Where(s => s.IsSimulated && s.SimulatedExitAt <= Now
-                        && (s.Status == SessionStatus.Active || s.Status == SessionStatus.PendingPayment || s.Status == SessionStatus.Paid))
+                        && (s.Status == SessionStatus.Active || s.Status == SessionStatus.PendingPayment || s.Status == SessionStatus.Paid)
+                        && !pmsContext.GateRequests.Any(g => g.SessionId == s.Id && g.Kind == GateRequestKind.CheckOut && g.Status == GateRequestStatus.Waiting))
             .OrderBy(s => s.SimulatedExitAt)
             .Select(s => new { s.Id, s.HasPlate, s.EntryPlateNumber, s.SimulatedBy })
             .Take(200)
@@ -336,7 +338,14 @@ public class WalkInSimulationService(
     {
         var free = await new ParkingInventory(pmsContext).WalkInBaysAsync(lotId, null, Now, TimeSpan.FromMinutes(options.Reservations.HoldAheadMinutes));
         var drawn = await CountedWalkInBaysAsync(lotId);
-        return free.Where(b => b.NextBookingAt == null && !drawn.Contains(b.Slot.Id)).ToList();
+        // Bays of simulated walk-ins still waiting at the entry lane
+        var queued = (await pmsContext.GateRequests.AsNoTracking()
+                .Where(g => g.ParkingLotId == lotId && g.IsSimulated && g.Kind == GateRequestKind.CheckIn
+                            && g.Status == GateRequestStatus.Waiting && g.SlotId != null)
+                .Select(g => g.SlotId!.Value)
+                .ToListAsync())
+            .ToHashSet();
+        return free.Where(b => b.NextBookingAt == null && !drawn.Contains(b.Slot.Id) && !queued.Contains(b.Slot.Id)).ToList();
     }
 
     /// <summary>

@@ -62,7 +62,7 @@ public class GateService(
         return await ToModelsAsync(await query.OrderByDescending(s => s.EntryTime).Take(300).ToListAsync());
     }
 
-    public async Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize)
+    public async Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize, bool byExit = false)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
         page = Math.Max(1, page);
@@ -71,12 +71,17 @@ public class GateService(
         var normalized = ParkingText.NormalizePlate(plate);
         if (normalized.Length > 0)
             query = query.Where(s => s.EntryPlateNormalized.Contains(normalized));
+        // byExit: the vehicles that left last, whenever they came in (the exit lane cameras)
+        if (byExit)
+            query = query.Where(s => s.ExitTime != null);
         var count = await query.CountAsync();
         var offset = (long)(page - 1) * pageSize;
+        var ordered = byExit
+            ? query.OrderByDescending(s => s.ExitTime).ThenByDescending(s => s.Id)
+            : query.OrderByDescending(s => s.EntryTime).ThenByDescending(s => s.Id);
         List<ParkingSession> sessions = offset >= count
             ? []
-            : await query.OrderByDescending(s => s.EntryTime).ThenByDescending(s => s.Id)
-                .Skip((int)offset).Take(pageSize).ToListAsync();
+            : await ordered.Skip((int)offset).Take(pageSize).ToListAsync();
         return new StaffSessionHistoryPageModel
         {
             Items = await ToModelsAsync(sessions), Page = page, PageSize = pageSize, TotalCount = count
