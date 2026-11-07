@@ -249,7 +249,7 @@ public class ParkingLotServiceTests
             Code = "LOT-DEL",
             Name = "Delete Test Lot",
             Address = "Address",
-            Status = "TemporarilyClosed",
+            Status = "Closed",
             IsDeleted = false
         };
         _context.ParkingLots.Add(lot);
@@ -271,7 +271,7 @@ public class ParkingLotServiceTests
             Code = "LOT-SESS",
             Name = "Session Lot",
             Address = "Address",
-            Status = "TemporarilyClosed",
+            Status = "Closed",
             IsDeleted = false
         };
         _context.ParkingLots.Add(lot);
