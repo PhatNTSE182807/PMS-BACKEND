@@ -12,7 +12,7 @@ namespace PMS.API.Controllers;
 /// Notifications are created by Hangfire jobs (vehicle approved/rejected, check-in, check-out)
 /// and pushed in real time through the parking-ops hub as "NotificationCreated".
 /// </summary>
-[Authorize(Roles = "User")]
+[Authorize(Roles = "User,Staff,Manager")]
 public class NotificationsController(INotificationService notifications, IClaimService claimService) : ApiController
 {
     /// <summary>Newest notifications (default 30, max 100) and the unread count.</summary>

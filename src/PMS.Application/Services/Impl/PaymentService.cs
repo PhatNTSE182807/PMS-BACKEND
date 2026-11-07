@@ -1016,7 +1016,13 @@ public class PaymentService(
             Subtitle = $"{t.CreatedAt:MMM dd, HH:mm} • Ref: {t.ReferenceId ?? t.Id.ToString()}",
             Amount = t.Amount,
             Status = "Completed",
-            Type = t.Amount >= 0 ? "deposit" : "withdraw",
+            // Refunds and compensation come back to the wallet: listed as such, not as a top-up
+            Type = t.TxnType switch
+            {
+                "Refund" or "Compensation" => "refund",
+                "Payment" => "payment",
+                _ => t.Amount >= 0 ? "deposit" : "withdraw"
+            },
             Method = t.ReferenceType ?? "Wallet",
             CreatedAt = t.CreatedAt
         }).ToList();

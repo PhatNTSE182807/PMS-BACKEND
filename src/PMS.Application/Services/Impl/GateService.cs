@@ -24,7 +24,8 @@ public class GateService(
     IUserNotificationPublisher notifications = null,
     CashDrawerService cashDrawers = null,
     IVehicleDocumentStorage paperStorage = null,
-    BookedBayCaseService bookedBays = null) : IGateService
+    BookedBayCaseService bookedBays = null,
+    ILayoutService layouts = null) : IGateService
 {
     /// <summary>Two lanes never open two sessions for one plate at the same time (NFR-14) inside this process.</summary>
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlateGates = new();
@@ -342,8 +343,11 @@ public class GateService(
                 .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available
                             && !occupiedSlotIds.Contains(s.Id))
                 .ToListAsync();
+            // Never a bay another customer booked (now or later), one a waiting walk-in was sent to, or one where the
+            // 3D model draws a walk-in without a bay: the move would only take the problem to someone else
+            var kept = await KeptBays.ForAsync(pmsContext, layouts, lotId, reservation.Id);
             replacementBay = free
-                .Where(s => ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId))
+                .Where(s => !kept.Contains(s.Id) && ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId))
                 .OrderByDescending(s => s.ZoneId == reservation.ZoneId)
                 .ThenBy(s => s.Code)
                 .FirstOrDefault();
