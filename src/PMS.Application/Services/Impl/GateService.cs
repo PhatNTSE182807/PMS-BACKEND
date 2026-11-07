@@ -98,8 +98,16 @@ public class GateService(
         var query = pmsContext.Payments.AsNoTracking()
             .Where(p => p.ParkingLotId == lotId && p.Purpose == PaymentPurpose.ParkingFee && p.SessionId != null
                         && (p.Status == PaymentStatus.Succeeded || p.Status == PaymentStatus.Refunded || p.Status == PaymentStatus.RefundPending));
-        if (string.Equals(method, PaymentMethod.Cash, StringComparison.OrdinalIgnoreCase))
+        // Cash, Wallet (XXIV wallet), VNPay or MoMo; anything else lists every method
+        var wanted = method?.Trim();
+        if (string.Equals(wanted, PaymentMethod.Cash, StringComparison.OrdinalIgnoreCase))
             query = query.Where(p => p.PaymentMethod == PaymentMethod.Cash);
+        else if (string.Equals(wanted, PaymentMethod.Wallet, StringComparison.OrdinalIgnoreCase))
+            query = query.Where(p => p.PaymentMethod == PaymentMethod.Wallet);
+        else if (string.Equals(wanted, PaymentProviders.VnPay, StringComparison.OrdinalIgnoreCase))
+            query = query.Where(p => p.PaymentMethod == PaymentMethod.Online && p.GatewayProvider == PaymentProviders.VnPay);
+        else if (string.Equals(wanted, PaymentProviders.MoMo, StringComparison.OrdinalIgnoreCase))
+            query = query.Where(p => p.PaymentMethod == PaymentMethod.Online && p.GatewayProvider == PaymentProviders.MoMo);
         var normalized = ParkingText.NormalizePlate(plate);
         if (normalized.Length > 0)
             query = query.Where(p => pmsContext.ParkingSessions.Any(s => s.Id == p.SessionId && s.EntryPlateNormalized.Contains(normalized)));
@@ -110,7 +118,7 @@ public class GateService(
 
         var sessionIds = payments.Select(p => p.SessionId!.Value).Distinct().ToList();
         var sessions = await pmsContext.ParkingSessions.AsNoTracking().Where(s => sessionIds.Contains(s.Id))
-            .Select(s => new { s.Id, s.SessionCode, s.EntryPlateNumber }).ToDictionaryAsync(s => s.Id);
+            .Select(s => new { s.Id, s.SessionCode, s.EntryPlateNumber, s.IsSimulated }).ToDictionaryAsync(s => s.Id);
         var staffIds = payments.Where(p => p.CollectedByUserId != null).Select(p => p.CollectedByUserId).Distinct().ToList();
         var staff = await pmsContext.Employees.AsNoTracking().Where(e => staffIds.Contains(e.UserId))
             .Select(e => new { e.UserId, e.FullName }).ToDictionaryAsync(e => e.UserId, e => e.FullName);
@@ -132,7 +140,8 @@ public class GateService(
                     Channel = p.Channel,
                     Amount = p.Amount,
                     Status = p.Status,
-                    CollectedByName = p.CollectedByUserId != null ? staff.GetValueOrDefault(p.CollectedByUserId) : null
+                    CollectedByName = p.CollectedByUserId != null ? staff.GetValueOrDefault(p.CollectedByUserId) : null,
+                    IsSimulated = session?.IsSimulated == true
                 };
             }).ToList(),
             Page = page,
