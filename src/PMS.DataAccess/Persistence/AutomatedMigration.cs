@@ -34,6 +34,7 @@ public static partial class AutomatedMigration
                 await EnsureGateRequestsTableAsync(pmsContext);
                 await EnsureNotificationsTableAsync(pmsContext);
                 await EnsureSystemSettingsTableAsync(pmsContext);
+                await SetBookedBayCompensationDefaultsAsync(pmsContext);
             }
 
             var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();

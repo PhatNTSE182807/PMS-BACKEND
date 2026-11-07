@@ -100,6 +100,31 @@ public static partial class AutomatedMigration
         ("PricingRules", "BookedBayCompensation", "[decimal](18,2) NOT NULL DEFAULT 0")
     ];
 
+    /// <summary>
+    /// Once per database: pricing rules that still have no booked bay compensation get the defaults (cars
+    /// 100,000 VND, motorbikes 50,000 VND). A marker in SystemSettings stops it running again, so a Manager who later
+    /// sets a rule back to 0 keeps that choice.
+    /// </summary>
+    private static async Task SetBookedBayCompensationDefaultsAsync(PmsDbContext pmsContext)
+    {
+        await pmsContext.Database.ExecuteSqlRawAsync($@"
+            IF NOT EXISTS (SELECT 1 FROM [dbo].[SystemSettings] WHERE [SettingKey] = N'Migration.BookedBayCompensationDefaults')
+            BEGIN
+                UPDATE r SET [BookedBayCompensation] =
+                    CASE WHEN t.[Code] LIKE 'CAR%' THEN {Entities.PricingRule.DefaultCarCompensation:0}
+                         WHEN t.[Code] = 'MOTORBIKE' THEN {Entities.PricingRule.DefaultMotorbikeCompensation:0}
+                         ELSE r.[BookedBayCompensation] END
+                FROM [dbo].[PricingRules] r
+                JOIN [dbo].[VehicleTypes] t ON t.[Id] = r.[VehicleTypeId]
+                WHERE r.[BookedBayCompensation] = 0;
+
+                INSERT INTO [dbo].[SystemSettings] ([SettingKey], [SettingValue], [ValueType], [Category], [Description], [UpdatedAt])
+                VALUES (N'Migration.BookedBayCompensationDefaults', N'done', 'string', N'Migration',
+                        N'Booked bay compensation defaults (cars 100,000 VND, motorbikes 50,000 VND) applied to existing pricing rules.',
+                        SYSUTCDATETIME());
+            END");
+    }
+
     private static async Task EnsureOperationsTablesAsync(PmsDbContext pmsContext)
     {
         const string tables = @"

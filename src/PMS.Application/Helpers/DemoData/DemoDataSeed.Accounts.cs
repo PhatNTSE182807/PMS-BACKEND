@@ -384,6 +384,7 @@ public sealed partial class DemoDataSeed
                 NightPrice = def.NightPrice,
                 MaxDailyFee = def.MaxDailyFee,
                 LostTicketFee = def.LostTicketFee,
+                BookedBayCompensation = PricingRule.DefaultCompensationFor(type.Code),
                 Currency = "VND",
                 EffectiveFrom = createdAt,
                 Status = "Active",
