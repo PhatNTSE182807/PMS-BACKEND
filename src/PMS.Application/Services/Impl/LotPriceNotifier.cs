@@ -4,7 +4,8 @@ namespace PMS.Application.Services.Impl;
 
 /// <summary>
 /// Default <see cref="ILotPriceNotifier"/>: logs the notice, pushes it to the clients watching the lot (the same
-/// public channel as the 3D map, so no plates and no personal data) and puts it in every customer's notification bell.
+/// public channel as the 3D map, so no plates and no personal data) and queues the bell notification for the
+/// customers with an upcoming booking for that vehicle type at the lot.
 /// </summary>
 public class LotPriceNotifier(
     ILotRealtimeNotifier realtime = null,
@@ -27,7 +28,7 @@ public class LotPriceNotifier(
 
         try
         {
-            notifications?.LotPriceChanged(notice.Title, notice.Message, notice.EventKey, notice.LotId, notice.LotName);
+            notifications?.LotPriceChanged(LotPriceNotice.BookingTitle, notice.BookingMessage, notice.EventKey, notice.LotId, notice.VehicleTypeId, notice.LotName);
         }
         catch (Exception ex)
         {

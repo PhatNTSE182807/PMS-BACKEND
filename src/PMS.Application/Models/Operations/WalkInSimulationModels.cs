@@ -8,6 +8,12 @@ public class DeployWalkInsModel
     /// <summary>How many vehicles to send in: from 1 up to the lot's free bays; the batch stops when a zone is full.</summary>
     public int Count { get; set; } = 20;
 
+    /// <summary>
+    /// Fill the lot: one vehicle for every bay a walk-in may take (Count is ignored). Car bays get 4- or 7-seat cars
+    /// in the ratio of the two car shares, motorbike bays get motorbikes.
+    /// </summary>
+    public bool FillLot { get; set; }
+
     /// <summary>Share of 4-seat cars in the batch, 0 to 100.</summary>
     public int CarPercent { get; set; } = 40;
 
@@ -20,8 +26,26 @@ public class DeployWalkInsModel
     /// <summary>Longest stay in hours (at most 72).</summary>
     public double MaxStayHours { get; set; } = 4;
 
-    /// <summary>Share of vehicles whose plate cannot be read, 0 to 100 (paper ticket only).</summary>
+    /// <summary>Share of vehicles whose plate cannot be read, 0 to 100 (paper ticket only). The Admin screen no longer offers it.</summary>
     public int NoPlatePercent { get; set; }
+}
+
+/// <summary>One simulated walk-in parked in a bay the Admin picked on the 3D model.</summary>
+public class DeployWalkInToBayModel
+{
+    public int LotId { get; set; }
+
+    /// <summary>The bay: free, not held, not booked and not where the model draws a walk-in without a bay.</summary>
+    public int SlotId { get; set; }
+
+    /// <summary>CAR_4, CAR_7 or MOTORBIKE; it must fit the bay. Null picks the bay's own type.</summary>
+    public string VehicleTypeCode { get; set; }
+
+    /// <summary>Shortest stay in hours. While the parking simulation is on, one hour lasts one pricing block.</summary>
+    public double MinStayHours { get; set; } = 2;
+
+    /// <summary>Longest stay in hours (at most 72).</summary>
+    public double MaxStayHours { get; set; } = 4;
 }
 
 public class DeployWalkInsResultModel
@@ -97,7 +121,10 @@ public class WalkInCheckOutResultModel
     public int Skipped { get; set; }
 }
 
-/// <summary>A simulated walk-in now stands in a booked bay; the booking's customer meets it at check-in.</summary>
+/// <summary>
+/// A simulated walk-in now stands in a booked bay: a case is open for the lot's Staff and the booking's customer was
+/// told their bay is taken.
+/// </summary>
 public class BookedBayTakenModel
 {
     public long SessionId { get; set; }
@@ -109,4 +136,7 @@ public class BookedBayTakenModel
     public long ReservationId { get; set; }
 
     public string ReservationCode { get; set; }
+
+    /// <summary>The case opened for the lot's Staff (Exceptions & Alerts); null when one was already open.</summary>
+    public long? CaseId { get; set; }
 }

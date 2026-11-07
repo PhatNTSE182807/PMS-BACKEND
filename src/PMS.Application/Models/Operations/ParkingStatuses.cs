@@ -36,6 +36,9 @@ public static class ReservationStatus
     /// parked on it. A checked-in booking counts until the vehicle leaves, so a parked car cannot book again.
     /// </summary>
     public static readonly string[] Active = [PendingDeposit, Confirmed, CheckedIn];
+
+    /// <summary>Bookings whose vehicle has not entered yet, so they will pay the price in force at entry.</summary>
+    public static readonly string[] Upcoming = [PendingDeposit, Confirmed];
 }
 
 /// <summary>Parking session states (SRS 4.3.2) plus the two pre-entry states before the sensor confirms passage.</summary>
@@ -82,6 +85,8 @@ public static class LotStatus
     public const string Active = "Active";
     public const string Maintenance = "Maintenance";
     public const string TemporarilyClosed = "TemporarilyClosed";
+    /// <summary>Closed for good, with no reopening time: the state a lot must be in before it is deleted.</summary>
+    public const string Closed = "Closed";
     public const string Inactive = "Inactive";
 }
 
@@ -109,6 +114,21 @@ public static class PaymentPurpose
     public const string ParkingFee = "ParkingFee";
     public const string Refund = "Refund";
     public const string WalletTopUp = "WalletTopUp";
+    /// <summary>Paid by the lot into a customer's wallet (a walk-in took their booked bay); deducted from the lot's revenue.</summary>
+    public const string Compensation = "Compensation";
+}
+
+/// <summary>A walk-in parked in a booked bay (BookedBayCase, BR-08).</summary>
+public static class BookedBayCaseStatus
+{
+    /// <summary>Waiting for the lot's Staff.</summary>
+    public const string Open = "Open";
+    /// <summary>The booking was moved to another free bay of its type.</summary>
+    public const string Reassigned = "Reassigned";
+    /// <summary>No bay was left: the booking was cancelled, the deposit refunded and a compensation paid to the wallet.</summary>
+    public const string Compensated = "Compensated";
+    /// <summary>Nothing left to do: the walk-in left first, or the booking ended another way.</summary>
+    public const string Closed = "Closed";
 }
 
 /// <summary>Daily cash close of a Staff drawer (BR-12).</summary>

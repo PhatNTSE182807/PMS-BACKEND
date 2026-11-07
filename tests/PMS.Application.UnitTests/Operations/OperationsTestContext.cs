@@ -71,6 +71,9 @@ public sealed class OperationsTestContext
     public PaymentService Payments { get; }
     public ReservationService Reservations { get; }
     public GateService Gates { get; }
+    public BookedBayCaseService BookedBays { get; }
+    /// <summary>Customer notifications handed to the background worker (checked with NSubstitute).</summary>
+    public IUserNotificationPublisher Publisher { get; } = Substitute.For<IUserNotificationPublisher>();
     public ParkingJobs Jobs { get; }
 
     public ParkingLot Lot { get; private set; }
@@ -98,8 +101,9 @@ public sealed class OperationsTestContext
         Payments = new PaymentService(Db, gateways, GatewayOptions, Options, Signer, scope, Claims, Clock, Inventory);
         Occupancy = new LotOccupancy(Db);
         Reservations = new ReservationService(Db, Options, Inventory, Payments, Signer, scope, Clock);
-        Gates = new GateService(Db, Options, Inventory, tariffs, Occupancy, Payments, Signer, scope, Clock, paperStorage: new InMemoryPaperStorage());
-        Jobs = new ParkingJobs(Db, Options, Reservations, Gates, Occupancy, Payments, Inventory, Clock);
+        BookedBays = new BookedBayCaseService(Db, Payments, Reservations, Inventory, scope, Clock, notifications: Publisher);
+        Gates = new GateService(Db, Options, Inventory, tariffs, Occupancy, Payments, Signer, scope, Clock, paperStorage: new InMemoryPaperStorage(), bookedBays: BookedBays);
+        Jobs = new ParkingJobs(Db, Options, Reservations, Gates, Occupancy, Payments, Inventory, Clock, bookedBays: BookedBays);
     }
 
     public DateTime Now => Clock.GetUtcNow().UtcDateTime;

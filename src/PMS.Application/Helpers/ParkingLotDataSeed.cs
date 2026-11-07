@@ -6,6 +6,31 @@ namespace PMS.Application.Helpers;
 
 public static class ParkingLotDataSeed
 {
+    /// <summary>Map positions of the seeded lots (entrance or building, WGS 84), checked on a map.</summary>
+    private static readonly Dictionary<string, (decimal Latitude, decimal Longitude)> KnownCoordinates = new()
+    {
+        ["LOT-FPTU-01"] = (10.841130m, 106.809886m),     // FPT University HCMC, D1 Street, High-Tech Park
+        ["LOT-FSOFT-01"] = (10.850884m, 106.798389m),    // FPT Software F-Town, High-Tech Park
+        ["LOT-CONGHOA-01"] = (10.801684m, 106.655154m),  // Republic Plaza, 18E Cong Hoa
+        ["LOT-BENTHANH-01"] = (10.772559m, 106.698022m), // Ben Thanh Market, District 1
+    };
+
+    /// <summary>
+    /// Gives the seeded lots their map position when they have none; a position set by an Admin is kept.
+    /// </summary>
+    public static async Task FillMissingCoordinatesAsync(PmsDbContext pmsContext)
+    {
+        var codes = KnownCoordinates.Keys.ToList();
+        var lots = await pmsContext.ParkingLots
+            .Where(p => codes.Contains(p.Code) && !p.IsDeleted && (p.Latitude == null || p.Longitude == null))
+            .ToListAsync();
+        if (lots.Count == 0) return;
+
+        foreach (var lot in lots)
+            (lot.Latitude, lot.Longitude) = KnownCoordinates[lot.Code];
+        await pmsContext.SaveChangesAsync();
+    }
+
     public static async Task SeedParkingLotsAsync(PmsDbContext pmsContext)
     {
         await SeedParkingLotAsync(pmsContext,
@@ -31,6 +56,8 @@ public static class ParkingLotDataSeed
             city: "Ho Chi Minh City",
             district: "Tan Binh District",
             layoutTemplate: "L3S20"); // Compact deck
+
+        await FillMissingCoordinatesAsync(pmsContext);
     }
 
     private static async Task SeedParkingLotAsync(

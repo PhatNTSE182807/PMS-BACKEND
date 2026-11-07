@@ -308,7 +308,7 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
 
             var isStaffed = staffedLotIds.Contains(lot.Id);
             string lotStatus;
-            if (lot.Status == LotStatus.Inactive || lot.Status == LotStatus.TemporarilyClosed)
+            if (lot.Status == LotStatus.Inactive || lot.Status == LotStatus.TemporarilyClosed || lot.Status == LotStatus.Closed)
                 lotStatus = "CLOSED";
             else if (lot.Status == LotStatus.Maintenance || !isStaffed)
                 lotStatus = "MAINTENANCE";
@@ -408,6 +408,8 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             Address = model.Address.Trim(),
             City = model.City?.Trim(),
             District = model.District?.Trim(),
+            Latitude = model.Latitude,
+            Longitude = model.Longitude,
             OpenTime = model.OpenTime,
             CloseTime = model.CloseTime,
             Is24Hours = model.Is24Hours,
@@ -458,6 +460,8 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         lot.Address = model.Address.Trim();
         lot.City = model.City?.Trim();
         lot.District = model.District?.Trim();
+        lot.Latitude = model.Latitude;
+        lot.Longitude = model.Longitude;
         lot.OpenTime = model.OpenTime;
         lot.CloseTime = model.CloseTime;
         lot.Is24Hours = model.Is24Hours;
@@ -495,8 +499,9 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         lot.Status = model.Status;
         lot.ClosureReason = model.ClosureReason;
         lot.MaintenanceNotice = model.MaintenanceNotice;
-        lot.ClosedFrom = model.ClosedFrom;
-        lot.ClosedUntil = model.ClosedUntil;
+        // A permanent close starts now and never reopens on its own (LotJobs only reopens TemporarilyClosed lots)
+        lot.ClosedFrom = model.Status == LotStatus.Closed ? model.ClosedFrom ?? DateTime.UtcNow : model.ClosedFrom;
+        lot.ClosedUntil = model.Status == LotStatus.Closed ? null : model.ClosedUntil;
         lot.UpdatedAt = DateTime.UtcNow;
 
         await pmsContext.SaveChangesAsync();
@@ -514,11 +519,16 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         if (lot == null)
             throw new NotFoundException($"Parking lot with ID {id} was not found.");
 
-        var hasActiveSessions = await pmsContext.ParkingSessions
-            .AnyAsync(s => s.ParkingLotId == id && s.Status == "Active");
+        // The lot has to be closed for good first, so no new vehicle or booking can come in while it is removed.
+        if (lot.Status != LotStatus.Closed)
+            throw new BadRequestException("Set the parking lot to Closed before deleting it.");
 
-        if (hasActiveSessions)
-            throw new BadRequestException("Cannot delete parking lot with active parking sessions.");
+        // Every vehicle must have left: any open session (entering, parked, waiting to pay or paid) blocks it.
+        var hasVehiclesInside = await pmsContext.ParkingSessions
+            .AnyAsync(s => s.ParkingLotId == id && SessionStatus.Open.Contains(s.Status));
+
+        if (hasVehiclesInside)
+            throw new BadRequestException("Cannot delete the parking lot while vehicles are still inside.");
 
         lot.IsDeleted = true;
         lot.Status = "Inactive";
@@ -550,6 +560,8 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             Address = p.Address,
             City = p.City,
             District = p.District,
+            Latitude = p.Latitude,
+            Longitude = p.Longitude,
             OpenTime = p.OpenTime,
             CloseTime = p.CloseTime,
             Is24Hours = p.Is24Hours,

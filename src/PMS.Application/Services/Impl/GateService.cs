@@ -23,7 +23,9 @@ public class GateService(
     IParkingRealtimeNotifier notifier = null,
     IUserNotificationPublisher notifications = null,
     CashDrawerService cashDrawers = null,
-    IVehicleDocumentStorage paperStorage = null) : IGateService
+    IVehicleDocumentStorage paperStorage = null,
+    BookedBayCaseService bookedBays = null,
+    ILayoutService layouts = null) : IGateService
 {
     /// <summary>Two lanes never open two sessions for one plate at the same time (NFR-14) inside this process.</summary>
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlateGates = new();
@@ -61,7 +63,7 @@ public class GateService(
         return await ToModelsAsync(await query.OrderByDescending(s => s.EntryTime).Take(300).ToListAsync());
     }
 
-    public async Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize)
+    public async Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize, bool byExit = false)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
         page = Math.Max(1, page);
@@ -70,12 +72,17 @@ public class GateService(
         var normalized = ParkingText.NormalizePlate(plate);
         if (normalized.Length > 0)
             query = query.Where(s => s.EntryPlateNormalized.Contains(normalized));
+        // byExit: the vehicles that left last, whenever they came in (the exit lane cameras)
+        if (byExit)
+            query = query.Where(s => s.ExitTime != null);
         var count = await query.CountAsync();
         var offset = (long)(page - 1) * pageSize;
+        var ordered = byExit
+            ? query.OrderByDescending(s => s.ExitTime).ThenByDescending(s => s.Id)
+            : query.OrderByDescending(s => s.EntryTime).ThenByDescending(s => s.Id);
         List<ParkingSession> sessions = offset >= count
             ? []
-            : await query.OrderByDescending(s => s.EntryTime).ThenByDescending(s => s.Id)
-                .Skip((int)offset).Take(pageSize).ToListAsync();
+            : await ordered.Skip((int)offset).Take(pageSize).ToListAsync();
         return new StaffSessionHistoryPageModel
         {
             Items = await ToModelsAsync(sessions), Page = page, PageSize = pageSize, TotalCount = count
@@ -92,8 +99,16 @@ public class GateService(
         var query = pmsContext.Payments.AsNoTracking()
             .Where(p => p.ParkingLotId == lotId && p.Purpose == PaymentPurpose.ParkingFee && p.SessionId != null
                         && (p.Status == PaymentStatus.Succeeded || p.Status == PaymentStatus.Refunded || p.Status == PaymentStatus.RefundPending));
-        if (string.Equals(method, PaymentMethod.Cash, StringComparison.OrdinalIgnoreCase))
+        // Cash, Wallet (XXIV wallet), VNPay or MoMo; anything else lists every method
+        var wanted = method?.Trim();
+        if (string.Equals(wanted, PaymentMethod.Cash, StringComparison.OrdinalIgnoreCase))
             query = query.Where(p => p.PaymentMethod == PaymentMethod.Cash);
+        else if (string.Equals(wanted, PaymentMethod.Wallet, StringComparison.OrdinalIgnoreCase))
+            query = query.Where(p => p.PaymentMethod == PaymentMethod.Wallet);
+        else if (string.Equals(wanted, PaymentProviders.VnPay, StringComparison.OrdinalIgnoreCase))
+            query = query.Where(p => p.PaymentMethod == PaymentMethod.Online && p.GatewayProvider == PaymentProviders.VnPay);
+        else if (string.Equals(wanted, PaymentProviders.MoMo, StringComparison.OrdinalIgnoreCase))
+            query = query.Where(p => p.PaymentMethod == PaymentMethod.Online && p.GatewayProvider == PaymentProviders.MoMo);
         var normalized = ParkingText.NormalizePlate(plate);
         if (normalized.Length > 0)
             query = query.Where(p => pmsContext.ParkingSessions.Any(s => s.Id == p.SessionId && s.EntryPlateNormalized.Contains(normalized)));
@@ -104,7 +119,7 @@ public class GateService(
 
         var sessionIds = payments.Select(p => p.SessionId!.Value).Distinct().ToList();
         var sessions = await pmsContext.ParkingSessions.AsNoTracking().Where(s => sessionIds.Contains(s.Id))
-            .Select(s => new { s.Id, s.SessionCode, s.EntryPlateNumber }).ToDictionaryAsync(s => s.Id);
+            .Select(s => new { s.Id, s.SessionCode, s.EntryPlateNumber, s.IsSimulated }).ToDictionaryAsync(s => s.Id);
         var staffIds = payments.Where(p => p.CollectedByUserId != null).Select(p => p.CollectedByUserId).Distinct().ToList();
         var staff = await pmsContext.Employees.AsNoTracking().Where(e => staffIds.Contains(e.UserId))
             .Select(e => new { e.UserId, e.FullName }).ToDictionaryAsync(e => e.UserId, e => e.FullName);
@@ -126,7 +141,8 @@ public class GateService(
                     Channel = p.Channel,
                     Amount = p.Amount,
                     Status = p.Status,
-                    CollectedByName = p.CollectedByUserId != null ? staff.GetValueOrDefault(p.CollectedByUserId) : null
+                    CollectedByName = p.CollectedByUserId != null ? staff.GetValueOrDefault(p.CollectedByUserId) : null,
+                    IsSimulated = session?.IsSimulated == true
                 };
             }).ToList(),
             Page = page,
@@ -137,6 +153,49 @@ public class GateService(
 
     public async Task<SessionResponseModel> GetSessionAsync(long sessionId) =>
         await ToModelAsync(await ScopedSessionAsync(sessionId));
+
+    public async Task<BaySessionModel> GetBaySessionAsync(int lotId, int slotId)
+    {
+        await lotScope.EnsureCanOperateAsync(lotId);
+        var session = await pmsContext.ParkingSessions.AsNoTracking()
+                          .Where(s => s.ParkingLotId == lotId && s.SlotId == slotId && SessionStatus.Open.Contains(s.Status))
+                          .OrderByDescending(s => s.EntryTime)
+                          .FirstOrDefaultAsync()
+                      ?? throw new NotFoundException("No vehicle is parked in this bay.");
+        return await ToBaySessionAsync(session);
+    }
+
+    public async Task<BaySessionModel> GetParkedSessionAsync(int lotId, long sessionId)
+    {
+        await lotScope.EnsureCanOperateAsync(lotId);
+        var session = await pmsContext.ParkingSessions.AsNoTracking()
+                          .FirstOrDefaultAsync(s => s.Id == sessionId && s.ParkingLotId == lotId && SessionStatus.Open.Contains(s.Status))
+                      ?? throw new NotFoundException("This vehicle is no longer in the lot.");
+        return await ToBaySessionAsync(session);
+    }
+
+    /// <summary>Customer type, time parked and a read-only fee so far of an open session (the 3D model's popup).</summary>
+    private async Task<BaySessionModel> ToBaySessionAsync(ParkingSession session)
+    {
+        var customerName = session.CustomerId is { } customerId
+            ? await pmsContext.Customers.AsNoTracking().Where(c => c.Id == customerId).Select(c => c.FullName).FirstOrDefaultAsync()
+            : null;
+        // A read-only quote, the same one the payment points use; a session that cannot be charged yet has no fee
+        var priceable = SessionStatus.Inside.Contains(session.Status) && session.Status != SessionStatus.LostTicketPending;
+        var quote = priceable ? await QuoteAsync(session, null, null, mutate: false) : null;
+
+        return new BaySessionModel
+        {
+            Session = await ToModelAsync(session),
+            CustomerType = session.CustomerId != null ? "Member" : "Guest",
+            CustomerName = customerName,
+            ElapsedMinutes = Math.Max(0, (int)Math.Floor((Now - session.EntryTime).TotalMinutes)),
+            FeeSoFar = quote == null ? null : quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee,
+            DepositApplied = quote?.DepositApplied ?? session.DepositApplied,
+            AlreadyPaid = quote?.AlreadyPaid ?? session.PaidAmount,
+            AmountDue = quote?.AmountDue
+        };
+    }
 
     public async Task<SessionResponseModel> LookupAsync(int lotId, string plate, string ticket, string code)
     {
@@ -276,8 +335,14 @@ public class GateService(
 
         // BR-08: another vehicle is parked in the booked bay. Move the booking to another free bay of its
         // type (first hour free), or, when none is left, to the walk-in area with the deposit refunded in full.
-        var bayTaken = reservation?.SlotId is { } bookedSlot
-                       && await pmsContext.ParkingSessions.AnyAsync(s => s.SlotId == bookedSlot && SessionStatus.Open.Contains(s.Status));
+        var bookedBayId = reservation?.SlotId;
+        var takenBySessionId = bookedBayId is { } bookedSlot
+            ? await pmsContext.ParkingSessions.Where(s => s.SlotId == bookedSlot && SessionStatus.Open.Contains(s.Status))
+                .Select(s => (long?)s.Id).FirstOrDefaultAsync()
+            : null;
+        var bayTaken = takenBySessionId != null;
+        // Staff already moved this booking away from a taken bay: the first hour stays free (BR-08)
+        var movedEarlier = reservation != null && !bayTaken && bookedBays != null && await bookedBays.WasMovedAsync(reservation.Id);
         Slot replacementBay = null;
         if (bayTaken)
         {
@@ -287,8 +352,11 @@ public class GateService(
                 .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available
                             && !occupiedSlotIds.Contains(s.Id))
                 .ToListAsync();
+            // Never a bay another customer booked (now or later), one a waiting walk-in was sent to, or one where the
+            // 3D model draws a walk-in without a bay: the move would only take the problem to someone else
+            var kept = await KeptBays.ForAsync(pmsContext, layouts, lotId, reservation.Id);
             replacementBay = free
-                .Where(s => ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId))
+                .Where(s => !kept.Contains(s.Id) && ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId))
                 .OrderByDescending(s => s.ZoneId == reservation.ZoneId)
                 .ThenBy(s => s.Code)
                 .FirstOrDefault();
@@ -312,14 +380,28 @@ public class GateService(
 
             if (model.SlotId is { } chosen)
             {
-                var slot = await pmsContext.Slots.AsNoTracking().Include(s => s.Zone).FirstOrDefaultAsync(s => s.Id == chosen);
-                if (slot == null || slot.Zone?.ParkingLotId != lotId || slot.Status != SlotStatus.Available || !slot.IsActive
-                    || !ParkingInventory.Compatible(types, slot.VehicleTypeId, vehicleTypeId))
-                    alerts.Add(Block("SLOT_UNAVAILABLE", "The chosen bay is not free or is for another vehicle type. Pick another bay.", false));
+                // The same rule as the simulation and the map: never a bay with a vehicle in it or a booking due
+                // soon, and a bay booked later only when no bay without a booking is left
+                var allowed = await inventory.WalkInBaysAsync(lotId, vehicleTypeId, Now, TimeSpan.FromMinutes(options.Reservations.HoldAheadMinutes));
+                var pick = allowed.FirstOrDefault(b => b.Slot.Id == chosen);
+                var unbooked = allowed.FirstOrDefault(b => b.NextBookingAt == null);
+                if (pick == null)
+                    alerts.Add(Block("SLOT_UNAVAILABLE", "The chosen bay has a vehicle in it, is booked soon, or is for another vehicle type. Pick another bay.", false));
+                else if (pick.NextBookingAt != null && unbooked != null)
+                    alerts.Add(Block("BAY_BOOKED_LATER",
+                        $"Bay {pick.Slot.Code} is booked for {LotTime(pick.NextBookingAt.Value, lot)}: park this walk-in in a bay without a booking, such as {unbooked.Slot.Code}.", false));
                 else
                 {
-                    slotId = slot.Id;
-                    zoneId = slot.ZoneId;
+                    slotId = pick.Slot.Id;
+                    zoneId = pick.Slot.ZoneId;
+                    if (pick.NextBookingAt != null)
+                        alerts.Add(new GateAlertModel
+                        {
+                            Code = "BAY_BOOKED_LATER",
+                            Message = $"Every bay without a booking is taken: bay {pick.Slot.Code} is booked for {LotTime(pick.NextBookingAt.Value, lot)}. " +
+                                      "If this vehicle is still there then, the booking moves to another bay.",
+                            Blocking = false
+                        });
                 }
             }
             else if (counters.Count > 0)
@@ -415,17 +497,34 @@ public class GateService(
                 created.OverrideNote = string.Join("; ", new[] { created.OverrideNote, alerts.First(a => a.Code == "BOOKED_BAY_TAKEN").Message }
                     .Where(n => !string.IsNullOrEmpty(n)));
             }
+            if (movedEarlier)
+                created.FirstHourWaived = true;
             pmsContext.ParkingSessions.Add(created);
             await pmsContext.SaveChangesAsync();
             return created;
         }));
 
-        // No bay left for the booking: it parks as a walk-in and the whole deposit goes back (BR-08)
+        // No bay left for the booking: it parks as a walk-in, the whole deposit goes back to the XXIV wallet and the
+        // lot pays the compensation of its pricing rule (BR-08, team rule)
+        decimal refunded = 0;
         if (bayTaken && replacementBay == null)
         {
             var deposit = await paymentService.DepositHeldAsync(reservation.Id);
             if (deposit > 0)
-                await paymentService.RefundDepositAsync(reservation, deposit, "The booked bay was taken by another vehicle.", lotScope.UserId);
+                refunded = await paymentService.RefundDepositAsync(reservation, deposit, "The booked bay was taken by another vehicle.", lotScope.UserId, toWallet: true);
+            await pmsContext.SaveChangesAsync();
+        }
+        if (bayTaken && bookedBays != null)
+            await bookedBays.ResolveAtGateAsync(reservation, takenBySessionId!.Value, bookedBayId!.Value, replacementBay?.Id, refunded);
+
+        // Staff let a walk-in into a full zone: it gets no bay (never a booked or taken one), and the lot's Staff and
+        // Manager learn the lot now holds more vehicles than it has bays
+        if (overrides.Contains("zone full allowed"))
+        {
+            var (overLot, overSessionId) = (lotId, session.Id);
+            var overMessage = $"{gate.Code}: {(plate.Length > 0 ? plate : "a plate-less vehicle")} entered a full zone " +
+                              $"({model.OverrideReason?.Trim()}). The lot may now hold more vehicles than bays: check the zone counter.";
+            inventory.Queue(() => notifier?.OpsAlertAsync(overLot, "LOT_OVER_CAPACITY", overMessage, overSessionId) ?? Task.CompletedTask);
         }
 
         QueueSessionPush(session);
@@ -482,6 +581,9 @@ public class GateService(
         // Bell notification with the check-in time for a registered customer's vehicle
         if (session.CustomerId != null)
             notifications?.SessionCheckedIn(session.Id);
+        // Parked in a bay someone else booked: open a case for the lot's Staff and tell that customer
+        if (session.SlotId != null && bookedBays != null)
+            await bookedBays.OpenIfBookedAsync(session.Id);
         return await ToModelAsync(session);
     }
 
@@ -937,6 +1039,8 @@ public class GateService(
                 LotName = lot?.Name,
                 LotAddress = lot?.Address,
                 LotDistrict = lot?.District,
+                LotLatitude = lot?.Latitude,
+                LotLongitude = lot?.Longitude,
                 EntryGateName = gateNames.GetValueOrDefault(session.EntryGateId),
                 EntryMethod = session.ReservationId != null ? "Reservation" : session.IsManualEntry ? "Manual" : "Plate",
                 VehicleLabel = vehicle == null ? null : string.Join(' ', new[] { vehicle.Brand, vehicle.Model }.Where(s => !string.IsNullOrWhiteSpace(s))),
@@ -1304,6 +1408,11 @@ public class GateService(
         if (cleared) overrides.Add(note);
         return new GateAlertModel { Code = code, Message = message, Blocking = !cleared, CanOverride = true };
     }
+
+    /// <summary>"14:30, 06/11" in the lot's time zone, for gate alerts.</summary>
+    private string LotTime(DateTime utc, ParkingLot lot) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), ParkingText.FindTimeZone(lot?.TimeZoneId ?? options.TimeZoneId))
+            .ToString("HH:mm, dd/MM", System.Globalization.CultureInfo.InvariantCulture);
 
     private static DateTime TrimToSecond(DateTime value) =>
         new(value.Ticks - value.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);

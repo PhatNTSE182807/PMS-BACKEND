@@ -13,6 +13,10 @@ public class CurrentSessionModel
     public string LotAddress { get; set; }
     public string LotDistrict { get; set; }
 
+    /// <summary>Map position of the lot, for the directions map; null when the Admin has not set it.</summary>
+    public decimal? LotLatitude { get; set; }
+    public decimal? LotLongitude { get; set; }
+
     /// <summary>Name of the entry lane, e.g. "Entry lane 1".</summary>
     public string EntryGateName { get; set; }
 
@@ -85,4 +89,32 @@ public class ExitPassModel
 
     /// <summary>Still to pay at the exit lane (0 when prepaid or free).</summary>
     public decimal AmountDue { get; set; }
+}
+
+/// <summary>
+/// The vehicle parked in one bay, as Staff, Managers and Admins see it when they click the bay on the
+/// 3D lot model: who parked (customer account or walk-in), how long it has been there and the fee so far.
+/// Never served on a public endpoint: it carries the plate.
+/// </summary>
+public class BaySessionModel
+{
+    public SessionResponseModel Session { get; set; }
+
+    /// <summary>"Member" (a customer account) or "Guest" (walk-in without an account).</summary>
+    public string CustomerType { get; set; }
+
+    /// <summary>Full name of the customer account; null for a guest.</summary>
+    public string CustomerName { get; set; }
+
+    public int ElapsedMinutes { get; set; }
+
+    /// <summary>Parking fee so far (before the deposit and payments); null while it cannot be priced (lost-ticket case, still at the barrier).</summary>
+    public decimal? FeeSoFar { get; set; }
+
+    public decimal DepositApplied { get; set; }
+
+    public decimal AlreadyPaid { get; set; }
+
+    /// <summary>What paying now would cost; null when <see cref="FeeSoFar"/> is null.</summary>
+    public decimal? AmountDue { get; set; }
 }

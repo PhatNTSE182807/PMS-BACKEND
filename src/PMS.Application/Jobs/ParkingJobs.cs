@@ -26,7 +26,7 @@ public class ParkingJobs(
     TimeProvider clock,
     IParkingRealtimeNotifier notifier = null,
     WalkInSimulationService walkIns = null,
-    CashDrawerService cashDrawers = null)
+    BookedBayCaseService bookedBays = null)
 {
     public const string MinutelyJobId = "parking-timeouts";
     public const string OverdueJobId = "parking-overdue-sessions";
@@ -46,6 +46,8 @@ public class ParkingJobs(
         try
         {
             var expired = await ExpireUnpaidReservationsAsync();
+            // Booked bays taken by a walk-in: settle the ones that need no Staff before any no-show is marked
+            if (bookedBays != null) await bookedBays.SweepAsync();
             var noShows = await MarkNoShowsAsync();
             // Bookings made ahead lock their bay shortly before arrival
             await reservations.ActivateDueHoldsAsync();
@@ -56,8 +58,6 @@ public class ParkingJobs(
             var refunds = await payments.RetryPendingRefundsAsync();
             // Simulated walk-ins whose stay is over pay and leave (Admin demo traffic)
             if (walkIns != null) await walkIns.CheckOutDueAsync();
-            // Cash drawers still open after their deadline: tell the Manager (BR-12)
-            if (cashDrawers != null) await cashDrawers.FlagOverdueAsync();
             return new ParkingJobRun(expired, noShows, reminders, cancelled, released, checkedPayments, refunds);
         }
         finally
@@ -80,10 +80,10 @@ public class ParkingJobs(
         try
         {
             var expired = await ExpireUnpaidReservationsAsync();
+            if (bookedBays != null) await bookedBays.SweepAsync();
             var noShows = await MarkNoShowsAsync();
             await reservations.ActivateDueHoldsAsync();
             if (walkIns != null) await walkIns.CheckOutDueAsync();
-            if (cashDrawers != null) await cashDrawers.FlagOverdueAsync();
             return new ParkingJobRun(expired, noShows, 0, 0, 0, 0, 0);
         }
         finally
@@ -111,8 +111,10 @@ public class ParkingJobs(
     /// <summary>FR-RSV-05 / BR-05: not checked in before the hold ended → No-show, slot free, deposit kept.</summary>
     public async Task<int> MarkNoShowsAsync()
     {
+        // A booking whose bay a walk-in took is the lot's fault, never a no-show: its case cancels and compensates it
         var due = await pmsContext.Reservations
-            .Where(r => r.Status == ReservationStatus.Confirmed && r.EndTime <= Now)
+            .Where(r => r.Status == ReservationStatus.Confirmed && r.EndTime <= Now
+                        && !pmsContext.BookedBayCases.Any(c => c.ReservationId == r.Id && c.Status == BookedBayCaseStatus.Open))
             .ToListAsync();
         foreach (var reservation in due)
         {

@@ -17,6 +17,8 @@ public class CreateParkingLotModelValidator : AbstractValidator<CreateParkingLot
             .NotEmpty().WithMessage("Parking lot name is required.")
             .MaximumLength(200).WithMessage("Parking lot name must not exceed 200 characters.");
 
+        this.AddCoordinateRules(x => x.Latitude, x => x.Longitude);
+
         RuleFor(x => x.Address)
             .NotEmpty().WithMessage("Address is required.")
             .MaximumLength(500).WithMessage("Address must not exceed 500 characters.");

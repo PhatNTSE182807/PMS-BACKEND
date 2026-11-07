@@ -55,6 +55,12 @@ public class GateRequestsController(IGateRequestService gateRequests, IClaimServ
     public async Task<IActionResult> ApproveAsync(long requestId, [FromBody] ApproveGateRequestModel model) =>
         Ok(ApiResult<GateRequestDecisionModel>.Success(await gateRequests.ApproveAsync(requestId, model)));
 
+    /// <summary>Force check-out of a walk-in (3D lot model): its fee is taken in cash and it waits at the exit lane.</summary>
+    [HttpPost("~/api/staff/sessions/{sessionId:long}/force-check-out")]
+    [Authorize(Roles = "Staff,Manager,Admin")]
+    public async Task<IActionResult> ForceCheckOutAsync(long sessionId) =>
+        Ok(ApiResult<GateRequestModel>.Success(await gateRequests.ForceCheckOutAsync(sessionId)));
+
     /// <summary>Refuses the request; the reason is shown to the customer.</summary>
     [HttpPost("~/api/staff/gate-requests/{requestId:long}/refuse")]
     [Authorize(Roles = "Staff,Manager,Admin")]

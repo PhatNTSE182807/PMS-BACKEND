@@ -135,6 +135,12 @@ public class ParkedVehicleModel
 
     /// <summary>CAR_4, CAR_7 or MOTORBIKE; null when unknown.</summary>
     public string VehicleTypeCode { get; set; }
+
+    /// <summary>
+    /// The open session of this vehicle, so Staff, Managers and Admins can open its details from the 3D model even
+    /// when it has no bay (a counted walk-in). Only an internal number: the details endpoint checks role and lot.
+    /// </summary>
+    public long SessionId { get; set; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -215,6 +221,12 @@ public class Layout2DCellModel
 
     /// <summary>Type of the vehicle parked here, which a car bay does not fix (CAR_4 or CAR_7); null when none is known.</summary>
     public string ParkedVehicleTypeCode { get; set; }
+
+    /// <summary>
+    /// Free now but booked for later (its hold has not started): the map draws counted walk-ins in bays without a
+    /// booking first, as the entry lane and the simulation park them. Never who booked it.
+    /// </summary>
+    public bool BookedLater { get; set; }
 }
 
 /// <summary>The cells a zone covers on one floor, as a bounding box of rows and columns.</summary>

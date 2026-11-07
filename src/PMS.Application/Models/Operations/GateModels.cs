@@ -384,8 +384,10 @@ public class StaffPaymentHistoryItemModel
     public string Channel { get; set; }
     public decimal Amount { get; set; }
     public string Status { get; set; }
-    /// <summary>The Staff who took a cash payment; null for online payments.</summary>
+    /// <summary>The Staff who took the payment; null for online payments and for simulated vehicles (paid by the system).</summary>
     public string CollectedByName { get; set; }
+    /// <summary>A walk-in sent by the Admin parking simulation: demo traffic, paid automatically at the exit lane.</summary>
+    public bool IsSimulated { get; set; }
 }
 
 /// <summary>A page of a lot's payment history, newest first.</summary>

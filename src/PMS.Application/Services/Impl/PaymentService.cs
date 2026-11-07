@@ -320,7 +320,7 @@ public class PaymentService(
         return paid.Sum(p => p.Amount - p.RefundedAmount);
     }
 
-    public async Task<decimal> RefundDepositAsync(Reservation reservation, decimal amount, string reason, string requestedBy)
+    public async Task<decimal> RefundDepositAsync(Reservation reservation, decimal amount, string reason, string requestedBy, bool toWallet = false)
     {
         if (amount <= 0) return 0;
 
@@ -335,13 +335,60 @@ public class PaymentService(
             var refundable = deposit.Amount - deposit.RefundedAmount;
             if (refundable <= 0 || left <= 0) continue;
             var part = Math.Min(refundable, left);
-            await RefundAsync(deposit, part, reason, requestedBy);
+            await RefundAsync(deposit, part, reason, requestedBy, toWallet);
             left -= part;
         }
 
         var refunded = amount - left;
         reservation.RefundAmount += refunded;
         return refunded;
+    }
+
+    public async Task<Payment> PayCompensationAsync(Reservation reservation, decimal amount, string reason, string paidBy)
+    {
+        if (amount <= 0) return null;
+        if (string.IsNullOrWhiteSpace(reservation.UserId))
+            throw new BadRequestException("This booking has no customer account to pay the compensation to.");
+
+        var customer = await GetOrCreateCustomerAsync(reservation.UserId);
+        var wallet = await GetOrCreateWalletAsync(customer.Id);
+
+        // Money out of the lot: a settled wallet payment the revenue report subtracts (never a refund of a payment)
+        var invoice = NewInvoice(reservation.ParkingLotId, customer.Id, amount, Now);
+        invoice.ReservationId = reservation.Id;
+        invoice.Status = "Paid";
+        pmsContext.Invoices.Add(invoice);
+        var payment = NewPayment(invoice, PaymentMethod.Wallet, null, amount, PaymentPurpose.Compensation, null);
+        payment.PaymentCode = ParkingText.NewCode("CP", Now);
+        payment.Status = PaymentStatus.Succeeded;
+        payment.PaidAt = Now;
+        payment.ReservationId = reservation.Id;
+        payment.ParkingLotId = reservation.ParkingLotId;
+        payment.CustomerUserId = reservation.UserId;
+        payment.FailureReason = null;
+        pmsContext.Payments.Add(payment);
+        await pmsContext.SaveChangesAsync();
+
+        var before = wallet.Balance;
+        wallet.Balance += amount;
+        wallet.UpdatedAt = Now;
+        pmsContext.WalletTransactions.Add(new WalletTransaction
+        {
+            WalletId = wallet.Id,
+            TxnType = "Compensation",
+            Amount = amount,
+            BalanceBefore = before,
+            BalanceAfter = wallet.Balance,
+            PaymentId = payment.Id,
+            ReferenceType = "Reservation",
+            ReferenceId = reservation.ReservationCode,
+            Description = $"Compensation: {reason}",
+            CreatedAt = Now,
+            CreatedBy = paidBy ?? "System"
+        });
+
+        QueuePaymentPush(payment);
+        return payment;
     }
 
     public async Task<int> CheckPendingPaymentsAsync()
@@ -580,19 +627,23 @@ public class PaymentService(
             : null;
     }
 
-    /// <summary>Creates a refund row and sends it (cash is handed back on the spot, FR-PAY-09).</summary>
-    private async Task RefundAsync(Payment original, decimal amount, string reason, string requestedBy)
+    /// <summary>
+    /// Creates a refund row and sends it (cash is handed back on the spot, FR-PAY-09). <paramref name="toWallet"/> credits
+    /// the customer's XXIV wallet whatever the original method was (VNPay, MoMo, wallet).
+    /// </summary>
+    private async Task RefundAsync(Payment original, decimal amount, string reason, string requestedBy, bool toWallet = false)
     {
         original.RefundedAmount += amount;
         original.UpdatedAt = Now;
+        toWallet = toWallet && !string.IsNullOrWhiteSpace(original.CustomerUserId);
 
         var refund = new Payment
         {
             PaymentCode = ParkingText.NewCode("RF", Now),
             Invoice = original.Invoice,
             InvoiceId = original.InvoiceId,
-            PaymentMethod = original.PaymentMethod,
-            GatewayProvider = original.GatewayProvider,
+            PaymentMethod = toWallet ? PaymentMethod.Wallet : original.PaymentMethod,
+            GatewayProvider = toWallet ? null : original.GatewayProvider,
             Amount = amount,
             Currency = "VND",
             Status = PaymentStatus.RefundPending,
@@ -609,12 +660,12 @@ public class PaymentService(
         };
         pmsContext.Payments.Add(refund);
 
-        if (original.PaymentMethod == PaymentMethod.Cash)
+        if (original.PaymentMethod == PaymentMethod.Cash && !toWallet)
         {
             refund.Status = PaymentStatus.Refunded;
             refund.PaidAt = Now;
         }
-        else if (original.PaymentMethod == PaymentMethod.Wallet)
+        else if (original.PaymentMethod == PaymentMethod.Wallet || toWallet)
         {
             refund.Status = PaymentStatus.Refunded;
             refund.PaidAt = Now;
@@ -965,7 +1016,13 @@ public class PaymentService(
             Subtitle = $"{t.CreatedAt:MMM dd, HH:mm} • Ref: {t.ReferenceId ?? t.Id.ToString()}",
             Amount = t.Amount,
             Status = "Completed",
-            Type = t.Amount >= 0 ? "deposit" : "withdraw",
+            // Refunds and compensation come back to the wallet: listed as such, not as a top-up
+            Type = t.TxnType switch
+            {
+                "Refund" or "Compensation" => "refund",
+                "Payment" => "payment",
+                _ => t.Amount >= 0 ? "deposit" : "withdraw"
+            },
             Method = t.ReferenceType ?? "Wallet",
             CreatedAt = t.CreatedAt
         }).ToList();

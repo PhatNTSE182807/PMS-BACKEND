@@ -50,6 +50,7 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
                     EndDate = eDate,
                     TotalRevenue = totalRev,
                     TotalSessions = totalCount,
+                    TotalCompensation = byLot.Sum(l => l.Compensation),
                     ByLot = byLot,
                     PaymentMethods = methods
                 });
@@ -82,6 +83,7 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
                 EndDate = eDate,
                 TotalRevenue = totalRev,
                 TotalSessions = totalCount,
+                TotalCompensation = byLot.Sum(l => l.Compensation),
                 ByLot = byLot,
                 PaymentMethods = methods
             });
@@ -131,12 +133,14 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
                 EndDate = eDate,
                 SystemTotalRevenue = totalRev,
                 SystemTotalSessions = totalCount,
+                SystemTotalCompensation = byLot.Sum(l => l.Compensation),
                 ActiveLotsCount = targetLots.Count,
                 ByLot = byLot,
                 PaymentMethods = methods
             },
             s => kind == null || KindOf(s, kinds) == kind,
-            sessions => byVehicleType = SplitByVehicleKind(sessions, kinds));
+            sessions => byVehicleType = SplitByVehicleKind(sessions, kinds),
+            vehicleTypeId => kind == null || KindOfType(vehicleTypeId, kinds) == kind);
 
         response.ByVehicleType = byVehicleType;
         return response;
@@ -162,32 +166,46 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
         var buckets = sessions
             .GroupBy(s => PeriodIndex(periods, ReportedLocalDate(s, tz)))
             .ToDictionary(g => g.Key, g => g.ToList());
+        // Compensations come off the period they were paid in, and off their vehicle family
+        var paidOut = (await LoadCompensationsAsync(lotNames.Keys.ToList(), startUtc, endUtc))
+            .Where(c => kind == null || KindOfType(c.VehicleTypeId, kinds) == kind)
+            .GroupBy(c => PeriodIndex(periods, DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(c.PaidAt, DateTimeKind.Utc), tz))))
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         var points = periods.Select((period, i) =>
         {
             var inPeriod = buckets.TryGetValue(i, out var list) ? list : [];
+            var compensated = paidOut.TryGetValue(i, out var paid) ? paid : [];
             var cars = inPeriod.Where(s => KindOf(s, kinds) == CarKind).ToList();
             var motorbikes = inPeriod.Where(s => KindOf(s, kinds) == MotorbikeKind).ToList();
+            decimal CompensationOf(string family) => compensated.Where(c => KindOfType(c.VehicleTypeId, kinds) == family).Sum(c => c.Amount);
+            var lotIds = inPeriod.Select(s => s.ParkingLotId).Concat(compensated.Select(c => c.LotId)).Distinct();
             return new RevenueTimeSeriesPointModel
             {
                 StartDate = period.Start.ToString("yyyy-MM-dd"),
                 EndDate = period.End.ToString("yyyy-MM-dd"),
-                TotalRevenue = inPeriod.Sum(s => s.FinalFee),
+                TotalRevenue = inPeriod.Sum(s => s.FinalFee) - compensated.Sum(c => c.Amount),
+                Compensation = compensated.Sum(c => c.Amount),
                 TotalSessions = inPeriod.Count,
-                CarRevenue = cars.Sum(s => s.FinalFee),
+                CarRevenue = cars.Sum(s => s.FinalFee) - CompensationOf(CarKind),
                 CarSessions = cars.Count,
-                MotorbikeRevenue = motorbikes.Sum(s => s.FinalFee),
+                MotorbikeRevenue = motorbikes.Sum(s => s.FinalFee) - CompensationOf(MotorbikeKind),
                 MotorbikeSessions = motorbikes.Count,
-                ByLot = inPeriod
-                    .GroupBy(s => s.ParkingLotId)
-                    .Select(g => new RevenueTimeSeriesLotModel
+                ByLot = lotIds
+                    .Select(lotId =>
                     {
-                        ParkingLotId = g.Key,
-                        ParkingLotName = lotNames[g.Key],
-                        TotalRevenue = g.Sum(s => s.FinalFee),
-                        TotalSessions = g.Count(),
-                        CarSessions = g.Count(s => KindOf(s, kinds) == CarKind),
-                        MotorbikeSessions = g.Count(s => KindOf(s, kinds) == MotorbikeKind)
+                        var lotSessions = inPeriod.Where(s => s.ParkingLotId == lotId).ToList();
+                        var lotCompensation = compensated.Where(c => c.LotId == lotId).Sum(c => c.Amount);
+                        return new RevenueTimeSeriesLotModel
+                        {
+                            ParkingLotId = lotId,
+                            ParkingLotName = lotNames[lotId],
+                            TotalRevenue = lotSessions.Sum(s => s.FinalFee) - lotCompensation,
+                            Compensation = lotCompensation,
+                            TotalSessions = lotSessions.Count,
+                            CarSessions = lotSessions.Count(s => KindOf(s, kinds) == CarKind),
+                            MotorbikeSessions = lotSessions.Count(s => KindOf(s, kinds) == MotorbikeKind)
+                        };
                     })
                     .OrderBy(l => l.ParkingLotName)
                     .ToList()
@@ -209,7 +227,8 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
         string endDateStr,
         Func<string, string, decimal, int, IReadOnlyList<ParkingLotRevenueModel>, IReadOnlyList<PaymentMethodBreakdownModel>, TResponse> responseFactory,
         Func<ParkingSession, bool> sessionFilter = null,
-        Action<IReadOnlyList<ParkingSession>> onSessions = null)
+        Action<IReadOnlyList<ParkingSession>> onSessions = null,
+        Func<int?, bool> compensationFilter = null)
     {
         var tz = targetLots.Count == 1
             ? ParkingText.FindTimeZone(targetLots[0].TimeZoneId)
@@ -410,14 +429,46 @@ public class RevenueReportService(PmsDbContext pmsContext) : IRevenueReportServi
             });
         }
 
+        // Compensations the lots paid in the period come off their revenue (the methods above stay what was collected)
+        var compensations = (await LoadCompensationsAsync(targetLotIds, startUtc, endUtc))
+            .Where(c => compensationFilter == null || compensationFilter(c.VehicleTypeId))
+            .ToList();
+        foreach (var lot in byLot)
+        {
+            lot.Compensation = compensations.Where(c => c.LotId == lot.ParkingLotId).Sum(c => c.Amount);
+            lot.TotalRevenue -= lot.Compensation;
+        }
+
         return responseFactory(
             sDate.ToString("yyyy-MM-dd"),
             eDate.ToString("yyyy-MM-dd"),
-            totalRevenue,
+            totalRevenue - compensations.Sum(c => c.Amount),
             totalSessions,
             byLot,
             methodList);
     }
+
+    /// <summary>A compensation a lot paid into a customer's wallet (a walk-in took their booked bay).</summary>
+    private sealed record CompensationRow(int LotId, DateTime PaidAt, decimal Amount, int? VehicleTypeId);
+
+    /// <summary>Compensations paid by the lots in [start, end), with the booked vehicle type.</summary>
+    private async Task<List<CompensationRow>> LoadCompensationsAsync(IReadOnlyCollection<int> lotIds, DateTime startUtc, DateTime endUtc)
+    {
+        var rows = await pmsContext.Payments.AsNoTracking()
+            .Where(p => p.Purpose == PaymentPurpose.Compensation && p.Status == PaymentStatus.Succeeded
+                        && p.ParkingLotId != null && lotIds.Contains(p.ParkingLotId.Value)
+                        && p.PaidAt >= startUtc && p.PaidAt < endUtc)
+            .Select(p => new { LotId = p.ParkingLotId!.Value, PaidAt = p.PaidAt!.Value, p.Amount, p.ReservationId })
+            .ToListAsync();
+        var reservationIds = rows.Where(r => r.ReservationId != null).Select(r => r.ReservationId!.Value).Distinct().ToList();
+        var types = await pmsContext.Reservations.AsNoTracking()
+            .Where(r => reservationIds.Contains(r.Id))
+            .ToDictionaryAsync(r => r.Id, r => r.VehicleTypeId);
+        return rows.Select(r => new CompensationRow(r.LotId, r.PaidAt, r.Amount, r.ReservationId is { } id ? types.GetValueOrDefault(id) : null)).ToList();
+    }
+
+    private static string KindOfType(int? vehicleTypeId, IReadOnlyDictionary<int, string> kinds) =>
+        vehicleTypeId is { } id && kinds.TryGetValue(id, out var kind) ? kind : OtherKind;
 
     private const string CarKind = "CAR";
     private const string MotorbikeKind = "MOTORBIKE";

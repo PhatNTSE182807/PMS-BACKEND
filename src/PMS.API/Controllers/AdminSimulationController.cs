@@ -17,14 +17,8 @@ namespace PMS.API.Controllers;
 public class AdminSimulationController(
     IParkingSimulationService simulation,
     WalkInSimulationService walkIns,
-    CashDrawerService cashDrawers,
     IClaimService claimService) : ApiController
 {
-    /// <summary>Ends the business day now (one lot or all): Staff must close their cash drawers within the grace period.</summary>
-    [HttpPost("end-business-day")]
-    public async Task<IActionResult> EndBusinessDayAsync([FromBody] EndBusinessDayModel model) =>
-        Ok(ApiResult<EndBusinessDayResultModel>.Success(await cashDrawers.EndBusinessDayAsync(model)));
-
     /// <summary>Simulated walk-ins still inside (all lots, or one), with how many left and what they paid.</summary>
     [HttpGet("walk-ins")]
     public async Task<IActionResult> GetWalkInsAsync([FromQuery] int? lotId = null) =>
@@ -45,10 +39,15 @@ public class AdminSimulationController(
     public async Task<IActionResult> CheckOutAllWalkInsAsync([FromQuery] int? lotId = null) =>
         Ok(ApiResult<WalkInCheckOutResultModel>.Success(await walkIns.CheckOutAllAsync(lotId)));
 
-    /// <summary>A simulated walk-in parks in the bay of a confirmed booking (the next one, or the one given).</summary>
+    /// <summary>A simulated walk-in parks in the bay of a confirmed booking (the next one, the one given, or the one in this bay).</summary>
     [HttpPost("walk-ins/occupy-booked-bay")]
-    public async Task<IActionResult> OccupyBookedBayAsync([FromQuery] int lotId, [FromQuery] long? reservationId = null) =>
-        Ok(ApiResult<BookedBayTakenModel>.Success(await walkIns.OccupyBookedBayAsync(lotId, reservationId)));
+    public async Task<IActionResult> OccupyBookedBayAsync([FromQuery] int lotId, [FromQuery] long? reservationId = null, [FromQuery] int? slotId = null) =>
+        Ok(ApiResult<BookedBayTakenModel>.Success(await walkIns.OccupyBookedBayAsync(lotId, reservationId, slotId)));
+
+    /// <summary>One simulated walk-in for a free bay picked on the 3D model: it waits at the entry lane for the Staff.</summary>
+    [HttpPost("walk-ins/bay")]
+    public async Task<IActionResult> DeployWalkInToBayAsync([FromBody] DeployWalkInToBayModel model) =>
+        Ok(ApiResult<GateRequestModel>.Success(await walkIns.DeployToBayAsync(model)));
 
     /// <summary>The driver of a simulated vehicle reports a lost ticket (approved on the spot, or sent to the lot's Manager).</summary>
     [HttpPost("walk-ins/{sessionId:long}/lost-ticket")]

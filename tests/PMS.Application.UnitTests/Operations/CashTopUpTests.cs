@@ -135,7 +135,8 @@ public class CashTopUpTests
         var (t, drawers) = await CreateAsync();
         AsStaff(t);
         var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [10_000] = 10 }));
-        await drawers.CloseAsync(t.Lot.Id, new CloseCashDrawerModel { Counted = new() });
+        // The drawer opened with the standard float, so an empty count is off and needs a reason
+        await drawers.CloseAsync(t.Lot.Id, new CloseCashDrawerModel { Counted = new(), Reason = "Handed in early." });
 
         AsManager(t);
         await FluentActions.Invoking(() => drawers.ApproveTopUpAsync(request.Id, new DecideCashTopUpModel()))

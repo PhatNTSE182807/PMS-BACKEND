@@ -56,10 +56,12 @@ public class StaffGateController(IGateService gateService, IReservationService r
 
     /// <summary>Parking session history for an authorised lot, newest entry first.</summary>
     [HttpGet("lots/{lotId:int}/sessions/history")]
-    public async Task<IActionResult> GetHistoryAsync(int lotId, [FromQuery] string plate = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 10) =>
-        Ok(ApiResult<StaffSessionHistoryPageModel>.Success(await gateService.GetHistoryAsync(lotId, plate, page, pageSize)));
+    public async Task<IActionResult> GetHistoryAsync(int lotId, [FromQuery] string plate = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 10,
+        [FromQuery] string orderBy = null) =>
+        Ok(ApiResult<StaffSessionHistoryPageModel>.Success(await gateService.GetHistoryAsync(lotId, plate, page, pageSize,
+            string.Equals(orderBy, "exit", StringComparison.OrdinalIgnoreCase))));
 
-    /// <summary>Parking-fee payments taken at an authorised lot, newest first; method=Cash keeps cash only.</summary>
+    /// <summary>Parking-fee payments taken at an authorised lot, newest first; method=Cash, Wallet, VNPay or MoMo keeps that method only.</summary>
     [HttpGet("lots/{lotId:int}/payments")]
     public async Task<IActionResult> GetPaymentHistoryAsync(int lotId, [FromQuery] string method = null, [FromQuery] string plate = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 10) =>
         Ok(ApiResult<StaffPaymentHistoryPageModel>.Success(await gateService.GetPaymentHistoryAsync(lotId, method, plate, page, pageSize)));
@@ -91,6 +93,16 @@ public class StaffGateController(IGateService gateService, IReservationService r
     [HttpPost("lots/{lotId:int}/check-in")]
     public async Task<IActionResult> CheckInAsync(int lotId, [FromBody] CheckInModel model) =>
         Ok(ApiResult<CheckInResultModel>.Success(await gateService.CheckInAsync(lotId, model)));
+
+    /// <summary>The vehicle parked in a bay, for the 3D lot model's popup: customer type, plate, time parked, fee so far.</summary>
+    [HttpGet("lots/{lotId:int}/slots/{slotId:int}/session")]
+    public async Task<IActionResult> GetBaySessionAsync(int lotId, int slotId) =>
+        Ok(ApiResult<BaySessionModel>.Success(await gateService.GetBaySessionAsync(lotId, slotId)));
+
+    /// <summary>The same details by session id: a walk-in counted in its zone has no bay to look it up by.</summary>
+    [HttpGet("lots/{lotId:int}/sessions/{sessionId:long}/parked")]
+    public async Task<IActionResult> GetParkedSessionAsync(int lotId, long sessionId) =>
+        Ok(ApiResult<BaySessionModel>.Success(await gateService.GetParkedSessionAsync(lotId, sessionId)));
 
     [HttpGet("sessions/{id:long}")]
     public async Task<IActionResult> GetSessionAsync(long id) =>

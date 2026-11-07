@@ -18,7 +18,7 @@ using Xunit;
 namespace PMS.Application.UnitTests.Operations;
 
 /// <summary>
-/// A Manager's new price is live at once and every customer is told. Vehicles already inside keep the price they
+/// A Manager's new price is live at once and customers with an upcoming booking are told. Vehicles already inside keep the price they
 /// entered with; every vehicle entering afterwards pays the new one, booked or not. (Real races need SQL Server's
 /// rowversion and are tested by hand; here only the retry loop around them is exercised.)
 /// </summary>
@@ -238,21 +238,40 @@ public class PriceUpdateTests
 
     // ---- customers are told ----------------------------------------------------------------------
 
-    private static (NotificationJobs Jobs, IUserNotificationNotifier Push) NewJobs(OperationsTestContext t, params string[] customers)
+    private static (NotificationJobs Jobs, IUserNotificationNotifier Push) NewJobs(OperationsTestContext t)
     {
-        var audience = Substitute.For<ICustomerAudience>();
-        audience.ActiveCustomerIdsAsync().Returns(customers);
         var push = Substitute.For<IUserNotificationNotifier>();
-        return (new NotificationJobs(t.Db, t.Clock, push, audience), push);
+        return (new NotificationJobs(t.Db, t.Clock, push), push);
+    }
+
+    private static async Task AddBookingAsync(OperationsTestContext t, string userId, string status = ReservationStatus.Confirmed, int startsInHours = 2, int? lotId = null, string vehicleTypeCode = "CAR_4")
+    {
+        t.Db.Reservations.Add(new Reservation
+        {
+            ReservationCode = $"RSV-{Guid.NewGuid():N}",
+            CustomerId = t.Customer.Id,
+            UserId = userId,
+            VehicleId = t.Car.Id,
+            VehicleTypeId = vehicleTypeCode == null ? null : t.TypeId(vehicleTypeCode),
+            ParkingLotId = lotId ?? t.Lot.Id,
+            StartTime = t.Now.AddHours(startsInHours),
+            EndTime = t.Now.AddHours(startsInHours + 1),
+            Status = status,
+            CreatedAt = t.Now
+        });
+        await t.Db.SaveChangesAsync();
     }
 
     [Fact]
-    public async Task Every_Active_Customer_Gets_One_Notification_And_A_Push()
+    public async Task Customers_With_An_Upcoming_Booking_Get_One_Notification_And_A_Push()
     {
         var t = await new OperationsTestContext().SeedAsync();
-        var (jobs, push) = NewJobs(t, "c1", "c2");
+        await AddBookingAsync(t, "c1");
+        await AddBookingAsync(t, "c1", startsInHours: 5);
+        await AddBookingAsync(t, "c2", ReservationStatus.PendingDeposit);
+        var (jobs, push) = NewJobs(t);
 
-        var written = await jobs.LotPriceChangedAsync("Price changed at Central", "Changed", EventKey, 7, "Central");
+        var written = await jobs.LotPriceChangedAsync("Price changed at Central", "Changed", EventKey, t.Lot.Id, t.TypeId("CAR_4"), "Central");
 
         written.Should().Be(2);
         var saved = t.Db.UserNotifications.AsNoTracking().OrderBy(n => n.UserId).ToList();
@@ -263,12 +282,53 @@ public class PriceUpdateTests
     }
 
     [Fact]
+    public async Task Bookings_That_Will_Not_Pay_The_New_Price_Are_Not_Told()
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+        await AddBookingAsync(t, "parked", ReservationStatus.CheckedIn);
+        await AddBookingAsync(t, "finished", ReservationStatus.Completed);
+        await AddBookingAsync(t, "cancelled", ReservationStatus.Cancelled);
+        await AddBookingAsync(t, "other-lot", lotId: t.Lot.Id + 1);
+        await AddBookingAsync(t, "motorbike", vehicleTypeCode: "MOTORBIKE");
+        var (jobs, push) = NewJobs(t);
+
+        (await jobs.LotPriceChangedAsync("T", "M", EventKey, t.Lot.Id, t.TypeId("CAR_4"), "Central")).Should().Be(0);
+
+        t.Db.UserNotifications.Should().BeEmpty();
+        await push.DidNotReceiveWithAnyArgs().NotificationCreatedAsync(default, default, default);
+    }
+
+    [Fact]
+    public async Task A_Late_Customer_Who_Has_Not_Entered_Yet_Is_Told()
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+        await AddBookingAsync(t, "late", startsInHours: -1);
+        await AddBookingAsync(t, "late-unpaid", ReservationStatus.PendingDeposit, startsInHours: -1);
+        var (jobs, _) = NewJobs(t);
+
+        (await jobs.LotPriceChangedAsync("T", "M", EventKey, t.Lot.Id, t.TypeId("CAR_4"), "Central")).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task An_Older_Booking_Without_A_Type_Follows_Its_Vehicle()
+    {
+        var t = await new OperationsTestContext().SeedAsync();
+        await AddBookingAsync(t, "older", vehicleTypeCode: null);
+        var (jobs, _) = NewJobs(t);
+
+        (await jobs.LotPriceChangedAsync("T", "M", "motorbike-event", t.Lot.Id, t.TypeId("MOTORBIKE"), "Central")).Should().Be(0, "the booked vehicle is a 4-seat car");
+        (await jobs.LotPriceChangedAsync("T", "M", EventKey, t.Lot.Id, t.TypeId("CAR_4"), "Central")).Should().Be(1);
+    }
+
+    [Fact]
     public async Task A_Retry_Only_Reaches_The_Customers_It_Missed()
     {
         var t = await new OperationsTestContext().SeedAsync();
-        await NewJobs(t, "c1").Jobs.LotPriceChangedAsync("T", "M", EventKey, 7, "Central");
+        await AddBookingAsync(t, "c1");
+        await NewJobs(t).Jobs.LotPriceChangedAsync("T", "M", EventKey, t.Lot.Id, t.TypeId("CAR_4"), "Central");
+        await AddBookingAsync(t, "c2");
 
-        var written = await NewJobs(t, "c1", "c2").Jobs.LotPriceChangedAsync("T", "M", EventKey, 7, "Central");
+        var written = await NewJobs(t).Jobs.LotPriceChangedAsync("T", "M", EventKey, t.Lot.Id, t.TypeId("CAR_4"), "Central");
 
         written.Should().Be(1);
         t.Db.UserNotifications.Count().Should().Be(2);
@@ -278,10 +338,12 @@ public class PriceUpdateTests
     public async Task One_Failed_Push_Does_Not_Stop_The_Others()
     {
         var t = await new OperationsTestContext().SeedAsync();
-        var (jobs, push) = NewJobs(t, "c1", "c2");
+        await AddBookingAsync(t, "c1");
+        await AddBookingAsync(t, "c2");
+        var (jobs, push) = NewJobs(t);
         push.NotificationCreatedAsync("c1", Arg.Any<NotificationModel>(), Arg.Any<int>()).Returns(Task.FromException(new InvalidOperationException("gone")));
 
-        (await jobs.LotPriceChangedAsync("T", "M", EventKey, 7, "Central")).Should().Be(2);
+        (await jobs.LotPriceChangedAsync("T", "M", EventKey, t.Lot.Id, t.TypeId("CAR_4"), "Central")).Should().Be(2);
 
         await push.Received(1).NotificationCreatedAsync("c2", Arg.Any<NotificationModel>(), 1);
     }
@@ -292,17 +354,23 @@ public class PriceUpdateTests
         var realtime = Substitute.For<ILotRealtimeNotifier>();
         realtime.LotPriceChangedAsync(Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>()).Returns(Task.FromException(new InvalidOperationException("gone")));
         var publisher = Substitute.For<IUserNotificationPublisher>();
-        var notice = new LotPriceNotice(7, "Central", "4-Seat Car", "30,000 VND per 60 min", "20,000 VND per 60 min", EventKey);
+        var notice = new LotPriceNotice(7, "Central", 2, "4-Seat Car", "30,000 VND per 60 min", "20,000 VND per 60 min", EventKey);
 
         await new LotPriceNotifier(realtime, notifications: publisher).PriceChangedAsync(notice);
 
-        publisher.Received(1).LotPriceChanged("4-Seat Car price changed at Central", notice.Message, EventKey, 7, "Central");
+        publisher.Received(1).LotPriceChanged(
+            "Parking Lot Price Update",
+            "The pricing rules for Central have been updated. Please check your booking details.",
+            EventKey,
+            7,
+            2,
+            "Central");
     }
 
     [Fact]
     public void The_Message_Does_Not_Say_From_X_To_X_When_Only_Another_Fee_Changed()
     {
-        var notice = new LotPriceNotice(7, "Central", null, "30,000 VND per 60 min", "30,000 VND per 60 min", EventKey);
+        var notice = new LotPriceNotice(7, "Central", 2, null, "30,000 VND per 60 min", "30,000 VND per 60 min", EventKey);
 
         notice.Message.Should().StartWith("Price for Central is now 30,000 VND per 60 min.");
     }

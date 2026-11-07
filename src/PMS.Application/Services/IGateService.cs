@@ -15,12 +15,24 @@ public interface IGateService
     /// <summary>Sessions of the lot; by default the open ones (vehicles inside or entering).</summary>
     Task<IReadOnlyList<SessionResponseModel>> GetSessionsAsync(int lotId, string status, string plate);
 
-    Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize);
+    Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize, bool byExit = false);
 
     /// <summary>Parking-fee payments taken at the lot, newest first; <paramref name="method"/> "Cash" keeps cash only.</summary>
     Task<StaffPaymentHistoryPageModel> GetPaymentHistoryAsync(int lotId, string method, string plate, int page, int pageSize);
 
     Task<SessionResponseModel> GetSessionAsync(long sessionId);
+
+    /// <summary>
+    /// The open session parked in a bay of the lot, with the customer type, time parked and a read-only fee so far
+    /// (the 3D lot model's bay popup). Lot-scoped like every Staff call; NotFound when no vehicle is tracked in the bay.
+    /// </summary>
+    Task<BaySessionModel> GetBaySessionAsync(int lotId, int slotId);
+
+    /// <summary>
+    /// The same details for one open session of the lot, found by its id: a walk-in counted in its zone has no bay,
+    /// so the 3D model opens it this way. Lot-scoped; NotFound when the session is not open in this lot.
+    /// </summary>
+    Task<BaySessionModel> GetParkedSessionAsync(int lotId, long sessionId);
 
     /// <summary>Find the open session of a plate, a ticket QR or a session code at an exit lane.</summary>
     Task<SessionResponseModel> LookupAsync(int lotId, string plate, string ticket, string code);

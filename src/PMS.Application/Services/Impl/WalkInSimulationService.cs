@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers.Parking;
+using PMS.Application.Models.Layout;
 using PMS.Application.Models.Operations;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
@@ -19,7 +20,10 @@ public class WalkInSimulationService(
     GateService gates,
     LotScopeService lotScope,
     ParkingOptions options,
-    TimeProvider clock)
+    TimeProvider clock,
+    BookedBayCaseService bookedBays = null,
+    ILayoutService layouts = null,
+    IGateRequestService gateRequests = null)
 {
     private const string AdminRole = "Admin";
     private const int MaxStayHours = 72;
@@ -48,7 +52,8 @@ public class WalkInSimulationService(
         // The batch is capped by the lot itself: never more vehicles than it has free bays
         if (freeBays.Count == 0)
             throw new BadRequestException("No free bay is left in this lot.");
-        if (model.Count < 1 || model.Count > freeBays.Count)
+        var count = model.FillLot ? freeBays.Count : model.Count;
+        if (count < 1 || count > freeBays.Count)
             throw new BadRequestException($"This lot has {freeBays.Count} free bays: send between 1 and {freeBays.Count} vehicles.");
 
         var types = await pmsContext.VehicleTypes.AsNoTracking().Where(t => t.IsActive).ToListAsync();
@@ -59,49 +64,97 @@ public class WalkInSimulationService(
             throw new BadRequestException("No vehicle type is active.");
 
         var adminId = lotScope.UserId;
-        var result = new DeployWalkInsResultModel { Requested = model.Count };
+        var result = new DeployWalkInsResultModel { Requested = count };
         var taken = new HashSet<string>();
         var typesById = types.ToDictionary(t => t.Id);
-        for (var i = 0; i < model.Count; i++)
+        for (var i = 0; i < count; i++)
         {
-            var type = PickType(model, car4, car7, motorbike);
+            // Filling the lot: take the bays in turn and send the vehicle each one is for
+            var fillBay = model.FillLot ? freeBays[0].Slot : null;
+            var type = fillBay != null ? TypeForBay(model, typesById, fillBay, car4, car7, motorbike) : PickType(model, car4, car7, motorbike);
             var isCar = type != motorbike;
             var noPlate = RandomNumberGenerator.GetInt32(100) < model.NoPlatePercent;
             var plate = noPlate ? null : await FreePlateAsync(isCar, taken);
-            var bay = PickBay(freeBays, typesById, type.Id);
+            var bay = fillBay ?? PickBay(freeBays, typesById, type.Id);
             if (bay == null)
             {
                 result.StoppedReason = $"No free {(isCar ? "car" : "motorbike")} bay is left in this lot.";
                 break;
             }
-            freeBays.Remove(bay);
+            freeBays.RemoveAll(b => b.Slot.Id == bay.Id);
 
-            var entry = await gates.CheckInAsync(model.LotId, new CheckInModel
+            var stopped = await EnterAsync(model.LotId, plate, noPlate, type, bay, adminId, model.MinStayHours, model.MaxStayHours);
+            if (stopped != null)
             {
-                PlateNumber = plate,
-                NoPlate = noPlate,
-                NoPlateReason = noPlate ? "Simulated: the plate could not be read." : null,
-                VehicleTypeId = type.Id,
-                SlotId = bay.Id,
-                PlateConfirmed = true,
-                IgnoreReservation = true
-            });
-            if (entry.Session == null)
-            {
-                result.StoppedReason = string.Join(" ", entry.Alerts.Where(a => a.Blocking).Select(a => a.Message));
+                result.StoppedReason = stopped;
                 break;
             }
-
-            await gates.ConfirmEntryAsync(entry.Session.Id);
-            var session = await pmsContext.ParkingSessions.FirstAsync(s => s.Id == entry.Session.Id);
-            session.IsSimulated = true;
-            session.SimulatedBy = adminId;
-            session.SimulatedExitAt = Now + StayLength(model.MinStayHours, model.MaxStayHours);
-            await pmsContext.SaveChangesAsync();
             result.Entered++;
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// One simulated walk-in in the bay the Admin picked on the 3D model. Only a bay a walk-in may take is accepted:
+    /// never one with a vehicle in it, a held or booked bay, or one where the model draws a walk-in without a bay.
+    /// </summary>
+    public async Task<GateRequestModel> DeployToBayAsync(DeployWalkInToBayModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        if (model.MinStayHours <= 0 || model.MaxStayHours < model.MinStayHours || model.MaxStayHours > MaxStayHours)
+            throw new BadRequestException($"The stay must be more than 0 and at most {MaxStayHours} hours, the shortest no longer than the longest.");
+
+        await EnsureOpenAsync(model.LotId);
+        var bay = (await FreeBaysAsync(model.LotId)).FirstOrDefault(b => b.Slot.Id == model.SlotId)?.Slot
+                  ?? throw new BadRequestException(
+                      "This bay cannot take a walk-in: it has a vehicle in it, is held or booked for a customer, or is not in this lot.");
+
+        var types = await pmsContext.VehicleTypes.AsNoTracking().Where(t => t.IsActive).ToDictionaryAsync(t => t.Id);
+        var type = string.IsNullOrWhiteSpace(model.VehicleTypeCode)
+            ? types.GetValueOrDefault(bay.VehicleTypeId)
+            : types.Values.FirstOrDefault(t => t.Code == model.VehicleTypeCode);
+        if (type == null)
+            throw new BadRequestException("Pick a vehicle type that is in use.");
+        if (!ParkingInventory.Compatible(types, bay.VehicleTypeId, type.Id))
+            throw new BadRequestException($"Bay {bay.Code} does not take a {type.Name}.");
+
+        var isCar = ParkingInventory.Family(type.Code) == "car";
+        var plate = await FreePlateAsync(isCar, []);
+        if (gateRequests == null)
+            throw new BadRequestException("The entry lane queue is not available.");
+        // The walk-in drives up to the entry lane and waits there: the Staff checks it in on the gate screen
+        return await gateRequests.QueueSimulatedWalkInAsync(model.LotId, plate, type.Id, bay.Id,
+            StayLength(model.MinStayHours, model.MaxStayHours), lotScope.UserId);
+    }
+
+    /// <summary>
+    /// A simulated walk-in goes through the lot's real entry lane into this bay and is marked simulated with its
+    /// planned exit. Returns why the lane refused it, or null when it is in.
+    /// </summary>
+    private async Task<string> EnterAsync(int lotId, string plate, bool noPlate, VehicleType type, Slot bay, string adminId,
+        double minStayHours, double maxStayHours)
+    {
+        var entry = await gates.CheckInAsync(lotId, new CheckInModel
+        {
+            PlateNumber = plate,
+            NoPlate = noPlate,
+            NoPlateReason = noPlate ? "Simulated: the plate could not be read." : null,
+            VehicleTypeId = type.Id,
+            SlotId = bay.Id,
+            PlateConfirmed = true,
+            IgnoreReservation = true
+        });
+        if (entry.Session == null)
+            return string.Join(" ", entry.Alerts.Where(a => a.Blocking).Select(a => a.Message));
+
+        await gates.ConfirmEntryAsync(entry.Session.Id);
+        var session = await pmsContext.ParkingSessions.FirstAsync(s => s.Id == entry.Session.Id);
+        session.IsSimulated = true;
+        session.SimulatedBy = adminId;
+        session.SimulatedExitAt = Now + StayLength(minStayHours, maxStayHours);
+        await pmsContext.SaveChangesAsync();
+        return null;
     }
 
     public async Task<WalkInSimulationOverviewModel> GetOverviewAsync(int? lotId)
@@ -145,7 +198,7 @@ public class WalkInSimulationService(
             TotalBays = lotId is { } id
                 ? await pmsContext.Slots.CountAsync(s => s.Zone.ParkingLotId == id && s.Zone.IsActive && s.IsActive)
                 : null,
-            FreeBays = lotId is { } lot ? await FreeBaysQuery(lot).CountAsync() : null
+            FreeBays = lotId is { } lot ? (await FreeBaysAsync(lot)).Count : null
         };
     }
 
@@ -175,7 +228,8 @@ public class WalkInSimulationService(
     {
         var due = await pmsContext.ParkingSessions.AsNoTracking()
             .Where(s => s.IsSimulated && s.SimulatedExitAt <= Now
-                        && (s.Status == SessionStatus.Active || s.Status == SessionStatus.PendingPayment || s.Status == SessionStatus.Paid))
+                        && (s.Status == SessionStatus.Active || s.Status == SessionStatus.PendingPayment || s.Status == SessionStatus.Paid)
+                        && !pmsContext.GateRequests.Any(g => g.SessionId == s.Id && g.Kind == GateRequestKind.CheckOut && g.Status == GateRequestStatus.Waiting))
             .OrderBy(s => s.SimulatedExitAt)
             .Select(s => new { s.Id, s.HasPlate, s.EntryPlateNumber, s.SimulatedBy })
             .Take(200)
@@ -199,16 +253,19 @@ public class WalkInSimulationService(
     /// A walk-in parks in the bay of a confirmed booking (BR-08 exception). When that customer checks in, the
     /// entry lane moves the booking to another bay with the first hour free, or to the walk-in area with a full refund.
     /// </summary>
-    public async Task<BookedBayTakenModel> OccupyBookedBayAsync(int lotId, long? reservationId)
+    public async Task<BookedBayTakenModel> OccupyBookedBayAsync(int lotId, long? reservationId, int? slotId = null)
     {
         await EnsureOpenAsync(lotId);
         var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
         var booking = await pmsContext.Reservations.AsNoTracking()
             .Where(r => r.ParkingLotId == lotId && r.Status == ReservationStatus.Confirmed && r.SlotId != null
-                        && (reservationId == null || r.Id == reservationId) && !occupied.Contains(r.SlotId))
+                        && (reservationId == null || r.Id == reservationId) && (slotId == null || r.SlotId == slotId)
+                        && !occupied.Contains(r.SlotId))
             .OrderBy(r => r.StartTime)
             .FirstOrDefaultAsync()
-            ?? throw new BadRequestException("No confirmed booking in this lot has a free bay to take. Book a bay first.");
+            ?? throw new BadRequestException(slotId == null
+                ? "No confirmed booking in this lot has a free bay to take. Book a bay first."
+                : "This bay has no confirmed booking a walk-in could take (a booking still waiting for its deposit cannot be taken).");
 
         var bay = await pmsContext.Slots.AsNoTracking().FirstAsync(s => s.Id == booking.SlotId);
         var vehicleTypeId = booking.VehicleTypeId ?? bay.VehicleTypeId;
@@ -237,13 +294,17 @@ public class WalkInSimulationService(
         session.SimulatedExitAt = Now + StayLength(2, 4);
         await pmsContext.SaveChangesAsync();
 
+        // Staff get the case in Exceptions & Alerts, the booking's customer a "your bay is taken" notification
+        var bayCase = bookedBays == null ? null : await bookedBays.OpenIfBookedAsync(session.Id);
+
         return new BookedBayTakenModel
         {
             SessionId = session.Id,
             Plate = plate,
             BayCode = bay.Code,
             ReservationId = booking.Id,
-            ReservationCode = booking.ReservationCode
+            ReservationCode = booking.ReservationCode,
+            CaseId = bayCase?.Id
         };
     }
 
@@ -264,21 +325,35 @@ public class WalkInSimulationService(
         return wantsCar ? car4 ?? car7 ?? motorbike : car4 ?? car7;
     }
 
-    /// <summary>Active, free bays of the lot that no open session stands in.</summary>
-    private Task<List<Slot>> FreeBaysAsync(int lotId) => FreeBaysQuery(lotId).ToListAsync();
-
-    private IQueryable<Slot> FreeBaysQuery(int lotId)
+    /// <summary>
+    /// The bays a simulated walk-in may take: free, not held (Reserved), with no booking at all, and none of the
+    /// bays kept for others (see KeptBays). Bays with a parked vehicle are never offered, so the simulation never
+    /// puts two vehicles in one bay.
+    /// </summary>
+    private async Task<List<ParkingInventory.WalkInBay>> FreeBaysAsync(int lotId)
     {
-        var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
-        return pmsContext.Slots.AsNoTracking()
-            .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available && !occupied.Contains(s.Id));
+        var free = await new ParkingInventory(pmsContext).WalkInBaysAsync(lotId, null, Now, TimeSpan.FromMinutes(options.Reservations.HoldAheadMinutes));
+        var kept = await KeptBays.ForAsync(pmsContext, layouts, lotId);
+        return free.Where(b => b.NextBookingAt == null && !kept.Contains(b.Slot.Id)).ToList();
     }
 
-    /// <summary>A random free bay that takes this vehicle type (cars share bays), or null when none is left.</summary>
-    private static Slot PickBay(List<Slot> freeBays, IReadOnlyDictionary<int, VehicleType> types, int vehicleTypeId)
+    /// <summary>A random allowed bay that takes this vehicle type (cars share bays); null when none fits.</summary>
+    private static Slot PickBay(List<ParkingInventory.WalkInBay> freeBays, IReadOnlyDictionary<int, VehicleType> types, int vehicleTypeId)
     {
-        var fitting = freeBays.Where(s => ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId)).ToList();
-        return fitting.Count == 0 ? null : fitting[RandomNumberGenerator.GetInt32(fitting.Count)];
+        var fitting = freeBays.Where(b => ParkingInventory.Compatible(types, b.Slot.VehicleTypeId, vehicleTypeId)).ToList();
+        return fitting.Count == 0 ? null : fitting[RandomNumberGenerator.GetInt32(fitting.Count)].Slot;
+    }
+
+    /// <summary>The vehicle for one bay when filling the lot: a motorbike on a motorbike bay, else a 4- or 7-seat car by the shares.</summary>
+    private static VehicleType TypeForBay(DeployWalkInsModel model, IReadOnlyDictionary<int, VehicleType> types, Slot bay,
+        VehicleType car4, VehicleType car7, VehicleType motorbike)
+    {
+        var bayCode = types.GetValueOrDefault(bay.VehicleTypeId)?.Code;
+        if (ParkingInventory.Family(bayCode) != "car")
+            return motorbike ?? car4 ?? car7;
+        var carShares = model.CarPercent + model.Car7Percent;
+        var wants7 = carShares > 0 && RandomNumberGenerator.GetInt32(carShares) >= model.CarPercent;
+        return (wants7 ? car7 : car4) ?? car4 ?? car7 ?? motorbike;
     }
 
     /// <summary>

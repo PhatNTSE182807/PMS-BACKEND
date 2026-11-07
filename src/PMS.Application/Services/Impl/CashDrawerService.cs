@@ -9,11 +9,13 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// Daily cash close per Staff and lot (BR-12, SRS 4.3 "Daily cash close"). A drawer opens with a counted float,
-/// every cash payment the Staff records adds the notes received and removes the change given, and at the close
-/// the Staff counts the banknotes blind. A difference over the threshold needs a reason and goes to the lot's
-/// Manager, who confirms it (Maker-Checker: never the Staff who closed it). Cash taken after a close opens the
-/// day's next drawer. Drawers are never deleted.
+/// Cash close per Staff and lot (BR-12, SRS 4.3 "Daily cash close"). A drawer opens with a float, every cash
+/// payment the Staff records adds the notes received and removes the change given, and at the close the Staff
+/// counts the banknotes blind. A difference over the threshold needs a reason and goes to the lot's Manager, who
+/// confirms it (Maker-Checker: never the Staff who closed it). Drawers are never deleted.
+/// Team decision (2026-11-07): there is no closing deadline. The Staff hands the drawer in whenever they want, and
+/// the next drawer opens at once with the standard float (<see cref="DefaultFloat"/>), so change is always at hand.
+/// A drawer stays the Staff's open drawer across midnight until they close it.
 /// </summary>
 public class CashDrawerService(
     PmsDbContext pmsContext,
@@ -22,26 +24,27 @@ public class CashDrawerService(
     TimeProvider clock,
     IParkingRealtimeNotifier notifier = null)
 {
-    /// <summary>BR-12: the latest close time, lot local time.</summary>
-    public static readonly TimeOnly CloseDeadline = new(23, 0);
-
     /// <summary>BR-12: a larger difference needs a reason and a Manager's confirmation.</summary>
     public const decimal DifferenceThreshold = 20_000;
 
     /// <summary>Vietnamese banknotes the drawer counts, largest first.</summary>
     public static readonly IReadOnlyList<int> Denominations = [500_000, 200_000, 100_000, 50_000, 20_000, 10_000, 5_000, 2_000, 1_000];
 
+    /// <summary>The float every drawer opened by the system starts with (8,880,000 VND): 10 notes of each value.</summary>
+    public static readonly IReadOnlyDictionary<int, int> DefaultFloat =
+        Denominations.ToDictionary(value => value, _ => 10);
+
     private const int MaxNotesPerValue = 100_000;
     private const string NotOpened = "NotOpened";
 
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
-    /// <summary>The signed-in Staff's latest drawer of today at the lot, with the live expected cash.</summary>
+    /// <summary>The signed-in Staff's open drawer at the lot (else their latest of today), with the live expected cash.</summary>
     public async Task<CashDrawerModel> GetCurrentAsync(int lotId)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
         var today = await BusinessDateAsync(lotId);
-        var drawer = await LatestAsync(lotId, lotScope.UserId, today);
+        var drawer = await CurrentAsync(lotId, lotScope.UserId, today);
         if (drawer == null)
             return new CashDrawerModel
             {
@@ -50,12 +53,13 @@ public class CashDrawerService(
                 BusinessDate = today,
                 Status = NotOpened,
                 DifferenceThreshold = DifferenceThreshold,
-                Denominations = Denominations
+                Denominations = Denominations,
+                DefaultFloat = DefaultFloat
             };
         return await ToModelAsync(drawer);
     }
 
-    /// <summary>Opens today's drawer with the float the Staff counted in.</summary>
+    /// <summary>Opens a drawer with the float the Staff counted in.</summary>
     public async Task<CashDrawerModel> OpenAsync(int lotId, OpenCashDrawerModel model)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
@@ -66,24 +70,23 @@ public class CashDrawerService(
     }
 
     /// <summary>
-    /// Before a Staff records cash: makes sure a drawer is open (an extra close of the day when the first one is
-    /// already closed, starting with no float).
+    /// Before a Staff records cash: makes sure a drawer is open (one with the standard float when they have none).
     /// </summary>
     public async Task EnsureOpenAsync(int lotId, string staffUserId)
     {
         if (string.IsNullOrEmpty(staffUserId)) return;
-        var latest = await LatestAsync(lotId, staffUserId, await BusinessDateAsync(lotId));
-        if (latest is { Status: CashCloseStatus.Open }) return;
-        await OpenDrawerAsync(lotId, staffUserId, []);
+        await OpenDrawerAsync(lotId, staffUserId, DefaultFloat);
     }
 
-    /// <summary>Closes the drawer with the blind count; a difference over the threshold needs a reason.</summary>
+    /// <summary>
+    /// Closes the drawer with the blind count (a difference over the threshold needs a reason) and opens the next one
+    /// at once with the standard float. Returns the closed drawer.
+    /// </summary>
     public async Task<CashDrawerModel> CloseAsync(int lotId, CloseCashDrawerModel model)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
-        var drawer = await LatestAsync(lotId, lotScope.UserId, await BusinessDateAsync(lotId), tracked: true);
-        if (drawer is not { Status: CashCloseStatus.Open })
-            throw new BadRequestException("Open your cash drawer before closing it.");
+        var drawer = await OpenDrawerOfAsync(lotId, lotScope.UserId, tracked: true)
+                     ?? throw new BadRequestException("Open your cash drawer before closing it.");
 
         var counted = CleanNotes(model?.Counted, "count");
         var countedTotal = Total(counted);
@@ -108,12 +111,15 @@ public class CashDrawerService(
         drawer.Status = overThreshold ? CashCloseStatus.HasDifference : CashCloseStatus.Closed;
         await pmsContext.SaveChangesAsync();
 
+        // The Staff carries on at once with a fresh drawer and the standard float
+        var next = await OpenDrawerAsync(lotId, drawer.StaffUserId, DefaultFloat);
+
         // The Manager hears about every close at once, with the difference when there is one
         var who = await StaffNameAsync(drawer.StaffUserId);
-        var late = drawer.CloseDueAt != null && drawer.ClosedAt > drawer.CloseDueAt ? " late" : string.Empty;
+        var handover = next == null ? string.Empty : $" Drawer {next.CloseNo} opened with the standard {next.FloatTotal:#,0} VND float.";
         await AlertAsync(drawer.ParkingLotId, "CASH_CLOSED", difference == 0
-            ? $"{who} closed cash drawer {drawer.CloseNo}{late}: it balances. Confirm it in the Approval Queue."
-            : $"{who} closed cash drawer {drawer.CloseNo}{late}: {difference:+#,0;-#,0} VND off. Check it in the Approval Queue.");
+            ? $"{who} closed cash drawer {drawer.CloseNo}: it balances. Confirm it in the Approval Queue.{handover}"
+            : $"{who} closed cash drawer {drawer.CloseNo}: {difference:+#,0;-#,0} VND off. Check it in the Approval Queue.{handover}");
         return await ToModelAsync(drawer);
     }
 
@@ -123,7 +129,7 @@ public class CashDrawerService(
         await lotScope.EnsureCanManageAsync(lotId);
         var query = pmsContext.DailyCashCloses.AsNoTracking().Where(d => d.ParkingLotId == lotId);
         query = string.IsNullOrWhiteSpace(status)
-            ? query.Where(d => d.Status == CashCloseStatus.Closed || d.Status == CashCloseStatus.HasDifference || (d.Status == CashCloseStatus.Open && d.OverdueAt != null))
+            ? query.Where(d => d.Status == CashCloseStatus.Closed || d.Status == CashCloseStatus.HasDifference)
             : query.Where(d => d.Status == status.Trim());
         var drawers = await query.OrderByDescending(d => d.BusinessDate).ThenByDescending(d => d.ClosedAt).Take(100).ToListAsync();
 
@@ -159,59 +165,6 @@ public class CashDrawerService(
         return await ToModelAsync(drawer);
     }
 
-    /// <summary>
-    /// Admin simulation: the business day of one lot (or of every lot) ends now. Every open drawer must be closed
-    /// within the grace period; its Staff are told at once, and the Manager when the deadline passes.
-    /// </summary>
-    public async Task<EndBusinessDayResultModel> EndBusinessDayAsync(EndBusinessDayModel model)
-    {
-        var grace = model?.GraceSeconds ?? 30;
-        if (grace is < 5 or > 3600)
-            throw new BadRequestException("Give the Staff between 5 and 3,600 seconds to close.");
-        var lotId = model?.LotId;
-        if (lotId != null && !await pmsContext.ParkingLots.AnyAsync(p => p.Id == lotId && !p.IsDeleted))
-            throw new NotFoundException("Parking lot not found.");
-
-        var due = Now.AddSeconds(grace);
-        var open = await pmsContext.DailyCashCloses
-            .Where(d => d.Status == CashCloseStatus.Open && (lotId == null || d.ParkingLotId == lotId))
-            .ToListAsync();
-        foreach (var drawer in open)
-        {
-            drawer.CloseDueAt = due;
-            drawer.OverdueAt = null;
-        }
-        await pmsContext.SaveChangesAsync();
-
-        foreach (var lot in open.Select(d => d.ParkingLotId).Distinct())
-            await AlertAsync(lot, "CASH_DAY_END", $"The business day is over: count and close your cash drawer within {grace} seconds.");
-        return new EndBusinessDayResultModel { DrawersToClose = open.Count, CloseDueAt = Utc(due) };
-    }
-
-    /// <summary>
-    /// Background run (every minute, and every second while simulating): open drawers past their deadline are
-    /// marked overdue and the lot's Manager is told (BR-12 escalation). They can still be closed, marked late.
-    /// </summary>
-    public async Task<int> FlagOverdueAsync()
-    {
-        var overdue = await pmsContext.DailyCashCloses
-            .Where(d => d.Status == CashCloseStatus.Open && d.OverdueAt == null && d.CloseDueAt != null && d.CloseDueAt <= Now)
-            .ToListAsync();
-        foreach (var drawer in overdue)
-            drawer.OverdueAt = Now;
-        await pmsContext.SaveChangesAsync();
-
-        foreach (var drawer in overdue)
-        {
-            var (collected, _, _, _) = await CashTakenAsync(drawer, Now);
-            var (topUps, _) = await ApprovedTopUpsAsync(drawer.Id);
-            var who = await StaffNameAsync(drawer.StaffUserId);
-            await AlertAsync(drawer.ParkingLotId, "CASH_OVERDUE",
-                $"{who} has not closed cash drawer {drawer.CloseNo} by the deadline ({drawer.FloatTotal + collected + topUps:#,0} VND expected).");
-        }
-        return overdue.Count;
-    }
-
     // ---- more banknotes for a drawer (team addition, 2026-11-04) ----------------------------------
 
     /// <summary>
@@ -228,9 +181,9 @@ public class CashDrawerService(
         if (reason?.Length > 500)
             throw new BadRequestException("The reason is too long (500 characters at most).");
 
-        // The notes go into the open drawer; with none open, today's next drawer opens empty to receive them
+        // The notes go into the open drawer; with none open, the next drawer opens with the standard float to receive them
         await EnsureOpenAsync(lotId, lotScope.UserId);
-        var drawer = await LatestAsync(lotId, lotScope.UserId, await BusinessDateAsync(lotId));
+        var drawer = await OpenDrawerOfAsync(lotId, lotScope.UserId);
         if (await pmsContext.CashTopUpRequests.AnyAsync(r => r.DailyCashCloseId == drawer.Id && r.Status == CashTopUpStatus.Pending))
             throw new BadRequestException("You already have a request waiting for the Manager: cancel it to ask for different notes.");
 
@@ -392,16 +345,6 @@ public class CashDrawerService(
 
     // ---- helpers ----------------------------------------------------------------------------------
 
-    /// <summary>23:00 of the business day in the lot's time zone, in UTC.</summary>
-    private async Task<DateTime> DeadlineAsync(int lotId, DateOnly day)
-    {
-        var timeZoneId = await pmsContext.ParkingLots.AsNoTracking().Where(p => p.Id == lotId).Select(p => p.TimeZoneId).FirstOrDefaultAsync();
-        var local = DateTime.SpecifyKind(day.ToDateTime(CloseDeadline), DateTimeKind.Unspecified);
-        var deadline = TimeZoneInfo.ConvertTimeToUtc(local, ParkingText.FindTimeZone(timeZoneId ?? options.TimeZoneId));
-        // A drawer opened after 23:00 (an extra close) gets an hour to close
-        return deadline > Now ? deadline : Now.AddHours(1);
-    }
-
     private async Task<string> StaffNameAsync(string userId) =>
         await pmsContext.Employees.AsNoTracking().Where(e => e.UserId == userId).Select(e => e.FullName).FirstOrDefaultAsync() ?? "A Staff member";
 
@@ -419,11 +362,12 @@ public class CashDrawerService(
         }
     }
 
-    private async Task<DailyCashClose> OpenDrawerAsync(int lotId, string staffUserId, Dictionary<int, int> notes)
+    /// <summary>Opens the Staff's next drawer of the business day; null when they already have one open.</summary>
+    private async Task<DailyCashClose> OpenDrawerAsync(int lotId, string staffUserId, IReadOnlyDictionary<int, int> notes)
     {
+        if (await OpenDrawerOfAsync(lotId, staffUserId) != null) return null;
         var today = await BusinessDateAsync(lotId);
-        var latest = await LatestAsync(lotId, staffUserId, today);
-        if (latest is { Status: CashCloseStatus.Open }) return null;
+        var latest = await LatestOfDayAsync(lotId, staffUserId, today);
 
         var drawer = new DailyCashClose
         {
@@ -433,7 +377,6 @@ public class CashDrawerService(
             CloseNo = (latest?.CloseNo ?? 0) + 1,
             Status = CashCloseStatus.Open,
             OpenedAt = Now,
-            CloseDueAt = await DeadlineAsync(lotId, today),
             FloatJson = Write(notes),
             FloatTotal = Total(notes)
         };
@@ -442,12 +385,23 @@ public class CashDrawerService(
         return drawer;
     }
 
-    private Task<DailyCashClose> LatestAsync(int lotId, string staffUserId, DateOnly day, bool tracked = false)
+    /// <summary>The Staff's drawer at the lot that is still open, whatever day it was opened (none closes on its own).</summary>
+    private Task<DailyCashClose> OpenDrawerOfAsync(int lotId, string staffUserId, bool tracked = false)
     {
-        var query = pmsContext.DailyCashCloses.Where(d => d.ParkingLotId == lotId && d.StaffUserId == staffUserId && d.BusinessDate == day);
+        var query = pmsContext.DailyCashCloses.Where(d => d.ParkingLotId == lotId && d.StaffUserId == staffUserId && d.Status == CashCloseStatus.Open);
         if (!tracked) query = query.AsNoTracking();
-        return query.OrderByDescending(d => d.CloseNo).FirstOrDefaultAsync();
+        return query.OrderByDescending(d => d.OpenedAt).FirstOrDefaultAsync();
     }
+
+    private Task<DailyCashClose> LatestOfDayAsync(int lotId, string staffUserId, DateOnly day) =>
+        pmsContext.DailyCashCloses.AsNoTracking()
+            .Where(d => d.ParkingLotId == lotId && d.StaffUserId == staffUserId && d.BusinessDate == day)
+            .OrderByDescending(d => d.CloseNo)
+            .FirstOrDefaultAsync();
+
+    /// <summary>The drawer the Staff works with: the open one, else their latest of the day (closed).</summary>
+    private async Task<DailyCashClose> CurrentAsync(int lotId, string staffUserId, DateOnly day) =>
+        await OpenDrawerOfAsync(lotId, staffUserId) ?? await LatestOfDayAsync(lotId, staffUserId, day);
 
     private async Task<DateOnly> BusinessDateAsync(int lotId)
     {
@@ -472,13 +426,32 @@ public class CashDrawerService(
         {
             if (payment.CashReceivedJson == null)
             {
+                // Taken as an amount only (POS without tapping the notes, a forced check-out): it is still cash in the
+                // drawer, so the expected notes count it as the fewest notes that make it. Otherwise the notes column
+                // would come out short by exactly that amount and the count would show a loss that is not there.
                 untracked += payment.Amount;
+                foreach (var (value, count) in FewestNotes(payment.Amount)) net[value] = net.GetValueOrDefault(value) + count;
                 continue;
             }
             foreach (var (value, count) in Read(payment.CashReceivedJson)) net[value] = net.GetValueOrDefault(value) + count;
             foreach (var (value, count) in Read(payment.CashChangeJson)) net[value] = net.GetValueOrDefault(value) - count;
         }
         return (payments.Sum(p => p.Amount), payments.Count, net, untracked);
+    }
+
+    /// <summary>The fewest banknotes that make the amount (largest first); a remainder under 1,000 VND is left out.</summary>
+    private static Dictionary<int, int> FewestNotes(decimal amount)
+    {
+        var notes = new Dictionary<int, int>();
+        var left = (long)Math.Floor(amount);
+        foreach (var value in Denominations)
+        {
+            var count = left / value;
+            if (count <= 0) continue;
+            notes[value] = (int)count;
+            left -= count * value;
+        }
+        return notes;
     }
 
     private async Task<CashDrawerModel> ToModelAsync(DailyCashClose drawer)
@@ -511,9 +484,6 @@ public class CashDrawerService(
             CloseNo = drawer.CloseNo,
             Status = drawer.Status,
             OpenedAt = Utc(drawer.OpenedAt),
-            CloseDueAt = drawer.CloseDueAt is { } due ? Utc(due) : null,
-            IsOverdue = drawer.Status == CashCloseStatus.Open && drawer.CloseDueAt != null && drawer.CloseDueAt <= Now,
-            ClosedLate = drawer.ClosedAt != null && drawer.CloseDueAt != null && drawer.ClosedAt > drawer.CloseDueAt,
             Float = floatNotes,
             FloatTotal = drawer.FloatTotal,
             CashCollected = collected,
@@ -536,7 +506,8 @@ public class CashDrawerService(
             ConfirmedAt = drawer.ConfirmedAt is { } confirmed ? Utc(confirmed) : null,
             ConfirmNote = drawer.ConfirmNote,
             DifferenceThreshold = DifferenceThreshold,
-            Denominations = Denominations
+            Denominations = Denominations,
+            DefaultFloat = DefaultFloat
         };
     }
 

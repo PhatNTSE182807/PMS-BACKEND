@@ -16,6 +16,10 @@ public class ParkingLotResponseModel
 
     public string District { get; set; }
 
+    public decimal? Latitude { get; set; }
+
+    public decimal? Longitude { get; set; }
+
     public TimeOnly? OpenTime { get; set; }
 
     public TimeOnly? CloseTime { get; set; }
@@ -38,7 +42,7 @@ public class ParkingLotResponseModel
     /// </summary>
     public string Status { get; set; }
 
-    /// <summary>The status saved on the lot (Active, Maintenance, TemporarilyClosed, Inactive).</summary>
+    /// <summary>The status saved on the lot (Active, Maintenance, TemporarilyClosed, Closed, Inactive).</summary>
     public string StoredStatus { get; set; }
 
     /// <summary>True when the lot has an active Manager and at least one active Staff member.</summary>
