@@ -17,14 +17,8 @@ namespace PMS.API.Controllers;
 public class AdminSimulationController(
     IParkingSimulationService simulation,
     WalkInSimulationService walkIns,
-    CashDrawerService cashDrawers,
     IClaimService claimService) : ApiController
 {
-    /// <summary>Ends the business day now (one lot or all): Staff must close their cash drawers within the grace period.</summary>
-    [HttpPost("end-business-day")]
-    public async Task<IActionResult> EndBusinessDayAsync([FromBody] EndBusinessDayModel model) =>
-        Ok(ApiResult<EndBusinessDayResultModel>.Success(await cashDrawers.EndBusinessDayAsync(model)));
-
     /// <summary>Simulated walk-ins still inside (all lots, or one), with how many left and what they paid.</summary>
     [HttpGet("walk-ins")]
     public async Task<IActionResult> GetWalkInsAsync([FromQuery] int? lotId = null) =>

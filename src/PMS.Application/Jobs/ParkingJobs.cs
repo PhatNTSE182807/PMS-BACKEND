@@ -26,7 +26,6 @@ public class ParkingJobs(
     TimeProvider clock,
     IParkingRealtimeNotifier notifier = null,
     WalkInSimulationService walkIns = null,
-    CashDrawerService cashDrawers = null,
     BookedBayCaseService bookedBays = null)
 {
     public const string MinutelyJobId = "parking-timeouts";
@@ -59,8 +58,6 @@ public class ParkingJobs(
             var refunds = await payments.RetryPendingRefundsAsync();
             // Simulated walk-ins whose stay is over pay and leave (Admin demo traffic)
             if (walkIns != null) await walkIns.CheckOutDueAsync();
-            // Cash drawers still open after their deadline: tell the Manager (BR-12)
-            if (cashDrawers != null) await cashDrawers.FlagOverdueAsync();
             return new ParkingJobRun(expired, noShows, reminders, cancelled, released, checkedPayments, refunds);
         }
         finally
@@ -87,7 +84,6 @@ public class ParkingJobs(
             var noShows = await MarkNoShowsAsync();
             await reservations.ActivateDueHoldsAsync();
             if (walkIns != null) await walkIns.CheckOutDueAsync();
-            if (cashDrawers != null) await cashDrawers.FlagOverdueAsync();
             return new ParkingJobRun(expired, noShows, 0, 0, 0, 0, 0);
         }
         finally
