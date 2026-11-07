@@ -58,7 +58,7 @@ public class CashDrawerModel
     /// <summary>Float + cash collected.</summary>
     public decimal ExpectedTotal { get; set; }
 
-    /// <summary>Cash recorded as an amount only (not note by note), so it is in the total but not in ExpectedNotes.</summary>
+    /// <summary>Cash recorded as an amount only (not note by note); ExpectedNotes counts it as the fewest notes that make it.</summary>
     public decimal UntrackedCash { get; set; }
 
     public Dictionary<int, int> Counted { get; set; }

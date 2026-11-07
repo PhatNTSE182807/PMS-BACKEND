@@ -30,12 +30,9 @@ public class CashDrawerService(
     /// <summary>Vietnamese banknotes the drawer counts, largest first.</summary>
     public static readonly IReadOnlyList<int> Denominations = [500_000, 200_000, 100_000, 50_000, 20_000, 10_000, 5_000, 2_000, 1_000];
 
-    /// <summary>
-    /// The float every drawer opened by the system starts with (10,760,000 VND): 20 notes of each value, but only
-    /// 10 of the 500,000 and 200,000 notes.
-    /// </summary>
+    /// <summary>The float every drawer opened by the system starts with (8,880,000 VND): 10 notes of each value.</summary>
     public static readonly IReadOnlyDictionary<int, int> DefaultFloat =
-        Denominations.ToDictionary(value => value, value => value >= 200_000 ? 10 : 20);
+        Denominations.ToDictionary(value => value, _ => 10);
 
     private const int MaxNotesPerValue = 100_000;
     private const string NotOpened = "NotOpened";
@@ -429,13 +426,32 @@ public class CashDrawerService(
         {
             if (payment.CashReceivedJson == null)
             {
+                // Taken as an amount only (POS without tapping the notes, a forced check-out): it is still cash in the
+                // drawer, so the expected notes count it as the fewest notes that make it. Otherwise the notes column
+                // would come out short by exactly that amount and the count would show a loss that is not there.
                 untracked += payment.Amount;
+                foreach (var (value, count) in FewestNotes(payment.Amount)) net[value] = net.GetValueOrDefault(value) + count;
                 continue;
             }
             foreach (var (value, count) in Read(payment.CashReceivedJson)) net[value] = net.GetValueOrDefault(value) + count;
             foreach (var (value, count) in Read(payment.CashChangeJson)) net[value] = net.GetValueOrDefault(value) - count;
         }
         return (payments.Sum(p => p.Amount), payments.Count, net, untracked);
+    }
+
+    /// <summary>The fewest banknotes that make the amount (largest first); a remainder under 1,000 VND is left out.</summary>
+    private static Dictionary<int, int> FewestNotes(decimal amount)
+    {
+        var notes = new Dictionary<int, int>();
+        var left = (long)Math.Floor(amount);
+        foreach (var value in Denominations)
+        {
+            var count = left / value;
+            if (count <= 0) continue;
+            notes[value] = (int)count;
+            left -= count * value;
+        }
+        return notes;
     }
 
     private async Task<CashDrawerModel> ToModelAsync(DailyCashClose drawer)

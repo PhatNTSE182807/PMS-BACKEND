@@ -214,7 +214,8 @@ public class NotificationJobs(
 
     /// <summary>
     /// A walk-in took a customer's booked bay (BookedBayCase): tells the booking's customer what happened, never the
-    /// walk-in's plate. One notification per case and type.
+    /// walk-in's plate, and the lot's Staff what they must do or did (see StaffBookedBayAsync). One notification per
+    /// case, type and person.
     /// </summary>
     public async Task<bool> BookedBayCaseAsync(long caseId, string notificationType)
     {
@@ -222,7 +223,7 @@ public class NotificationJobs(
         if (bayCase == null)
             return false;
         var reservation = await pmsContext.Reservations.AsNoTracking().FirstOrDefaultAsync(r => r.Id == bayCase.ReservationId);
-        if (string.IsNullOrEmpty(reservation?.UserId))
+        if (reservation == null)
             return false;
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == bayCase.ParkingLotId);
@@ -250,8 +251,9 @@ public class NotificationJobs(
                 $"{lotName} paid you {Money(bayCase.CompensationPaid)} because bay {bookedBay} you booked was taken. It is in your XXIV wallet."),
             _ => null
         };
-        if (text == null)
-            return false;
+        var toStaff = await StaffBookedBayAsync(bayCase, reservation, notificationType, lotName, bookedBay, newBay, arrival);
+        if (text == null || string.IsNullOrEmpty(reservation.UserId))
+            return toStaff;
 
         var data = new Dictionary<string, string>
         {
@@ -268,7 +270,7 @@ public class NotificationJobs(
                 _ => null
             }
         };
-        return await SaveAndPushAsync(new UserNotification
+        var toCustomer = await SaveAndPushAsync(new UserNotification
         {
             UserId = reservation.UserId,
             Type = notificationType,
@@ -278,6 +280,74 @@ public class NotificationJobs(
             RefId = bayCase.Id.ToString(CultureInfo.InvariantCulture),
             EventAt = bayCase.ResolvedAt ?? bayCase.CreatedAt
         }, data);
+        return toCustomer || toStaff;
+    }
+
+    /// <summary>
+    /// The lot's Staff bell for a taken booked bay: the bay to deal with (move the booking in Exceptions &amp; Alerts),
+    /// the booking moved to its new bay, and the money sent to the customer's XXIV wallet (compensation and the
+    /// refunded deposit, in one notice). The Staff who resolved the case reads "You sent…". Never the walk-in's plate.
+    /// </summary>
+    private async Task<bool> StaffBookedBayAsync(BookedBayCase bayCase, Reservation reservation, string notificationType,
+        string lotName, string bookedBay, string newBay, string arrival)
+    {
+        static string Money(decimal value) => $"{value.ToString("N0", CultureInfo.InvariantCulture)} VND";
+        // The money notice goes out once: with the compensation, or with the deposit when no compensation was paid
+        var moneyNotice = (notificationType == NotificationTypes.CompensationPaid && bayCase.CompensationPaid > 0)
+                          || (notificationType == NotificationTypes.DepositRefunded && bayCase.CompensationPaid <= 0 && bayCase.DepositRefunded > 0);
+        if (notificationType is not (NotificationTypes.BookedBayTaken or NotificationTypes.BookedBayReassigned) && !moneyNotice)
+            return false;
+
+        var recipients = await pmsContext.Employees.AsNoTracking()
+            .Where(e => e.ParkingLotId == bayCase.ParkingLotId && e.Status == "Active" && e.Position != "Manager" && e.UserId != null)
+            .Select(e => e.UserId)
+            .ToListAsync();
+        if (!string.IsNullOrEmpty(bayCase.ResolvedBy) && notificationType != NotificationTypes.BookedBayTaken)
+            recipients.Add(bayCase.ResolvedBy);
+        recipients = recipients.Distinct().ToList();
+        if (recipients.Count == 0)
+            return false;
+
+        var money = bayCase.CompensationPaid > 0 && bayCase.DepositRefunded > 0
+            ? $"{Money(bayCase.CompensationPaid)} compensation and the {Money(bayCase.DepositRefunded)} deposit"
+            : bayCase.CompensationPaid > 0 ? $"{Money(bayCase.CompensationPaid)} compensation" : $"the {Money(bayCase.DepositRefunded)} deposit";
+        var data = new Dictionary<string, string>
+        {
+            ["audience"] = "staff",
+            ["caseId"] = bayCase.Id.ToString(CultureInfo.InvariantCulture),
+            ["reservationCode"] = reservation.ReservationCode,
+            ["lotId"] = bayCase.ParkingLotId.ToString(CultureInfo.InvariantCulture),
+            ["lotName"] = lotName,
+            ["bayCode"] = bookedBay,
+            ["newBayCode"] = newBay,
+            ["amount"] = moneyNotice ? (bayCase.CompensationPaid + bayCase.DepositRefunded).ToString(CultureInfo.InvariantCulture) : null
+        };
+
+        var sent = false;
+        foreach (var userId in recipients)
+        {
+            var resolver = userId == bayCase.ResolvedBy;
+            (string Title, string Message) text = notificationType switch
+            {
+                NotificationTypes.BookedBayTaken => ("Booked bay taken: move the booking",
+                    $"A walk-in parked in bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}. Move the booking to another free bay in Exceptions & Alerts, or compensate the customer when none is left."),
+                NotificationTypes.BookedBayReassigned => (resolver ? "You moved a booking to another bay" : "A booking moved to another bay",
+                    $"Booking {reservation.ReservationCode} at {lotName} now has bay {newBay ?? "a new bay"} instead of {bookedBay}. The customer was told; the first hour is free."),
+                _ => (resolver ? "You sent compensation to the customer" : "Compensation sent to a customer",
+                    $"{(resolver ? "You sent" : "The lot sent")} {money} to the XXIV wallet of the customer of booking {reservation.ReservationCode}, because bay {bookedBay} at {lotName} was taken. The customer was told.")
+            };
+            sent |= await SaveAndPushAsync(new UserNotification
+            {
+                UserId = userId,
+                Type = notificationType,
+                Title = text.Title,
+                Message = text.Message,
+                RefType = "BookedBayCase",
+                RefId = bayCase.Id.ToString(CultureInfo.InvariantCulture),
+                EventAt = bayCase.ResolvedAt ?? bayCase.CreatedAt
+            }, data);
+        }
+        return sent;
     }
 
     /// <summary>Daily: drops read notifications after 60 days and unread ones after 180. Returns the number deleted.</summary>

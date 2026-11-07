@@ -4,7 +4,7 @@ using PMS.Application.Models.Notifications;
 
 namespace PMS.Application.Services;
 
-/// <summary>The signed-in customer's notification bell: list, unread count, mark as read.</summary>
+/// <summary>The signed-in person's notification bell (customers, and Staff for their lot's cases): list, unread count, mark as read.</summary>
 public interface INotificationService
 {
     /// <summary>The newest notifications (at most <paramref name="take"/>) and the unread count.</summary>
