@@ -28,6 +28,9 @@ public class GateRequestModel
 {
     public long Id { get; set; }
 
+    /// <summary>A walk-in the Admin parking simulation sent to the entry lane (no booking, no account).</summary>
+    public bool IsSimulated { get; set; }
+
     public string Kind { get; set; }
 
     public string Status { get; set; }

@@ -335,7 +335,10 @@ public class GateRequestServiceTests
         var unpaid = await t.Gates.CheckInAsync(t.Lot.Id, new CheckInModel { PlateNumber = "30E-111.11", VehicleTypeId = t.TypeId("CAR_4") });
         await t.Gates.ConfirmEntryAsync(unpaid.Session.Id);
         var simulatedId = await PaidWalkInAsync(t, "30E-222.22");
-        t.Db.ParkingSessions.Single(s => s.Id == simulatedId).IsSimulated = true;
+        // Paid by the simulation itself (the Admin who sent it): it leaves on its own and is not queued
+        var simulated = t.Db.ParkingSessions.Single(s => s.Id == simulatedId);
+        simulated.IsSimulated = true;
+        simulated.SimulatedBy = t.Db.Payments.Where(p => p.SessionId == simulatedId).Select(p => p.CollectedByUserId).First();
         await t.Db.SaveChangesAsync();
 
         (await service.GetQueueAsync(t.Lot.Id, GateRequestKind.CheckOut)).Should().BeEmpty();

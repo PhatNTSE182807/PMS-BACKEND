@@ -42,4 +42,19 @@ public class GateRequest
 
     /// <summary>Why Staff refused, shown to the customer.</summary>
     public string Note { get; set; }
+
+    /// <summary>
+    /// A walk-in the Admin parking simulation sent to the entry lane (no booking, no account): the Staff checks it in
+    /// at the lane like any walk-in, into <see cref="SlotId"/>. UserId is then the Admin who sent it.
+    /// </summary>
+    public bool IsSimulated { get; set; }
+
+    /// <summary>Vehicle type of a simulated walk-in (the lane's choice for a real one).</summary>
+    public int? VehicleTypeId { get; set; }
+
+    /// <summary>Bay the simulated walk-in parks in; walk-ins sent later keep off it while it waits.</summary>
+    public int? SlotId { get; set; }
+
+    /// <summary>How long the simulated walk-in stays once in (already in simulated time), before it pays and leaves.</summary>
+    public int? SimulatedStaySeconds { get; set; }
 }

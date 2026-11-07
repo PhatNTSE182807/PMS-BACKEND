@@ -499,7 +499,12 @@ public static partial class AutomatedMigration
                 );
                 CREATE NONCLUSTERED INDEX [IX_GateRequests_Queue] ON [dbo].[GateRequests]([ParkingLotId] ASC, [Kind] ASC, [Status] ASC, [CreatedAt] ASC);
                 CREATE NONCLUSTERED INDEX [IX_GateRequests_UserId] ON [dbo].[GateRequests]([UserId] ASC, [CreatedAt] ASC);
-            END");
+            END;
+            -- Simulated walk-ins sent to the entry lane by the Admin parking simulation
+            IF COL_LENGTH('dbo.GateRequests', 'IsSimulated') IS NULL ALTER TABLE [dbo].[GateRequests] ADD [IsSimulated] [bit] NOT NULL DEFAULT 0;
+            IF COL_LENGTH('dbo.GateRequests', 'VehicleTypeId') IS NULL ALTER TABLE [dbo].[GateRequests] ADD [VehicleTypeId] [int] NULL;
+            IF COL_LENGTH('dbo.GateRequests', 'SlotId') IS NULL ALTER TABLE [dbo].[GateRequests] ADD [SlotId] [int] NULL;
+            IF COL_LENGTH('dbo.GateRequests', 'SimulatedStaySeconds') IS NULL ALTER TABLE [dbo].[GateRequests] ADD [SimulatedStaySeconds] [int] NULL;");
     }
 
     /// <summary>Customer notifications shown in the dashboard bell (dbo.UserNotifications). Idempotent.</summary>

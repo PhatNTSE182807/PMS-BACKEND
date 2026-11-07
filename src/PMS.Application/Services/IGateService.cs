@@ -15,7 +15,7 @@ public interface IGateService
     /// <summary>Sessions of the lot; by default the open ones (vehicles inside or entering).</summary>
     Task<IReadOnlyList<SessionResponseModel>> GetSessionsAsync(int lotId, string status, string plate);
 
-    Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize);
+    Task<StaffSessionHistoryPageModel> GetHistoryAsync(int lotId, string plate, int page, int pageSize, bool byExit = false);
 
     /// <summary>Parking-fee payments taken at the lot, newest first; <paramref name="method"/> "Cash" keeps cash only.</summary>
     Task<StaffPaymentHistoryPageModel> GetPaymentHistoryAsync(int lotId, string method, string plate, int page, int pageSize);

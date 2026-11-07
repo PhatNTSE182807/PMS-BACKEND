@@ -50,10 +50,10 @@ public class AdminSimulationController(
     public async Task<IActionResult> OccupyBookedBayAsync([FromQuery] int lotId, [FromQuery] long? reservationId = null, [FromQuery] int? slotId = null) =>
         Ok(ApiResult<BookedBayTakenModel>.Success(await walkIns.OccupyBookedBayAsync(lotId, reservationId, slotId)));
 
-    /// <summary>One simulated walk-in in a free bay picked on the 3D model.</summary>
+    /// <summary>One simulated walk-in for a free bay picked on the 3D model: it waits at the entry lane for the Staff.</summary>
     [HttpPost("walk-ins/bay")]
     public async Task<IActionResult> DeployWalkInToBayAsync([FromBody] DeployWalkInToBayModel model) =>
-        Ok(ApiResult<SimulatedWalkInModel>.Success(await walkIns.DeployToBayAsync(model)));
+        Ok(ApiResult<GateRequestModel>.Success(await walkIns.DeployToBayAsync(model)));
 
     /// <summary>The driver of a simulated vehicle reports a lost ticket (approved on the spot, or sent to the lot's Manager).</summary>
     [HttpPost("walk-ins/{sessionId:long}/lost-ticket")]
