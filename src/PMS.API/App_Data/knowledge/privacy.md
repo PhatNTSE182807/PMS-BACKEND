@@ -3,8 +3,8 @@
 ## What personal data XXIV Parking keeps
 
 XXIV Parking keeps your account details (name, email, phone number), your vehicles and their plates,
-entry and exit photos of your parking sessions, payments, and the photos of papers you upload for
-vehicle verification. Lots have signs at the gates telling drivers that cameras are in use.
+entry and exit photos of your parking sessions, payments, your wallet, and the photos of papers you
+upload for vehicle verification. The entry and exit lanes use cameras to read plates.
 
 ## Who can see your plate and photos
 
@@ -21,4 +21,10 @@ until the case is closed.
 ## Laws XXIV Parking follows
 
 XXIV Parking processes personal data under Vietnam's Personal Data Protection Law and its guiding
-decree. You agree to this processing when you create an account.
+decree. You agree to the Terms of Service and the Privacy Policy when you create an account.
+
+## The chat assistant and your data
+
+The chat assistant answers from XXIV Parking's help articles only. It does not read your account,
+your vehicles, your bookings or your payments, so do not type passwords, card numbers or ID numbers
+into the chat.

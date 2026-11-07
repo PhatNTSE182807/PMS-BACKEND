@@ -3,7 +3,8 @@
 ## What the XXIV wallet is
 
 Every customer account has an XXIV wallet in the app. It holds money for deposits and parking fees,
-and it receives refunds such as cancelled deposits and the rest of a deposit after check-out.
+and it receives refunds (cancelled deposits, the rest of a deposit after check-out, bookings
+cancelled by the lot) and the compensation when a booked bay is taken.
 
 ## Topping up the wallet
 
@@ -22,5 +23,6 @@ Withdraw the wallet balance in the app to a bank account or a MoMo account.
 
 ## Wallet history
 
-The wallet screen shows the balance and recent transactions: top-ups, payments, refunds and
-withdrawals. Refunds are listed as refunds, with the booking they came from.
+The wallet screen shows the balance, any amount held for a vehicle about to leave, and recent
+transactions: top-ups, payments, refunds, compensations and withdrawals. Refunds are listed as
+refunds, with the booking they came from.

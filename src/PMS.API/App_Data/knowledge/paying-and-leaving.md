@@ -25,15 +25,23 @@ has no exit window because the barrier opens straight away.
 
 ## Exit pass
 
-Every checked-in vehicle of a customer has an exit pass in the app. After the fee is paid, the exit
-lane scans the exit pass and opens the barrier. The exit pass is signed, so it also works when the
-lot's internet connection is down.
+Every checked-in vehicle of a customer has an exit pass (a QR code) in the app. After the fee is paid, the exit
+lane scans the exit pass and opens the barrier. The exit pass is signed, so a copied or edited code
+does not work.
+
+## Leaving after paying
+
+Once the fee is paid (in the app, at the counter, or when the fee is 0), your vehicle is put in the
+exit lane's queue. Drive to the exit lane: the staff there see your vehicle and open the barrier.
+You can also press the check-out button on the parked-vehicle card to tell the exit lane you are
+leaving.
 
 ## Payment is pending
 
 If a QR or online payment has been made but not confirmed yet, wait about a minute. The staff can
 check the payment with the payment provider or take another payment method; if the first payment
-then goes through as well, the extra payment is refunded automatically.
+then goes through as well, the extra payment is refunded automatically. A VNPay or MoMo payment link
+is valid for 15 minutes; after that, start the payment again.
 
 ## Vehicles parked for a long time
 
