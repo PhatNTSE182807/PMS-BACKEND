@@ -97,6 +97,11 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> GetBaySessionAsync(int lotId, int slotId) =>
         Ok(ApiResult<BaySessionModel>.Success(await gateService.GetBaySessionAsync(lotId, slotId)));
 
+    /// <summary>The same details by session id: a walk-in counted in its zone has no bay to look it up by.</summary>
+    [HttpGet("lots/{lotId:int}/sessions/{sessionId:long}/parked")]
+    public async Task<IActionResult> GetParkedSessionAsync(int lotId, long sessionId) =>
+        Ok(ApiResult<BaySessionModel>.Success(await gateService.GetParkedSessionAsync(lotId, sessionId)));
+
     [HttpGet("sessions/{id:long}")]
     public async Task<IActionResult> GetSessionAsync(long id) =>
         Ok(ApiResult<SessionResponseModel>.Success(await gateService.GetSessionAsync(id)));
