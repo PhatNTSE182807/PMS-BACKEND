@@ -8,6 +8,12 @@ public class DeployWalkInsModel
     /// <summary>How many vehicles to send in: from 1 up to the lot's free bays; the batch stops when a zone is full.</summary>
     public int Count { get; set; } = 20;
 
+    /// <summary>
+    /// Fill the lot: one vehicle for every bay a walk-in may take (Count is ignored). Car bays get 4- or 7-seat cars
+    /// in the ratio of the two car shares, motorbike bays get motorbikes.
+    /// </summary>
+    public bool FillLot { get; set; }
+
     /// <summary>Share of 4-seat cars in the batch, 0 to 100.</summary>
     public int CarPercent { get; set; } = 40;
 
@@ -20,7 +26,7 @@ public class DeployWalkInsModel
     /// <summary>Longest stay in hours (at most 72).</summary>
     public double MaxStayHours { get; set; } = 4;
 
-    /// <summary>Share of vehicles whose plate cannot be read, 0 to 100 (paper ticket only).</summary>
+    /// <summary>Share of vehicles whose plate cannot be read, 0 to 100 (paper ticket only). The Admin screen no longer offers it.</summary>
     public int NoPlatePercent { get; set; }
 }
 

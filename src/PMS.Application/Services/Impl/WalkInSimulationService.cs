@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers.Parking;
+using PMS.Application.Models.Layout;
 using PMS.Application.Models.Operations;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
@@ -20,7 +21,8 @@ public class WalkInSimulationService(
     LotScopeService lotScope,
     ParkingOptions options,
     TimeProvider clock,
-    BookedBayCaseService bookedBays = null)
+    BookedBayCaseService bookedBays = null,
+    ILayoutService layouts = null)
 {
     private const string AdminRole = "Admin";
     private const int MaxStayHours = 72;
@@ -49,7 +51,8 @@ public class WalkInSimulationService(
         // The batch is capped by the lot itself: never more vehicles than it has free bays
         if (freeBays.Count == 0)
             throw new BadRequestException("No free bay is left in this lot.");
-        if (model.Count < 1 || model.Count > freeBays.Count)
+        var count = model.FillLot ? freeBays.Count : model.Count;
+        if (count < 1 || count > freeBays.Count)
             throw new BadRequestException($"This lot has {freeBays.Count} free bays: send between 1 and {freeBays.Count} vehicles.");
 
         var types = await pmsContext.VehicleTypes.AsNoTracking().Where(t => t.IsActive).ToListAsync();
@@ -60,16 +63,18 @@ public class WalkInSimulationService(
             throw new BadRequestException("No vehicle type is active.");
 
         var adminId = lotScope.UserId;
-        var result = new DeployWalkInsResultModel { Requested = model.Count };
+        var result = new DeployWalkInsResultModel { Requested = count };
         var taken = new HashSet<string>();
         var typesById = types.ToDictionary(t => t.Id);
-        for (var i = 0; i < model.Count; i++)
+        for (var i = 0; i < count; i++)
         {
-            var type = PickType(model, car4, car7, motorbike);
+            // Filling the lot: take the bays in turn and send the vehicle each one is for
+            var fillBay = model.FillLot ? freeBays[0].Slot : null;
+            var type = fillBay != null ? TypeForBay(model, typesById, fillBay, car4, car7, motorbike) : PickType(model, car4, car7, motorbike);
             var isCar = type != motorbike;
             var noPlate = RandomNumberGenerator.GetInt32(100) < model.NoPlatePercent;
             var plate = noPlate ? null : await FreePlateAsync(isCar, taken);
-            var bay = PickBay(freeBays, typesById, type.Id);
+            var bay = fillBay ?? PickBay(freeBays, typesById, type.Id);
             if (bay == null)
             {
                 result.StoppedReason = $"No free {(isCar ? "car" : "motorbike")} bay is left in this lot.";
@@ -273,21 +278,73 @@ public class WalkInSimulationService(
     /// Bays a walk-in may park in, by the same rule as the entry lane (never a bay with a vehicle or a booking due
     /// soon), bays without any booking first.
     /// </summary>
-    private Task<List<ParkingInventory.WalkInBay>> FreeBaysAsync(int lotId) =>
-        new ParkingInventory(pmsContext).WalkInBaysAsync(lotId, null, Now, TimeSpan.FromMinutes(options.Reservations.HoldAheadMinutes));
+    /// <summary>
+    /// The bays a simulated walk-in may take: free, not held (Reserved), with no booking at all, and not one where the
+    /// 3D model already draws a walk-in that has no bay of its own (seeded or real walk-ins counted in their zone).
+    /// Bays with a parked vehicle are never offered, so the simulation never puts two vehicles in one bay.
+    /// </summary>
+    private async Task<List<ParkingInventory.WalkInBay>> FreeBaysAsync(int lotId)
+    {
+        var free = await new ParkingInventory(pmsContext).WalkInBaysAsync(lotId, null, Now, TimeSpan.FromMinutes(options.Reservations.HoldAheadMinutes));
+        var drawn = await CountedWalkInBaysAsync(lotId);
+        return free.Where(b => b.NextBookingAt == null && !drawn.Contains(b.Slot.Id)).ToList();
+    }
 
     /// <summary>
-    /// A random free bay that takes this vehicle type (cars share bays) and has no booking; only when none is left,
-    /// the bay whose booking is furthest ahead. Null when no bay fits.
+    /// Bays where the 3D model draws the walk-ins counted in a zone without a bay of their own: the zone counter's
+    /// vehicles beyond the bays already taken, in free bays without a booking first, then by level, row and column
+    /// (the same rule as walkInBays in the frontend's src/lib/lot-layout.ts).
     /// </summary>
+    private async Task<HashSet<int>> CountedWalkInBaysAsync(int lotId)
+    {
+        if (layouts == null)
+            return [];
+        Layout2DResponseModel plan;
+        try
+        {
+            plan = await layouts.Get2DAsync(lotId, LayoutDetail.Slots);
+        }
+        catch (NotFoundException)
+        {
+            // No published layout: the model draws no bay, so no bay is taken on it
+            return [];
+        }
+
+        var cells = plan.Floors
+            .SelectMany((floor, index) => (floor.Cells ?? []).Select(cell => (Cell: cell, Floor: index)))
+            .ToList();
+        var drawn = new HashSet<int>();
+        foreach (var zone in plan.ZoneCounters ?? [])
+        {
+            var inZone = cells.Where(c => c.Cell.ZoneId == zone.ZoneId).ToList();
+            var shown = inZone.Count(c => c.Cell.Status != SlotStatus.Available);
+            var missing = Math.Max(0, zone.Total - zone.Free - shown);
+            var taken = inZone.Where(c => c.Cell.Status == SlotStatus.Available)
+                .OrderBy(c => c.Cell.BookedLater).ThenBy(c => c.Floor).ThenBy(c => c.Cell.Row).ThenBy(c => c.Cell.Col)
+                .Take(missing);
+            foreach (var c in taken)
+                drawn.Add(c.Cell.SlotId);
+        }
+        return drawn;
+    }
+
+    /// <summary>A random allowed bay that takes this vehicle type (cars share bays); null when none fits.</summary>
     private static Slot PickBay(List<ParkingInventory.WalkInBay> freeBays, IReadOnlyDictionary<int, VehicleType> types, int vehicleTypeId)
     {
         var fitting = freeBays.Where(b => ParkingInventory.Compatible(types, b.Slot.VehicleTypeId, vehicleTypeId)).ToList();
-        var unbooked = fitting.Where(b => b.NextBookingAt == null).ToList();
-        if (unbooked.Count > 0)
-            return unbooked[RandomNumberGenerator.GetInt32(unbooked.Count)].Slot;
-        // Already ordered with the furthest booking first
-        return fitting.FirstOrDefault()?.Slot;
+        return fitting.Count == 0 ? null : fitting[RandomNumberGenerator.GetInt32(fitting.Count)].Slot;
+    }
+
+    /// <summary>The vehicle for one bay when filling the lot: a motorbike on a motorbike bay, else a 4- or 7-seat car by the shares.</summary>
+    private static VehicleType TypeForBay(DeployWalkInsModel model, IReadOnlyDictionary<int, VehicleType> types, Slot bay,
+        VehicleType car4, VehicleType car7, VehicleType motorbike)
+    {
+        var bayCode = types.GetValueOrDefault(bay.VehicleTypeId)?.Code;
+        if (ParkingInventory.Family(bayCode) != "car")
+            return motorbike ?? car4 ?? car7;
+        var carShares = model.CarPercent + model.Car7Percent;
+        var wants7 = carShares > 0 && RandomNumberGenerator.GetInt32(carShares) >= model.CarPercent;
+        return (wants7 ? car7 : car4) ?? car4 ?? car7 ?? motorbike;
     }
 
     /// <summary>
