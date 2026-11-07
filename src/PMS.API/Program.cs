@@ -24,7 +24,8 @@ builder.Services.AddSwagger();
 builder.Services.AddDataAccess(builder.Configuration)
     .AddApplication(builder.Environment)
     .AddVehicleDocuments(builder.Configuration, builder.Environment)
-    .AddParkingOperations(builder.Configuration);
+    .AddParkingOperations(builder.Configuration)
+    .AddAssistant(builder.Configuration);
 
 builder.Services.AddJwt(builder.Configuration);
 

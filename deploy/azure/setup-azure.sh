@@ -54,7 +54,9 @@ az webapp config appsettings set -g "$RESOURCE_GROUP" -n "$APP_NAME" -o none --s
     Database__UsePerUserDatabase=false \
     Database__AutoDetectLocalServer=false \
     "Database__ConnectionString=$CONNECTION_STRING" \
-    "JwtConfiguration__SecretKey=$JWT_SECRET"
+    "JwtConfiguration__SecretKey=$JWT_SECRET" \
+    Assistant__Provider=Gemini \
+    Assistant__IndexCachePath=/home/data/assistant/embeddings.json
 
 echo ">> Enable basic-auth publishing credentials (used by GitLab zip deploy)"
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
