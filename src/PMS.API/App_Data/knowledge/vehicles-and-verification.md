@@ -32,9 +32,15 @@ the approval notification, or book with another approved vehicle.
 
 ## If verification is rejected
 
-A rejected vehicle shows the reason on the Vehicles page. Fix the problem (for example a blurry
-photo or the wrong paper), upload new photos and submit again. If you think the decision is wrong,
-ask the staff at a lot for help.
+When staff reject the papers, the vehicle is removed from your account and you get a notification
+with the reason. The Vehicles page keeps showing the rejected vehicle and its reason for 30 days.
+Fix the problem (for example a blurry photo or the wrong paper), then add the vehicle again with
+new photos. If you think the decision is wrong, ask the staff at a lot for help.
+
+## One plate, one account
+
+A plate can be registered by only one account in the whole system. If the app says the plate is
+already registered by another account, ask the staff at a lot for help.
 
 ## How long XXIV Parking keeps your papers
 

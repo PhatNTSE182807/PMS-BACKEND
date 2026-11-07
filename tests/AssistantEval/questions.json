@@ -39,7 +39,8 @@
 
     { "id": "veh-01", "question": "Xác minh xe cần giấy tờ gì?", "source": "vehicles-and-verification.md#Papers needed for verification", "mustMention": ["registration certificate", "citizen ID"] },
     { "id": "veh-02", "question": "Duyệt hồ sơ xe mất bao lâu?", "source": "vehicles-and-verification.md#How long verification takes", "mustMention": ["24 hours"] },
-    { "id": "veh-03", "question": "Hồ sơ xe bị từ chối thì làm gì?", "source": "vehicles-and-verification.md#If verification is rejected", "mustMention": ["reason", "submit again"] },
+    { "id": "veh-03", "question": "Hồ sơ xe bị từ chối thì làm gì?", "source": "vehicles-and-verification.md#If verification is rejected", "mustMention": ["removed", "reason", "add the vehicle again"] },
+    { "id": "veh-06", "question": "Biển số của tôi báo đã được tài khoản khác đăng ký thì sao?", "source": "vehicles-and-verification.md#One plate, one account", "mustMention": ["only one account", "staff"] },
     { "id": "veh-04", "question": "Ảnh cà vẹt của tôi được lưu bao lâu?", "source": "vehicles-and-verification.md#How long XXIV Parking keeps your papers", "mustMention": ["30 days"] },
     { "id": "veh-05", "question": "Sao lịch sử gửi xe không hiện các lượt cũ của xe tôi?", "source": "lost-ticket-and-problems.md#Parking history", "mustMention": ["day they were verified"] },
 
