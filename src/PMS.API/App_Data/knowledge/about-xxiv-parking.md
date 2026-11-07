@@ -28,12 +28,19 @@ number of free spaces, updated in real time. Opening a lot shows its 3D map: boo
 coloured by status and walk-in areas show how full they are. The directions button shows a map
 with the driving route from your position, and a link to open the route in Google Maps.
 
-## When a lot is closed
+## When a lot is closed or under maintenance
 
-A lot can be temporarily closed or under maintenance. While it is closed it does not let new
-vehicles in and does not take new bookings, but vehicles already inside can still leave. Future
-bookings at a closed lot are cancelled by the lot and the deposit is refunded in full. A closed
-lot is shown as closed in the lot list and on the 3D map.
+A lot can be open, under maintenance, temporarily closed or closed for good, and the lot list and
+the 3D map show its status. A lot under maintenance can be viewed but does not take bookings. A
+temporarily closed lot does not let new vehicles in and does not take bookings, but vehicles
+already inside can still leave; it reopens by itself at the reopening time the lot set, and its
+future bookings are cancelled with the whole deposit refunded to your wallet. A lot closed for good
+does not reopen.
+
+## Why a lot shows as under maintenance
+
+A lot also shows as under maintenance while it has no manager assigned. It can still be viewed on
+the map, but it does not take bookings until a manager is assigned and the lot opens again.
 
 ## Getting help from staff
 

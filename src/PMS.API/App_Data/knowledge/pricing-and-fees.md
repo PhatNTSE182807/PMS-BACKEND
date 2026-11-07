@@ -13,6 +13,11 @@ first block is charged as soon as the vehicle enters, so there is no free period
 has started is charged in full. Some lots charge a different price for day and night hours; then
 each block costs the price of the hour it starts in. Fees are rounded up to the next 1,000 VND.
 
+## Per-entry price
+
+Some lots charge a single price per entry instead of by time. Then the vehicle pays that price once
+for each calendar day it is parked, however long it stays that day.
+
 ## Daily cap
 
 Many lots have a daily cap: the most you pay for one calendar day of parking, whatever the number of

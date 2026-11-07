@@ -40,8 +40,10 @@ A booking stops counting once it is completed, cancelled or expired.
 
 You can check in from 15 minutes before your arrival time until the hold ends (15 minutes after
 arrival without a deposit, 30 minutes with a deposit). At the entry lane, show the booking's QR code
-from the app, or let the camera read the plate of your verified vehicle. The QR code appears once the
-booking is confirmed (for a deposit booking, once the deposit is paid).
+from the app, give the booking code, or let the camera read the plate of your verified vehicle. You
+can also press the check-in button of the booking in the app when you arrive: the staff at the entry
+lane see your request and open the barrier. The QR code appears once the booking is confirmed (for
+a deposit booking, once the deposit is paid).
 
 ## Arriving early
 
@@ -74,14 +76,17 @@ minutes before the hold of your bay ends.
 
 ## When your booked bay is taken by another vehicle
 
-If you arrive on time and another vehicle is parked in your booked bay, the entry lane moves your
-booking to another free bay of the same type and your first hour is free. If no booked bay of your
-type is left, you park in the walk-in area instead, your whole deposit is refunded to your wallet
-and a compensation is paid into your wallet.
+If another vehicle is parked in your booked bay, the app tells you. The booking is moved to another
+free bay of the same type, by the system or by the staff, and your first hour (first price block) is
+free. If no bay of your type is left, the booking is cancelled, you park in the walk-in area
+instead, your whole deposit is refunded to your wallet and a compensation is paid into your wallet.
+Each lot sets the compensation in its price list; the standard amount is 100,000 VND for a car and
+50,000 VND for a motorbike.
 
 ## Why a booking can be refused
 
-Common reasons: the arrival time is in the past; the vehicle is not on your account or its papers
-are still waiting for review; the bay is for another vehicle type or out of service; the bay is
-already booked for part of that time; the lot is closed or not taking bookings; or you already
-have the maximum number of active bookings.
+Common reasons: the arrival time is in the past or more than 30 days ahead; the vehicle is not on
+your account or its papers are still waiting for review; the bay is for another vehicle type or out
+of service; the bay is already booked for part of that time; the lot is under maintenance,
+temporarily closed or has no manager yet; or you already have the maximum number of active
+bookings (2 per account, 1 per vehicle).

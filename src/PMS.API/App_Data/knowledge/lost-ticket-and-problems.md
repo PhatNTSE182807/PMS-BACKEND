@@ -8,6 +8,11 @@ certificate. When the staff approve the papers, the lot's lost-ticket fine is ad
 check-out and you can leave after paying. If the papers are not approved, the vehicle stays parked
 until new papers are uploaded and approved. The fine is set by each lot.
 
+## Lost ticket with a booking
+
+A vehicle that checked in with a booking does not use the lost-ticket process: open the booking or
+the parked-vehicle card in the app and show its exit pass at the exit lane.
+
 ## Customers with the app do not need a paper ticket
 
 A customer whose vehicle is verified, or who checked in with a booking, can use the exit pass in the
@@ -29,8 +34,7 @@ lot's free spaces in the app, or book a car bay in advance.
 Your parking history shows sessions you booked or paid for yourself, and every session of your
 verified vehicles from the day they were verified. Sessions from before verification are not shown.
 
-## Notifications
+## The vehicle has no readable plate
 
-The bell in the app shows notifications such as vehicle approved or rejected, check-in, check-out,
-booking reminders, refunds and price changes. Notifications arrive in real time while the app is
-open.
+If the camera cannot read the plate, the staff at the entry lane let the vehicle in by hand and
+write down why. Keep the parking ticket: it is how the vehicle is found at the exit.

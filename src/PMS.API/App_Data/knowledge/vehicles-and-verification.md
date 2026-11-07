@@ -2,9 +2,10 @@
 
 ## Adding a vehicle to your account
 
-On the Vehicles page, add a vehicle with its plate number and vehicle type (4-seat car, 7-seat car
-or motorbike). A customer can keep several vehicles and mark one as the default. A vehicle must be
-on your account before you can book a bay for it.
+On the Vehicles page, add a vehicle with its plate number, vehicle type (4-seat car, 7-seat car or
+motorbike) and colour. The page checks while you type that the plate is not already registered by
+another account. A customer can keep several vehicles and mark one as the default. A vehicle must
+be on your account and approved before you can book a bay or claim a motorbike bay for it.
 
 ## Why vehicles are verified
 
@@ -41,6 +42,11 @@ new photos. If you think the decision is wrong, ask the staff at a lot for help.
 
 A plate can be registered by only one account in the whole system. If the app says the plate is
 already registered by another account, ask the staff at a lot for help.
+
+## Changing the plate or the owner of a vehicle
+
+After the papers of a vehicle are submitted, its plate and owner cannot be edited. Remove the
+vehicle and add it again with the right details and new photos.
 
 ## How long XXIV Parking keeps your papers
 
