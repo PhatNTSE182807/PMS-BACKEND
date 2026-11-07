@@ -194,6 +194,7 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
             var typeId = s.VehicleTypeId ?? (s.VehicleId is { } id ? vehicleTypes.GetValueOrDefault(id) : null);
             return (s.SlotId, s.ZoneId, new ParkedVehicleModel
             {
+                SessionId = s.Id,
                 VehicleColor = VehiclePaint.ForSession(s, registered),
                 VehicleTypeCode = typeId is { } type ? typeCodes.GetValueOrDefault(type) : null
             });

@@ -28,6 +28,12 @@ public interface IGateService
     /// </summary>
     Task<BaySessionModel> GetBaySessionAsync(int lotId, int slotId);
 
+    /// <summary>
+    /// The same details for one open session of the lot, found by its id: a walk-in counted in its zone has no bay,
+    /// so the 3D model opens it this way. Lot-scoped; NotFound when the session is not open in this lot.
+    /// </summary>
+    Task<BaySessionModel> GetParkedSessionAsync(int lotId, long sessionId);
+
     /// <summary>Find the open session of a plate, a ticket QR or a session code at an exit lane.</summary>
     Task<SessionResponseModel> LookupAsync(int lotId, string plate, string ticket, string code);
 

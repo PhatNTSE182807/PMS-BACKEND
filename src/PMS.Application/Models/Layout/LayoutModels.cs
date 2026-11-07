@@ -135,6 +135,12 @@ public class ParkedVehicleModel
 
     /// <summary>CAR_4, CAR_7 or MOTORBIKE; null when unknown.</summary>
     public string VehicleTypeCode { get; set; }
+
+    /// <summary>
+    /// The open session of this vehicle, so Staff, Managers and Admins can open its details from the 3D model even
+    /// when it has no bay (a counted walk-in). Only an internal number: the details endpoint checks role and lot.
+    /// </summary>
+    public long SessionId { get; set; }
 }
 
 /* ------------------------------------------------------------------ */

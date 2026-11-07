@@ -147,7 +147,21 @@ public class GateService(
                           .OrderByDescending(s => s.EntryTime)
                           .FirstOrDefaultAsync()
                       ?? throw new NotFoundException("No vehicle is parked in this bay.");
+        return await ToBaySessionAsync(session);
+    }
 
+    public async Task<BaySessionModel> GetParkedSessionAsync(int lotId, long sessionId)
+    {
+        await lotScope.EnsureCanOperateAsync(lotId);
+        var session = await pmsContext.ParkingSessions.AsNoTracking()
+                          .FirstOrDefaultAsync(s => s.Id == sessionId && s.ParkingLotId == lotId && SessionStatus.Open.Contains(s.Status))
+                      ?? throw new NotFoundException("This vehicle is no longer in the lot.");
+        return await ToBaySessionAsync(session);
+    }
+
+    /// <summary>Customer type, time parked and a read-only fee so far of an open session (the 3D model's popup).</summary>
+    private async Task<BaySessionModel> ToBaySessionAsync(ParkingSession session)
+    {
         var customerName = session.CustomerId is { } customerId
             ? await pmsContext.Customers.AsNoTracking().Where(c => c.Id == customerId).Select(c => c.FullName).FirstOrDefaultAsync()
             : null;
