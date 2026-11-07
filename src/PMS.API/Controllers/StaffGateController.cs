@@ -61,7 +61,7 @@ public class StaffGateController(IGateService gateService, IReservationService r
         Ok(ApiResult<StaffSessionHistoryPageModel>.Success(await gateService.GetHistoryAsync(lotId, plate, page, pageSize,
             string.Equals(orderBy, "exit", StringComparison.OrdinalIgnoreCase))));
 
-    /// <summary>Parking-fee payments taken at an authorised lot, newest first; method=Cash keeps cash only.</summary>
+    /// <summary>Parking-fee payments taken at an authorised lot, newest first; method=Cash, Wallet, VNPay or MoMo keeps that method only.</summary>
     [HttpGet("lots/{lotId:int}/payments")]
     public async Task<IActionResult> GetPaymentHistoryAsync(int lotId, [FromQuery] string method = null, [FromQuery] string plate = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 10) =>
         Ok(ApiResult<StaffPaymentHistoryPageModel>.Success(await gateService.GetPaymentHistoryAsync(lotId, method, plate, page, pageSize)));
