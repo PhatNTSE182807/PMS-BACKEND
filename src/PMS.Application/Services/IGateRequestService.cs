@@ -25,6 +25,12 @@ public interface IGateRequestService
     Task<IReadOnlyList<GateRequestModel>> GetQueueAsync(int lotId, string kind);
 
     /// <summary>
+    /// Force check-out of a walk-in from the 3D lot model: the Staff takes what it owes in cash now and the vehicle
+    /// waits at the exit lane, where the Staff opens the barrier (Check-out tab) and the exit cameras show it leave.
+    /// </summary>
+    Task<GateRequestModel> ForceCheckOutAsync(long sessionId);
+
+    /// <summary>
     /// A simulated walk-in drives up to the lot's entry lane and waits in the check-in queue (Admin parking
     /// simulation): the Staff checks it in at the lane into <paramref name="slotId"/>, like a real walk-in.
     /// </summary>
