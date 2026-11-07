@@ -1,0 +1,87 @@
+# Booking a bay
+
+## How to book a bay
+
+Sign in, open a lot, pick a free booked bay of your vehicle's type on the 3D map, choose the
+vehicle and your arrival time, then choose whether to pay a deposit. Only one person can hold a
+bay: if someone else takes the same bay first, the app tells you the bay is no longer available
+and you pick another one.
+
+## How far ahead you can book
+
+A car bay can be booked for an arrival time up to 30 days ahead, never in the past. The bay stays
+free for other drivers until 2 hours before your arrival time, then it is held for you.
+
+## Booking modes: pay-as-you-go and scheduled
+
+A pay-as-you-go booking only has an arrival time: you pay for the time you actually park when you
+leave. A scheduled booking also has a departure time, so the bay is planned for a set window of at
+least 30 minutes and at most 24 hours.
+
+## Booking a motorbike bay
+
+Motorbike bays are not booked ahead. On a motorbike floor of the 3D map, tap a free bay to claim it
+right away, with no time to pick and no deposit. The staff at the entry lane then see your plate,
+and you pay the parking fee when you leave.
+
+## Booking with or without a deposit
+
+The deposit is optional. A booking without a deposit is confirmed at once and the bay is held for
+15 minutes after your arrival time. A booking with a deposit is confirmed when the deposit is paid
+and the bay is held longer: 30 minutes after your arrival time. See the deposits section for
+amounts and refunds.
+
+## How many bookings you can have
+
+An account can have at most 2 active bookings at a time, and each vehicle at most 1 active booking.
+A booking stops counting once it is completed, cancelled or expired.
+
+## Checking in with a booking
+
+You can check in from 15 minutes before your arrival time until the hold ends (15 minutes after
+arrival without a deposit, 30 minutes with a deposit). At the entry lane, show the booking's QR code
+from the app, or let the camera read the plate of your verified vehicle. The QR code appears once the
+booking is confirmed (for a deposit booking, once the deposit is paid).
+
+## Arriving early
+
+If you arrive more than 15 minutes before your arrival time, the booking cannot check in yet. You
+can wait until the check-in time opens, or enter as a walk-in vehicle if walk-in spaces are free;
+your booking stays valid.
+
+## Arriving late or not coming (no-show)
+
+If you do not check in before the hold ends, the booking becomes a no-show, the bay is released and
+a paid deposit is kept. If you arrive after that, you can still enter as a walk-in vehicle when the
+lot has free walk-in spaces.
+
+## Changing a booking
+
+A confirmed booking can be changed in the app until 30 minutes before the arrival time: a new
+arrival time, a new departure time, a different booking mode or a different bay. After that
+deadline the booking can no longer be changed.
+
+## Cancelling a booking
+
+Cancel a booking in the app under My bookings. Cancelling at least 30 minutes before the arrival
+time refunds the whole deposit to your XXIV wallet. Cancelling later than that keeps the deposit.
+A booking without a deposit can be cancelled with nothing to refund.
+
+## Booking reminders
+
+The app sends a reminder notification 15 minutes before your arrival time and another one 5
+minutes before the hold of your bay ends.
+
+## When your booked bay is taken by another vehicle
+
+If you arrive on time and another vehicle is parked in your booked bay, the entry lane moves your
+booking to another free bay of the same type and your first hour is free. If no booked bay of your
+type is left, you park in the walk-in area instead, your whole deposit is refunded to your wallet
+and a compensation is paid into your wallet.
+
+## Why a booking can be refused
+
+Common reasons: the arrival time is in the past; the vehicle is not on your account or its papers
+are still waiting for review; the bay is for another vehicle type or out of service; the bay is
+already booked for part of that time; the lot is closed or not taking bookings; or you already
+have the maximum number of active bookings.
