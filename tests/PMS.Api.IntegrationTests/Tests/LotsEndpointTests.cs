@@ -135,7 +135,7 @@ public class LotsEndpointTests
         // 5. Delete (Soft delete): only a closed lot can be deleted
         var closeResponse = await adminClient.PatchAsync($"/api/lots/{lotId}/status", new JsonContent(new UpdateParkingLotStatusModel
         {
-            Status = "TemporarilyClosed",
+            Status = "Closed",
             ClosureReason = "Lot removed"
         }));
         closeResponse.StatusCode.Should().Be(HttpStatusCode.OK);

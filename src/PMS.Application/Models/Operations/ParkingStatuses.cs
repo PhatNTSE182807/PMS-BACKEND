@@ -85,6 +85,8 @@ public static class LotStatus
     public const string Active = "Active";
     public const string Maintenance = "Maintenance";
     public const string TemporarilyClosed = "TemporarilyClosed";
+    /// <summary>Closed for good, with no reopening time: the state a lot must be in before it is deleted.</summary>
+    public const string Closed = "Closed";
     public const string Inactive = "Inactive";
 }
 

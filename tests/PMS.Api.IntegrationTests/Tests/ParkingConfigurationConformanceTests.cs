@@ -122,7 +122,7 @@ public class ParkingConfigurationConformanceTests
         // Close the lot first, so the vehicle inside is the only reason the delete is refused
         (await adminClient.PatchAsync($"/api/lots/{lotId}/status", new JsonContent(new UpdateParkingLotStatusModel
         {
-            Status = "TemporarilyClosed",
+            Status = "Closed",
             ClosureReason = "Lot removed"
         }))).StatusCode.Should().Be(HttpStatusCode.OK);
 
