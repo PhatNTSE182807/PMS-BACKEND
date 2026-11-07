@@ -22,6 +22,9 @@ public static class ApiDependencyInjection
     /// <summary>Rate limit for the forgot / reset password endpoints, which send emails and check tokens.</summary>
     public const string PasswordResetRateLimit = "password-reset";
 
+    /// <summary>Rate limit for the public chat assistant: every question runs the language model.</summary>
+    public const string AssistantChatRateLimit = "assistant-chat";
+
     /// <summary>
     /// Public layout: 120 requests a minute per client IP, enough to poll statuses every second.
     /// Password reset: 5 requests per 15 minutes per client IP, so nobody can flood a mailbox.
@@ -38,6 +41,16 @@ public static class ApiDependencyInjection
                     {
                         PermitLimit = 5,
                         Window = TimeSpan.FromMinutes(15),
+                        QueueLimit = 0
+                    }));
+            // 10 questions a minute per client IP: plenty for a person, too few to tie up the model
+            options.AddPolicy(AssistantChatRateLimit, context =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 10,
+                        Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0
                     }));
             options.AddPolicy(PublicLayoutRateLimit, context =>

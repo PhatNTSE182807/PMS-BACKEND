@@ -26,5 +26,6 @@ decree. You agree to the Terms of Service and the Privacy Policy when you create
 ## The chat assistant and your data
 
 The chat assistant answers from XXIV Parking's help articles only. It does not read your account,
-your vehicles, your bookings or your payments, so do not type passwords, card numbers or ID numbers
-into the chat.
+your vehicles, your bookings or your payments. Your questions are sent to Google's Gemini service to
+find the right help article and write the answer, so do not type passwords, card numbers, ID
+numbers or plate numbers into the chat.

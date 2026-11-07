@@ -60,6 +60,13 @@ Thêm trong Azure Portal → Web app → **Settings → Environment variables**,
 
 Forgot password gửi link về frontend: đặt `App__FrontendBaseUrl` = URL frontend đã deploy (ví dụ `https://pms-web.example.com`), nếu không link sẽ trỏ về `http://localhost:5173`. Cần cấu hình `SmtpSettings__*` để email được gửi đi.
 
+Chat assistant (Gemini): `setup-azure.sh` already sets `Assistant__Provider=Gemini` and
+`Assistant__IndexCachePath=/home/data/assistant/embeddings.json`. Add the Gemini API key from
+Google AI Studio as `Assistant__ApiKey` (never commit it). Without the key the API still runs and
+the assistant only returns the closest help sections; set `Assistant__Enabled=false` to hide the
+chat button entirely. Locally, keep the key in user-secrets:
+`dotnet user-secrets set "Assistant:ApiKey" "<key>" --project src/PMS.API`.
+
 ### Xem log khi lỗi
 
 Azure Portal → Web app → **Monitoring → Log stream**.
