@@ -30,6 +30,24 @@ public class DeployWalkInsModel
     public int NoPlatePercent { get; set; }
 }
 
+/// <summary>One simulated walk-in parked in a bay the Admin picked on the 3D model.</summary>
+public class DeployWalkInToBayModel
+{
+    public int LotId { get; set; }
+
+    /// <summary>The bay: free, not held, not booked and not where the model draws a walk-in without a bay.</summary>
+    public int SlotId { get; set; }
+
+    /// <summary>CAR_4, CAR_7 or MOTORBIKE; it must fit the bay. Null picks the bay's own type.</summary>
+    public string VehicleTypeCode { get; set; }
+
+    /// <summary>Shortest stay in hours. While the parking simulation is on, one hour lasts one pricing block.</summary>
+    public double MinStayHours { get; set; } = 2;
+
+    /// <summary>Longest stay in hours (at most 72).</summary>
+    public double MaxStayHours { get; set; } = 4;
+}
+
 public class DeployWalkInsResultModel
 {
     public int Requested { get; set; }
