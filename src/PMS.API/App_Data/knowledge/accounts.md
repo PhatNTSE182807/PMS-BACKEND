@@ -18,6 +18,11 @@ one special character (for example `!`, `@` or `#`). The same rule applies to ev
 A customer can sign in with a Google account. An account created with Google can also set its own
 password later, then sign in with email and password too.
 
+## Signing in with a one-time code (OTP)
+
+Signing in with a one-time code (OTP) sent by text message or email, and two-step verification, are
+not available. Sign in with your email and password, or with Google.
+
 ## Forgot password
 
 On the sign-in page, choose "Forgot password" and enter the account's email. XXIV Parking emails

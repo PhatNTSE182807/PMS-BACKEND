@@ -13,13 +13,23 @@ XXIV Parking serves three vehicle types: 4-seat cars, 7-seat cars and motorbikes
 e-bikes and electric-vehicle charging are not offered. Each lot has its own prices for each
 vehicle type.
 
-## Booked bays and walk-in spaces
+## Bicycles and electric bikes
 
-A lot has two kinds of spaces. Booked bays are fixed, signposted bays that customers reserve in
-advance in the app. Walk-in spaces are for vehicles that arrive without a booking: a walk-in
-vehicle is not given a numbered bay in advance, and the lot only counts how many walk-in spaces
-are still free in each zone. When the walk-in spaces of a zone are full, walk-in vehicles of that
-type cannot enter until a space frees up.
+XXIV Parking lots do not accept bicycles or electric bikes (e-bikes), and there are no bicycle
+racks. Only 4-seat cars, 7-seat cars and motorbikes can park.
+
+## Electric vehicle charging
+
+XXIV Parking lots have no charging stations for electric cars or electric motorbikes. An electric
+car or motorbike can still park like any other vehicle of its type, but it cannot be charged.
+
+## Difference between booked bays and walk-in spaces
+
+A lot has two kinds of spaces. Booked bays (reserved bays) are fixed, signposted bays that customers
+reserve in advance in the app; each booking has its own numbered bay. Walk-in spaces are for
+vehicles that arrive without a booking: a walk-in vehicle is not given a numbered bay in advance,
+and the lot only counts how many walk-in spaces are still free in each zone. When the walk-in
+spaces of a zone are full, walk-in vehicles of that type cannot enter until a space frees up.
 
 ## Finding a lot and checking free spaces
 
