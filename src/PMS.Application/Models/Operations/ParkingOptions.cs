@@ -46,6 +46,9 @@ public class ParkingOptions
     /// <summary>Check-in opens this long before the arrival time (BR-02).</summary>
     public TimeSpan EarlyArrivalTime => Pick(s => s.EarlyArrivalSeconds, Reservations.EarlyArrivalMinutes);
 
+    /// <summary>Gap between two bookings of one bay (always in real minutes).</summary>
+    public TimeSpan TurnoverTime => TimeSpan.FromMinutes(Math.Max(0, Reservations.TurnoverMinutes));
+
     /// <summary>Full refund and changes allowed until this long before arrival (BR-04).</summary>
     public TimeSpan CancelRefundTime => Pick(s => s.CancelRefundSeconds, Reservations.CancelRefundMinutes);
 
@@ -84,6 +87,12 @@ public class ReservationRules
 
     /// <summary>BR-06: the deposit must be paid within this many minutes of picking the slot.</summary>
     public int DepositMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// Team rule (2026-11-09): the gap a bay keeps between one scheduled booking's departure and the next booking's
+    /// arrival, so a booking of 1:00 to 3:00 lets the next one start at 3:30.
+    /// </summary>
+    public int TurnoverMinutes { get; set; } = 30;
 
     /// <summary>BR-02: check-in opens this many minutes before the arrival time.</summary>
     public int EarlyArrivalMinutes { get; set; } = 15;
