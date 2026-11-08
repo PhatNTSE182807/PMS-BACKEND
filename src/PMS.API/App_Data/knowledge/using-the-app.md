@@ -50,7 +50,7 @@ delete them.
 
 ## What the chat assistant can help with
 
-The chat assistant answers questions about XXIV Parking: booking, deposits and refunds, prices and
+Virgo, the chat assistant (the round XXIV logo at the bottom right), answers questions about XXIV Parking: booking, deposits and refunds, prices and
 fees, paying and leaving, the wallet, vehicle verification, lost tickets and your account. It cannot
 see your own bookings, vehicles or payments and cannot make changes for you; use the app pages or
 ask the staff at the lot for that.

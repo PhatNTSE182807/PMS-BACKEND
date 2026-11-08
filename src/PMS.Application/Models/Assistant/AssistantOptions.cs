@@ -29,7 +29,21 @@ public class AssistantOptions
     public string ApiKey { get; set; }
 
     /// <summary>Model that writes the answers.</summary>
-    public string ChatModel { get; set; } = "gemini-3.8-flash";
+    public string ChatModel { get; set; } = "gemini-3.5-flash-lite";
+
+    /// <summary>
+    /// Models tried in order when the main one is overloaded or out of quota, which happens on the
+    /// free tier at busy times.
+    /// </summary>
+    public List<string> FallbackChatModels { get; set; } = ["gemini-3.6-flash", "gemini-3.8-flash"];
+
+    /// <summary>The main chat model followed by the fallbacks, without blanks or repeats.</summary>
+    public IReadOnlyList<string> ChatModels =>
+        new[] { ChatModel }.Concat(FallbackChatModels ?? [])
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Select(m => m.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>Embedding model; it must be multilingual because questions are Vietnamese and the help is English.</summary>
     public string EmbeddingModel { get; set; } = "gemini-embedding-001";
@@ -44,7 +58,7 @@ public class AssistantOptions
     public int TopK { get; set; } = 4;
 
     /// <summary>Sections with a lower cosine similarity to the question are left out; tune it with the evaluation set.</summary>
-    public double MinScore { get; set; } = 0.45;
+    public double MinScore { get; set; } = 0.6;
 
     /// <summary>Longest question accepted, in characters.</summary>
     public int MaxQuestionLength { get; set; } = 500;
@@ -57,6 +71,12 @@ public class AssistantOptions
 
     /// <summary>Timeout of one call to the model API.</summary>
     public int RequestTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>A chat model that has not started its answer within this time is skipped for the next fallback.</summary>
+    public int ChatStartTimeoutSeconds { get; set; } = 10;
+
+    /// <summary>How long an answer to a stand-alone question is reused for the same question; 0 turns the cache off.</summary>
+    public int AnswerCacheMinutes { get; set; } = 360;
 
     /// <summary>The base URL to call, with a trailing slash.</summary>
     public string ResolvedBaseUrl =>
