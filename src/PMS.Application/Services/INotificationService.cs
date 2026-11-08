@@ -41,9 +41,12 @@ public interface IUserNotificationPublisher
     /// <summary>
     /// Something happened to a booked bay a walk-in took (BookedBayCase): <paramref name="notificationType"/> is one of the
     /// NotificationTypes BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded or
-    /// CompensationPaid. Tells the booking's customer.
+    /// CompensationPaid. Tells the booking's customer, the lot's Staff and, once the case is handled, the lot's Manager.
     /// </summary>
     void BookedBayCaseChanged(long caseId, string notificationType);
+
+    /// <summary>A Staff closed their cash drawer: tells the lot's Manager when, and how the count compares.</summary>
+    void CashDrawerClosed(long drawerId);
 }
 
 /// <summary>Real-time push of a new notification to its owner (SignalR in PMS.API).</summary>

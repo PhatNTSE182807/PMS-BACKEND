@@ -24,4 +24,7 @@ public class HangfireUserNotificationPublisher(IBackgroundJobClient jobs) : IUse
 
     public void BookedBayCaseChanged(long caseId, string notificationType) =>
         jobs.Enqueue<NotificationJobs>(j => j.BookedBayCaseAsync(caseId, notificationType));
+
+    public void CashDrawerClosed(long drawerId) =>
+        jobs.Enqueue<NotificationJobs>(j => j.CashDrawerClosedAsync(drawerId));
 }

@@ -116,7 +116,8 @@ public class NotificationTests : IDisposable
             NotificationTypes.BookedBayFreed,
             NotificationTypes.BookingCancelledByLot,
             NotificationTypes.DepositRefunded,
-            NotificationTypes.CompensationPaid);
+            NotificationTypes.CompensationPaid,
+            NotificationTypes.CashDrawerClosed);
         NotificationTypes.All.Should().OnlyHaveUniqueItems();
     }
 

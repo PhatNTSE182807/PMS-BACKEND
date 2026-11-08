@@ -28,11 +28,14 @@ public static class NotificationTypes
     public const string DepositRefunded = "DepositRefunded";
     /// <summary>A compensation was paid into the XXIV wallet.</summary>
     public const string CompensationPaid = "CompensationPaid";
+    /// <summary>Manager bell: a Staff closed their cash drawer (when, counted vs expected, the difference).</summary>
+    public const string CashDrawerClosed = "CashDrawerClosed";
 
     public static readonly string[] All =
     [
         VehicleApproved, VehicleRejected, CheckIn, CheckOut, PriceChanged,
-        BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid
+        BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid,
+        CashDrawerClosed
     ];
 }
 
