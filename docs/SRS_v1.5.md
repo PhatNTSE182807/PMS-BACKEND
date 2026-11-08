@@ -239,7 +239,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | FR-RSV-07 | Cấn trừ cọc khi check-out; phí nhỏ hơn cọc thì phần dư hoàn vào ví (BR-03) | Hệ thống | M |
 | FR-RSV-08 | Callback cọc đến sau khi đặt chỗ Hết hạn: tự hoàn tiền và thông báo | Hệ thống, E1 | M |
 | FR-RSV-09 | Hủy phía bãi: Manager hủy đặt chỗ của bãi mình, hoặc bãi Tạm đóng; hoàn 100% cọc và thông báo | Manager, Hệ thống | M |
-| FR-RSV-10 | Nhắc lịch trong app: 15 phút trước giờ đến và 5 phút trước khi hết thời gian giữ | Hệ thống | S |
+| FR-RSV-10 | Nhắc lịch trong app: 15 phút trước giờ đến và 5 phút trước khi hết thời gian giữ. Đặt chỗ theo lịch có xe đang đỗ: nhắc 15 phút trước giờ rời; quá giờ rời 5 phút thì báo khách và Staff của bãi (không phụ phí, phí vẫn tính theo bảng giá). Đặt chỗ bị chuyển slot lúc bắt đầu giữ chỗ vì slot cũ còn xe thì báo khách slot mới | Hệ thống | S |
 | FR-RSV-11 | Xe máy nhận chỗ ngay: chạm slot trống trên tầng xe máy, không chọn giờ, không cọc; hệ thống gửi yêu cầu check-in tới làn vào để Staff thấy biển số; phí trả khi ra | User | M |
 | FR-RSV-12 | Giới hạn: tối đa 2 đặt chỗ hiệu lực mỗi tài khoản và 1 mỗi xe; mỗi xe chỉ một session mở | Hệ thống | M |
 | FR-RSV-13 | Manager xem đặt chỗ hôm nay và sắp tới của bãi; Staff tra đặt chỗ theo QR, mã hoặc biển số tại làn vào | Manager, Staff | M |
@@ -428,6 +428,8 @@ Edge Service và vận hành offline chưa được xây dựng ở v1.5 (FR-OPS
 | User bỏ dở thanh toán cọc | Hết 10 phút thì đặt chỗ Hết hạn, slot về Trống |
 | Callback cọc đến muộn | Tự hoàn tiền (FR-RSV-08) |
 | Đổi giờ đến / giờ rời / chế độ / slot | Cho phép tới 30 phút trước giờ đến; ghi lịch sử thay đổi |
+| Đặt theo lịch: xe còn đỗ quá giờ rời | Không phụ phí, phí tính theo thời gian đỗ thật; nhắc 15 phút trước giờ rời, quá 5 phút thì báo khách và Staff (FR-RSV-10) |
+| Slot đặt còn xe khi bắt đầu giữ chỗ (2 giờ trước giờ đến) | Hệ thống chuyển đặt chỗ sang slot trống cùng loại và báo khách; không còn slot thì xử lý tại cổng theo BR-08 |
 | Bãi Tạm đóng hoặc Manager hủy | Hủy phía bãi, hoàn 100% cọc, thông báo |
 | Vượt số đặt chỗ tối đa | Từ chối đặt mới |
 | Xe chưa có trên tài khoản hoặc đang chờ duyệt | Từ chối đặt |

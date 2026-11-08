@@ -74,7 +74,22 @@ A booking without a deposit can be cancelled with nothing to refund.
 ## Booking reminders
 
 The app sends a reminder notification 15 minutes before your arrival time and another one 5
-minutes before the hold of your bay ends.
+minutes before the hold of your bay ends. With a scheduled booking, the app also reminds you 15
+minutes before your departure time while your vehicle is still parked.
+
+## Leaving after your scheduled departure time
+
+There is no fine for leaving after the departure time of a scheduled booking: the parking fee always
+follows the real parking time, so you simply pay the extra time by the lot's price list. Please still
+leave on time, because another driver may have booked your bay after you. If your vehicle is still
+parked 5 minutes after the departure time, the app tells you and the lot's staff are told too; a
+later booking of your bay is moved to another free bay of the same type.
+
+## Your booking moved before you arrived
+
+Your bay is held for you from 2 hours before your arrival time. If the bay is still in use at that
+moment (for example a vehicle staying past its own booking), your booking moves to another free bay of
+the same type and the app tells you the new bay. Nothing else about the booking changes.
 
 ## When your booked bay is taken by another vehicle
 
