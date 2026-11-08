@@ -79,6 +79,8 @@ public static class ApiDependencyInjection
         // Customer notification bell
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IUserNotificationPublisher, HangfireUserNotificationPublisher>();
+        // Every active customer hears about a price change, not only those with a booking
+        services.AddScoped<ICustomerAudience, IdentityCustomerAudience>();
         services.AddScoped<IUserNotificationNotifier, SignalRUserNotificationNotifier>();
 
         var database = configuration.GetSection("Database").Get<DatabaseConfiguration>() ?? new DatabaseConfiguration();

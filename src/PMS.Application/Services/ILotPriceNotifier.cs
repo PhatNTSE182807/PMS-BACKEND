@@ -23,7 +23,10 @@ public sealed record LotPriceNotice(
     /// <summary>Text of the notification sent to customers with an upcoming booking for this vehicle type at the lot.</summary>
     public string BookingMessage => $"The pricing rules for {LotName} have been updated. Please check your booking details.";
 
-    /// <summary>The full price change, for the clients watching the lot.</summary>
+    /// <summary>"Motorbike price changed at Cong Hoa Parking Lot": the vehicle type first, so a customer sees at once whether it concerns them.</summary>
+    public string Title => string.IsNullOrWhiteSpace(VehicleTypeName) ? $"Price changed at {LotName}" : $"{VehicleTypeName} price changed at {LotName}";
+
+    /// <summary>The full price change, for the clients watching the lot and the customers without a booking there.</summary>
     public string Message =>
         (HeadlineChanged ? $"Price for {Subject} changed from {PreviousSummary} to {Summary}." : $"Price for {Subject} is now {Summary}.")
         + " Vehicles already parked keep the price they entered with.";

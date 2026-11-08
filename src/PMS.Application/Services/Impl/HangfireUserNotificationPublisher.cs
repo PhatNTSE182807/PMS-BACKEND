@@ -19,8 +19,9 @@ public class HangfireUserNotificationPublisher(IBackgroundJobClient jobs) : IUse
     public void SessionCheckedOut(long sessionId) =>
         jobs.Enqueue<NotificationJobs>(j => j.SessionCheckedOutAsync(sessionId));
 
-    public void LotPriceChanged(string title, string message, string eventKey, int lotId, int vehicleTypeId, string lotName) =>
-        jobs.Enqueue<NotificationJobs>(j => j.LotPriceChangedAsync(title, message, eventKey, lotId, vehicleTypeId, lotName));
+    public void LotPriceChanged(string title, string message, string eventKey, int lotId, int vehicleTypeId, string lotName,
+        string allTitle = null, string allMessage = null) =>
+        jobs.Enqueue<NotificationJobs>(j => j.LotPriceChangedAsync(title, message, eventKey, lotId, vehicleTypeId, lotName, allTitle, allMessage));
 
     public void BookedBayCaseChanged(long caseId, string notificationType) =>
         jobs.Enqueue<NotificationJobs>(j => j.BookedBayCaseAsync(caseId, notificationType));
