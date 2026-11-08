@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using PMS.Application.Models.Notifications;
 using PMS.Application.Models.Operations;
 using PMS.Application.Services;
 using PMS.Application.Services.Impl;
@@ -26,7 +27,8 @@ public class ParkingJobs(
     TimeProvider clock,
     IParkingRealtimeNotifier notifier = null,
     WalkInSimulationService walkIns = null,
-    BookedBayCaseService bookedBays = null)
+    BookedBayCaseService bookedBays = null,
+    IUserNotificationPublisher notices = null)
 {
     public const string MinutelyJobId = "parking-timeouts";
     public const string OverdueJobId = "parking-overdue-sessions";
@@ -51,7 +53,7 @@ public class ParkingJobs(
             var noShows = await MarkNoShowsAsync();
             // Bookings made ahead lock their bay shortly before arrival
             await reservations.ActivateDueHoldsAsync();
-            var reminders = await SendRemindersAsync();
+            var reminders = await SendRemindersAsync() + await SendDepartureNoticesAsync();
             var cancelled = await CancelUnconfirmedEntriesAsync();
             var released = await ReleaseStalePaymentRequestsAsync();
             var checkedPayments = await payments.CheckPendingPaymentsAsync();
@@ -162,6 +164,44 @@ public class ParkingJobs(
         }
 
         await SaveAndFlushAsync();
+        return sent;
+    }
+
+    /// <summary>
+    /// Scheduled bookings with the vehicle still parked: a reminder before the planned departure, then an overdue
+    /// notice (customer and the lot's Staff) once it has passed by the grace time. Each goes out once per booking;
+    /// a vehicle that has paid and is driving out is not told it is overdue.
+    /// </summary>
+    public async Task<int> SendDepartureNoticesAsync()
+    {
+        if (notices == null)
+            return 0;
+
+        var rules = options.Reservations;
+        var parked = await pmsContext.Reservations.AsNoTracking()
+            .Where(r => r.Status == ReservationStatus.CheckedIn && r.BookingMode == BookingMode.Scheduled
+                        && r.DepartureTime != null && r.DepartureTime <= Now.AddMinutes(rules.DepartureReminderMinutes)
+                        && r.UserId != null)
+            .Select(r => new { r.Id, r.UserId, Departure = r.DepartureTime!.Value })
+            .ToListAsync();
+
+        var sent = 0;
+        foreach (var booking in parked)
+        {
+            var refId = booking.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var type = Now >= booking.Departure.AddMinutes(rules.OverstayGraceMinutes) ? NotificationTypes.DepartureOverdue
+                : Now < booking.Departure ? NotificationTypes.DepartureSoon
+                : null;
+            if (type == null
+                || await pmsContext.UserNotifications.AnyAsync(n => n.UserId == booking.UserId && n.Type == type && n.RefId == refId))
+                continue;
+            if (type == NotificationTypes.DepartureOverdue
+                && await pmsContext.ParkingSessions.AnyAsync(s => s.ReservationId == booking.Id && s.Status == SessionStatus.Paid))
+                continue;
+
+            notices.ReservationNotice(booking.Id, type);
+            sent++;
+        }
         return sent;
     }
 

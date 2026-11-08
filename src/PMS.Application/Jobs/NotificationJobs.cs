@@ -350,6 +350,113 @@ public class NotificationJobs(
         return sent;
     }
 
+    /// <summary>
+    /// Booking notices: the planned departure of a parked vehicle's scheduled booking is near (DepartureSoon) or has
+    /// passed (DepartureOverdue, also to the lot's Staff), or the booking moved away from a bay still in use when its
+    /// hold started (BookingBayMoved). Nothing is sent once the situation is over (the vehicle left, the booking ended).
+    /// </summary>
+    public async Task<bool> ReservationNoticeAsync(long reservationId, string notificationType, int? previousSlotId)
+    {
+        var reservation = await pmsContext.Reservations.AsNoTracking().FirstOrDefaultAsync(r => r.Id == reservationId);
+        if (reservation == null || string.IsNullOrEmpty(reservation.UserId))
+            return false;
+
+        var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == reservation.ParkingLotId);
+        var lotName = lot?.Name ?? "the parking lot";
+        var slotIds = new[] { reservation.SlotId ?? 0, previousSlotId ?? 0 };
+        var codes = await pmsContext.Slots.AsNoTracking().Where(s => slotIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Code);
+        var bay = reservation.SlotId is { } slotId ? codes.GetValueOrDefault(slotId) : null;
+        var data = new Dictionary<string, string>
+        {
+            ["reservationId"] = reservation.Id.ToString(CultureInfo.InvariantCulture),
+            ["reservationCode"] = reservation.ReservationCode,
+            ["lotId"] = reservation.ParkingLotId.ToString(CultureInfo.InvariantCulture),
+            ["lotName"] = lot?.Name,
+            ["bayCode"] = bay
+        };
+
+        (string Title, string Message) text;
+        string refId = reservation.Id.ToString(CultureInfo.InvariantCulture);
+        switch (notificationType)
+        {
+            case NotificationTypes.DepartureSoon or NotificationTypes.DepartureOverdue:
+            {
+                // Only while the vehicle is still parked on this booking
+                if (reservation.Status != ReservationStatus.CheckedIn || reservation.DepartureTime is not { } departureUtc)
+                    return false;
+                var departure = LocalTime(departureUtc, lot);
+                data["departureTime"] = Iso(departureUtc);
+                if (notificationType == NotificationTypes.DepartureSoon)
+                {
+                    text = ("Your booked time ends soon",
+                        $"Your booking {reservation.ReservationCode} at {lotName} ends at {departure}. Please drive out by then: " +
+                        "another driver may need the bay. If you stay longer, you pay the extra time by the lot's price list.");
+                }
+                else
+                {
+                    text = ("Your booked time has ended",
+                        $"Your booking {reservation.ReservationCode} at {lotName} ended at {departure}, and your vehicle is still in " +
+                        $"bay {bay ?? "your bay"}. The fee keeps running by the lot's price list; please drive out as soon as you can.");
+                    await StaffOverstayAsync(reservation, lotName, bay, departure, data);
+                }
+                break;
+            }
+            case NotificationTypes.BookingBayMoved:
+            {
+                if (reservation.Status is not (ReservationStatus.Confirmed or ReservationStatus.PendingDeposit))
+                    return false;
+                var previousBay = previousSlotId is { } previous ? codes.GetValueOrDefault(previous) : null;
+                data["previousBayCode"] = previousBay;
+                // A booking can move more than once; each new bay is its own notice
+                refId = $"{reservation.Id}:{reservation.SlotId}";
+                text = ("Your booking moved to another bay",
+                    $"Bay {previousBay ?? "you booked"} at {lotName} is still in use, so your booking {reservation.ReservationCode} " +
+                    $"for {LocalTime(reservation.StartTime, lot)} now has bay {bay ?? "a new bay"} of the same type. Nothing else changes.");
+                break;
+            }
+            default:
+                return false;
+        }
+
+        return await SaveAndPushAsync(new UserNotification
+        {
+            UserId = reservation.UserId,
+            Type = notificationType,
+            Title = text.Title,
+            Message = text.Message,
+            RefType = "Reservation",
+            RefId = refId,
+            EventAt = Now
+        }, data);
+    }
+
+    /// <summary>The lot's Staff bell for a vehicle still parked after its scheduled booking ended. Never the plate.</summary>
+    private async Task StaffOverstayAsync(Reservation reservation, string lotName, string bay, string departure,
+        Dictionary<string, string> customerData)
+    {
+        var recipients = await pmsContext.Employees.AsNoTracking()
+            .Where(e => e.ParkingLotId == reservation.ParkingLotId && e.Status == "Active" && e.Position != "Manager" && e.UserId != null)
+            .Select(e => e.UserId)
+            .Distinct()
+            .ToListAsync();
+        var data = new Dictionary<string, string>(customerData) { ["audience"] = "staff" };
+        foreach (var userId in recipients)
+        {
+            await SaveAndPushAsync(new UserNotification
+            {
+                UserId = userId,
+                Type = NotificationTypes.DepartureOverdue,
+                Title = "A booked vehicle stayed past its time",
+                Message = $"The vehicle of booking {reservation.ReservationCode} is still in bay {bay ?? "its bay"} at {lotName}; " +
+                          $"its booked time ended at {departure}. Bookings that need this bay later are moved to a free bay " +
+                          "automatically; check the lot if none is free.",
+                RefType = "Reservation",
+                RefId = reservation.Id.ToString(CultureInfo.InvariantCulture),
+                EventAt = Now
+            }, data);
+        }
+    }
+
     /// <summary>Daily: drops read notifications after 60 days and unread ones after 180. Returns the number deleted.</summary>
     public async Task<int> PurgeOldNotificationsAsync()
     {

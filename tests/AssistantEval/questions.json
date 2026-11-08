@@ -47,6 +47,8 @@
     { "id": "rsv-15", "question": "App có nhắc tôi trước giờ đến không?", "source": "reservations.md#Booking reminders", "srs": ["FR-RSV-10"], "mustMention": ["15 minutes", "5 minutes"] },
     { "id": "rsv-16", "question": "Sao tôi đặt chỗ không được?", "source": "reservations.md#Why a booking can be refused", "srs": ["FR-RSV-02", "BR-07"], "mustMention": ["vehicle", "already booked"] },
     { "id": "rsv-17", "question": "How do I book a parking bay?", "source": "reservations.md#How to book a bay", "srs": ["FR-RSV-02", "FR-3D-04"], "mustMention": ["3D map", "arrival time"] },
+    { "id": "rsv-18", "question": "Đặt chỗ theo lịch giờ rời 3h mà 4h tôi mới lấy xe thì có bị phạt không?", "source": "reservations.md#Leaving after your scheduled departure time", "srs": ["FR-RSV-10", "BR-22"], "mustMention": ["no fine", "price list"] },
+    { "id": "rsv-19", "question": "Why was my booking moved to a different bay?", "source": "reservations.md#Your booking moved before you arrived", "srs": ["FR-RSV-10"], "mustMention": ["still in use", "same type"] },
 
     { "id": "dep-01", "question": "Tiền cọc là bao nhiêu?", "source": "deposits-and-refunds.md#How much the deposit is", "srs": ["BR-06"], "mustMention": ["30,000 VND", "each lot"] },
     { "id": "dep-02", "question": "Phí gửi xe ít hơn tiền cọc thì phần dư đi đâu?", "source": "deposits-and-refunds.md#How the deposit is used at check-out", "srs": ["BR-03", "FR-RSV-07"], "mustMention": ["wallet"] },

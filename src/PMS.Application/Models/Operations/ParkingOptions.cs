@@ -118,6 +118,15 @@ public class ReservationRules
     /// <summary>FR-RSV-10: remind this many minutes before the hold ends.</summary>
     public int HoldEndReminderMinutes { get; set; } = 5;
 
+    /// <summary>A parked vehicle on a scheduled booking is reminded this many minutes before its planned departure.</summary>
+    public int DepartureReminderMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// This long after the planned departure, a vehicle still parked on its scheduled booking is overdue: the customer
+    /// and the lot's Staff are told. There is no extra fee; the fee keeps running by the price list.
+    /// </summary>
+    public int OverstayGraceMinutes { get; set; } = 5;
+
     /// <summary>BR-06: fixed deposit per vehicle type code; types not listed use <see cref="DefaultDeposit"/>.</summary>
     public Dictionary<string, decimal> DepositByVehicleType { get; set; } = new();
 
