@@ -364,7 +364,9 @@ public class PriceUpdateTests
             EventKey,
             7,
             2,
-            "Central");
+            "Central",
+            notice.Title,
+            notice.Message);
     }
 
     [Fact]

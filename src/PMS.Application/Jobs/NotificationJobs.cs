@@ -27,7 +27,8 @@ public class NotificationJobs(
     PmsDbContext pmsContext,
     TimeProvider clock,
     IUserNotificationNotifier notifier = null,
-    ILogger<NotificationJobs> logger = null)
+    ILogger<NotificationJobs> logger = null,
+    ICustomerAudience audience = null)
 {
     public const string PurgeJobId = "purge-user-notifications";
 
@@ -143,11 +144,14 @@ public class NotificationJobs(
     }
 
     /// <summary>
-    /// A lot's price for one vehicle type changed: one notification per customer with an upcoming booking for that
-    /// type there. A checked-in booking is left out, for its vehicle keeps the price it entered with.
-    /// A Hangfire retry only adds the customers it missed. Returns the number of notifications written.
+    /// A lot's price for one vehicle type changed: one notification per customer. A customer with an upcoming booking
+    /// for that type there gets <paramref name="title"/> / <paramref name="message"/> (check your booking); every other
+    /// active customer gets <paramref name="allTitle"/> / <paramref name="allMessage"/> (the new price), for any customer
+    /// may park at any lot. A checked-in booking does not count as upcoming, for its vehicle keeps the price it entered
+    /// with. A Hangfire retry only adds the customers it missed. Returns the number of notifications written.
     /// </summary>
-    public async Task<int> LotPriceChangedAsync(string title, string message, string eventKey, int lotId, int vehicleTypeId, string lotName)
+    public async Task<int> LotPriceChangedAsync(string title, string message, string eventKey, int lotId, int vehicleTypeId, string lotName,
+        string allTitle = null, string allMessage = null)
     {
         var told = await pmsContext.UserNotifications
             .Where(n => n.Type == NotificationTypes.PriceChanged && n.RefId == eventKey)
@@ -164,7 +168,12 @@ public class NotificationJobs(
             .Select(r => r.UserId)
             .Distinct()
             .ToListAsync();
-        var recipients = booked.Except(told).ToList();
+        // Everyone else hears the new price itself (only when the general text was given and the accounts can be read)
+        var others = audience != null && !string.IsNullOrWhiteSpace(allTitle) && !string.IsNullOrWhiteSpace(allMessage)
+            ? (await audience.ActiveCustomerIdsAsync()).Except(booked).Except(told).ToList()
+            : [];
+        var bookedRecipients = booked.Except(told).ToList();
+        var recipients = bookedRecipients.Concat(others).ToList();
 
         var dataJson = JsonSerializer.Serialize(new Dictionary<string, string>
         {
@@ -176,8 +185,8 @@ public class NotificationJobs(
         {
             UserId = userId,
             Type = NotificationTypes.PriceChanged,
-            Title = title,
-            Message = message,
+            Title = bookedRecipients.Contains(userId) ? title : allTitle,
+            Message = bookedRecipients.Contains(userId) ? message : allMessage,
             RefType = "LotPriceChange",
             RefId = eventKey,
             EventAt = Now,
@@ -467,10 +476,12 @@ public class NotificationJobs(
     private async Task<bool> ManagerBookedBayAsync(BookedBayCase bayCase, Reservation reservation, string notificationType,
         ParkingLot lot, string bookedBay, string newBay, string arrival)
     {
+        // The walk-in was just found in the bay: told even if Staff already handled it before this job ran
+        var taken = notificationType == NotificationTypes.BookedBayTaken;
         var moved = notificationType == NotificationTypes.BookedBayReassigned && bayCase.Status == BookedBayCaseStatus.Reassigned;
         var compensated = bayCase.Status == BookedBayCaseStatus.Compensated
                           && notificationType is NotificationTypes.BookingCancelledByLot or NotificationTypes.DepositRefunded or NotificationTypes.CompensationPaid;
-        if (!moved && !compensated)
+        if (!taken && !moved && !compensated)
             return false;
         var managerId = await LotManagerAsync(bayCase.ParkingLotId);
         if (managerId == null)
@@ -483,13 +494,19 @@ public class NotificationJobs(
         var byManager = managerId == bayCase.ResolvedBy;
         var who = byManager ? "You" : bySystem ? "The system" : await EmployeeNameAsync(bayCase.ResolvedBy);
         var atLane = bayCase.ResolutionNote?.Contains("entry lane", StringComparison.OrdinalIgnoreCase) == true ? " at the entry lane" : "";
-        var taken = $"A walk-in parked in bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}.";
+        var takenText = $"A walk-in parked in bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}.";
 
         (string Title, string Message) text;
-        if (moved)
+        if (taken)
+        {
+            text = ("A walk-in took a booked bay",
+                $"{takenText} Staff must move the booking to another free bay, or compensate the customer when none is left. " +
+                "You will be told how it was handled.");
+        }
+        else if (moved)
         {
             text = (bySystem ? "A booking was moved to another bay" : $"{who} moved a booking to another bay",
-                $"{taken} {who} moved the booking from bay {bookedBay} to bay {newBay ?? "a new bay"}{atLane} at {at}. " +
+                $"{takenText} {who} moved the booking from bay {bookedBay} to bay {newBay ?? "a new bay"}{atLane} at {at}. " +
                 "The customer was told and gets the first hour free.");
         }
         else
@@ -503,7 +520,7 @@ public class NotificationJobs(
             };
             var outcome = reservation.Status == ReservationStatus.LotCancelled ? "cancelled the booking" : "let the customer park as a walk-in";
             text = (bySystem ? "A customer was compensated" : $"{who} compensated a customer",
-                $"{taken} No other bay of that vehicle type was free, so {(byManager ? "you" : who)} {outcome}{atLane} at {at}" +
+                $"{takenText} No other bay of that vehicle type was free, so {(byManager ? "you" : who)} {outcome}{atLane} at {at}" +
                 (money == null
                     ? ". No money was due: no deposit was paid and no compensation is set in the price list."
                     : $" and sent {money} ({Money(bayCase.CompensationPaid + bayCase.DepositRefunded)} in all) to the customer's XXIV wallet."));
@@ -513,12 +530,12 @@ public class NotificationJobs(
         {
             UserId = managerId,
             // The compensation has several events (cancelled, deposit, compensation): one Manager notice for all of them
-            Type = moved ? NotificationTypes.BookedBayReassigned : NotificationTypes.CompensationPaid,
+            Type = taken ? NotificationTypes.BookedBayTaken : moved ? NotificationTypes.BookedBayReassigned : NotificationTypes.CompensationPaid,
             Title = text.Title,
             Message = text.Message,
             RefType = "BookedBayCase",
             RefId = bayCase.Id.ToString(CultureInfo.InvariantCulture),
-            EventAt = bayCase.ResolvedAt ?? bayCase.CreatedAt
+            EventAt = taken ? bayCase.CreatedAt : bayCase.ResolvedAt ?? bayCase.CreatedAt
         }, new Dictionary<string, string>
         {
             ["audience"] = "manager",
@@ -528,7 +545,7 @@ public class NotificationJobs(
             ["lotName"] = lot?.Name,
             ["bayCode"] = bookedBay,
             ["newBayCode"] = moved ? newBay : null,
-            ["staffName"] = bySystem || byManager ? null : who,
+            ["staffName"] = taken || bySystem || byManager ? null : who,
             ["compensation"] = compensated ? bayCase.CompensationPaid.ToString(CultureInfo.InvariantCulture) : null,
             ["depositRefunded"] = compensated ? bayCase.DepositRefunded.ToString(CultureInfo.InvariantCulture) : null
         });
