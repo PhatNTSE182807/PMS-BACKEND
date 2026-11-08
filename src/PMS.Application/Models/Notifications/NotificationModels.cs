@@ -34,11 +34,14 @@ public static class NotificationTypes
     public const string DepartureOverdue = "DepartureOverdue";
     /// <summary>The booked bay was still in use when the hold started, so the booking was moved to another bay.</summary>
     public const string BookingBayMoved = "BookingBayMoved";
+    /// <summary>Manager bell: a Staff closed their cash drawer (when, counted vs expected, the difference).</summary>
+    public const string CashDrawerClosed = "CashDrawerClosed";
 
     public static readonly string[] All =
     [
         VehicleApproved, VehicleRejected, CheckIn, CheckOut, PriceChanged,
-        BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid
+        BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid,
+        CashDrawerClosed
     ];
 }
 

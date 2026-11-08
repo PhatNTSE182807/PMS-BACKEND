@@ -252,6 +252,7 @@ public class NotificationJobs(
             _ => null
         };
         var toStaff = await StaffBookedBayAsync(bayCase, reservation, notificationType, lotName, bookedBay, newBay, arrival);
+        toStaff |= await ManagerBookedBayAsync(bayCase, reservation, notificationType, lot, bookedBay, newBay, arrival);
         if (text == null || string.IsNullOrEmpty(reservation.UserId))
             return toStaff;
 
@@ -456,6 +457,147 @@ public class NotificationJobs(
             }, data);
         }
     }
+
+    /// <summary>
+    /// The lot Manager's bell once a taken booked bay is handled: who moved the booking from which bay to which, or,
+    /// when no bay was free, who compensated which booking and how much went to the customer's XXIV wallet.
+    /// One notice per case and outcome (the compensation is told once, whichever of its events comes first).
+    /// Never the walk-in's plate.
+    /// </summary>
+    private async Task<bool> ManagerBookedBayAsync(BookedBayCase bayCase, Reservation reservation, string notificationType,
+        ParkingLot lot, string bookedBay, string newBay, string arrival)
+    {
+        var moved = notificationType == NotificationTypes.BookedBayReassigned && bayCase.Status == BookedBayCaseStatus.Reassigned;
+        var compensated = bayCase.Status == BookedBayCaseStatus.Compensated
+                          && notificationType is NotificationTypes.BookingCancelledByLot or NotificationTypes.DepositRefunded or NotificationTypes.CompensationPaid;
+        if (!moved && !compensated)
+            return false;
+        var managerId = await LotManagerAsync(bayCase.ParkingLotId);
+        if (managerId == null)
+            return false;
+
+        static string Money(decimal value) => $"{value.ToString("N0", CultureInfo.InvariantCulture)} VND";
+        var lotName = lot?.Name ?? "the parking lot";
+        var at = LocalTime(bayCase.ResolvedAt ?? Now, lot);
+        var bySystem = bayCase.ResolvedBy == BookedBayCaseService.SystemActor;
+        var byManager = managerId == bayCase.ResolvedBy;
+        var who = byManager ? "You" : bySystem ? "The system" : await EmployeeNameAsync(bayCase.ResolvedBy);
+        var atLane = bayCase.ResolutionNote?.Contains("entry lane", StringComparison.OrdinalIgnoreCase) == true ? " at the entry lane" : "";
+        var taken = $"A walk-in parked in bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}.";
+
+        (string Title, string Message) text;
+        if (moved)
+        {
+            text = (bySystem ? "A booking was moved to another bay" : $"{who} moved a booking to another bay",
+                $"{taken} {who} moved the booking from bay {bookedBay} to bay {newBay ?? "a new bay"}{atLane} at {at}. " +
+                "The customer was told and gets the first hour free.");
+        }
+        else
+        {
+            var money = (bayCase.CompensationPaid, bayCase.DepositRefunded) switch
+            {
+                ( > 0, > 0) => $"{Money(bayCase.CompensationPaid)} compensation and the {Money(bayCase.DepositRefunded)} deposit back",
+                ( > 0, _) => $"{Money(bayCase.CompensationPaid)} compensation",
+                (_, > 0) => $"the {Money(bayCase.DepositRefunded)} deposit back (no compensation is set in the price list)",
+                _ => null
+            };
+            var outcome = reservation.Status == ReservationStatus.LotCancelled ? "cancelled the booking" : "let the customer park as a walk-in";
+            text = (bySystem ? "A customer was compensated" : $"{who} compensated a customer",
+                $"{taken} No other bay of that vehicle type was free, so {(byManager ? "you" : who)} {outcome}{atLane} at {at}" +
+                (money == null
+                    ? ". No money was due: no deposit was paid and no compensation is set in the price list."
+                    : $" and sent {money} ({Money(bayCase.CompensationPaid + bayCase.DepositRefunded)} in all) to the customer's XXIV wallet."));
+        }
+
+        return await SaveAndPushAsync(new UserNotification
+        {
+            UserId = managerId,
+            // The compensation has several events (cancelled, deposit, compensation): one Manager notice for all of them
+            Type = moved ? NotificationTypes.BookedBayReassigned : NotificationTypes.CompensationPaid,
+            Title = text.Title,
+            Message = text.Message,
+            RefType = "BookedBayCase",
+            RefId = bayCase.Id.ToString(CultureInfo.InvariantCulture),
+            EventAt = bayCase.ResolvedAt ?? bayCase.CreatedAt
+        }, new Dictionary<string, string>
+        {
+            ["audience"] = "manager",
+            ["caseId"] = bayCase.Id.ToString(CultureInfo.InvariantCulture),
+            ["reservationCode"] = reservation.ReservationCode,
+            ["lotId"] = bayCase.ParkingLotId.ToString(CultureInfo.InvariantCulture),
+            ["lotName"] = lot?.Name,
+            ["bayCode"] = bookedBay,
+            ["newBayCode"] = moved ? newBay : null,
+            ["staffName"] = bySystem || byManager ? null : who,
+            ["compensation"] = compensated ? bayCase.CompensationPaid.ToString(CultureInfo.InvariantCulture) : null,
+            ["depositRefunded"] = compensated ? bayCase.DepositRefunded.ToString(CultureInfo.InvariantCulture) : null
+        });
+    }
+
+    /// <summary>
+    /// A Staff closed their cash drawer: the lot Manager's bell says who, at what time, the count against the expected
+    /// cash and the difference with its reason, so the Manager can confirm it in the Approval Queue.
+    /// </summary>
+    public async Task<bool> CashDrawerClosedAsync(long drawerId)
+    {
+        var drawer = await pmsContext.DailyCashCloses.AsNoTracking().FirstOrDefaultAsync(d => d.Id == drawerId);
+        if (drawer?.ClosedAt == null)
+            return false;
+        var managerId = await LotManagerAsync(drawer.ParkingLotId);
+        // The Manager never confirms their own drawer, so they get no notice about it either
+        if (managerId == null || managerId == drawer.StaffUserId)
+            return false;
+
+        var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == drawer.ParkingLotId);
+        static string Money(decimal value) => $"{value.ToString("N0", CultureInfo.InvariantCulture)} VND";
+        var who = await EmployeeNameAsync(drawer.StaffUserId);
+        var counted = drawer.CountedTotal ?? 0;
+        var expected = drawer.ExpectedTotal ?? 0;
+        var difference = drawer.Difference ?? counted - expected;
+        var result = difference == 0
+            ? "It balances. Confirm it in the Approval Queue."
+            : $"It is {Money(Math.Abs(difference))} {(difference > 0 ? "over" : "short")}" +
+              (string.IsNullOrWhiteSpace(drawer.DifferenceReason) ? "." : $". Reason: \"{drawer.DifferenceReason.Trim()}\".") +
+              " Check it in the Approval Queue.";
+
+        return await SaveAndPushAsync(new UserNotification
+        {
+            UserId = managerId,
+            Type = NotificationTypes.CashDrawerClosed,
+            Title = difference == 0 ? $"{who} closed cash drawer {drawer.CloseNo}" : $"{who} closed cash drawer {drawer.CloseNo} with a difference",
+            Message = $"{who} closed cash drawer {drawer.CloseNo} at {lot?.Name ?? "the parking lot"} at {LocalTime(drawer.ClosedAt.Value, lot)}. " +
+                      $"Counted {Money(counted)}, expected {Money(expected)}. {result}",
+            RefType = "DailyCashClose",
+            RefId = drawer.Id.ToString(CultureInfo.InvariantCulture),
+            EventAt = drawer.ClosedAt
+        }, new Dictionary<string, string>
+        {
+            ["audience"] = "manager",
+            ["drawerId"] = drawer.Id.ToString(CultureInfo.InvariantCulture),
+            ["closeNo"] = drawer.CloseNo.ToString(CultureInfo.InvariantCulture),
+            ["lotId"] = drawer.ParkingLotId.ToString(CultureInfo.InvariantCulture),
+            ["lotName"] = lot?.Name,
+            ["staffName"] = who,
+            ["closedAt"] = Iso(drawer.ClosedAt.Value),
+            ["countedTotal"] = counted.ToString(CultureInfo.InvariantCulture),
+            ["expectedTotal"] = expected.ToString(CultureInfo.InvariantCulture),
+            ["difference"] = difference.ToString(CultureInfo.InvariantCulture),
+            ["reason"] = drawer.DifferenceReason
+        });
+    }
+
+    /// <summary>The active Manager of the lot (ParkingLots.ManagerUserId), or null.</summary>
+    private Task<string> LotManagerAsync(int lotId) =>
+        pmsContext.ParkingLots.AsNoTracking()
+            .Where(l => l.Id == lotId && !l.IsDeleted && l.ManagerUserId != null)
+            .Where(l => pmsContext.Employees.Any(e => e.UserId == l.ManagerUserId && e.Status == "Active"))
+            .Select(l => l.ManagerUserId)
+            .FirstOrDefaultAsync();
+
+    private async Task<string> EmployeeNameAsync(string userId) =>
+        (string.IsNullOrEmpty(userId) ? null
+            : await pmsContext.Employees.AsNoTracking().Where(e => e.UserId == userId).Select(e => e.FullName).FirstOrDefaultAsync())
+        ?? "A Staff member";
 
     /// <summary>Daily: drops read notifications after 60 days and unread ones after 180. Returns the number deleted.</summary>
     public async Task<int> PurgeOldNotificationsAsync()
