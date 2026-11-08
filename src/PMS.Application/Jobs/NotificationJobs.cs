@@ -260,8 +260,11 @@ public class NotificationJobs(
                 $"{lotName} paid you {Money(bayCase.CompensationPaid)} because bay {bookedBay} you booked was taken. It is in your XXIV wallet."),
             _ => null
         };
-        var toStaff = await StaffBookedBayAsync(bayCase, reservation, notificationType, lotName, bookedBay, newBay, arrival);
-        toStaff |= await ManagerBookedBayAsync(bayCase, reservation, notificationType, lot, bookedBay, newBay, arrival);
+        // The bay is filled by a walk-in, or by a vehicle that came on its own booking and stayed past it
+        var overstay = await pmsContext.ParkingSessions.AnyAsync(s => s.Id == bayCase.SessionId && s.ReservationId != null);
+        var occupant = overstay ? "A vehicle that stayed past its booking is still in" : "A walk-in parked in";
+        var toStaff = await StaffBookedBayAsync(bayCase, reservation, notificationType, lotName, bookedBay, newBay, arrival, occupant);
+        toStaff |= await ManagerBookedBayAsync(bayCase, reservation, notificationType, lot, bookedBay, newBay, arrival, occupant, overstay);
         if (text == null || string.IsNullOrEmpty(reservation.UserId))
             return toStaff;
 
@@ -299,7 +302,7 @@ public class NotificationJobs(
     /// refunded deposit, in one notice). The Staff who resolved the case reads "You sent…". Never the walk-in's plate.
     /// </summary>
     private async Task<bool> StaffBookedBayAsync(BookedBayCase bayCase, Reservation reservation, string notificationType,
-        string lotName, string bookedBay, string newBay, string arrival)
+        string lotName, string bookedBay, string newBay, string arrival, string occupant = "A walk-in parked in")
     {
         static string Money(decimal value) => $"{value.ToString("N0", CultureInfo.InvariantCulture)} VND";
         // The money notice goes out once: with the compensation, or with the deposit when no compensation was paid
@@ -340,7 +343,7 @@ public class NotificationJobs(
             (string Title, string Message) text = notificationType switch
             {
                 NotificationTypes.BookedBayTaken => ("Booked bay taken: move the booking",
-                    $"A walk-in parked in bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}. Move the booking to another free bay in Exceptions & Alerts, or compensate the customer when none is left."),
+                    $"{occupant} bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}. Move the booking to another free bay in Exceptions & Alerts, or compensate the customer when none is left."),
                 NotificationTypes.BookedBayReassigned => (resolver ? "You moved a booking to another bay" : "A booking moved to another bay",
                     $"Booking {reservation.ReservationCode} at {lotName} now has bay {newBay ?? "a new bay"} instead of {bookedBay}. The customer was told; the first hour is free."),
                 _ => (resolver ? "You sent compensation to the customer" : "Compensation sent to a customer",
@@ -474,7 +477,7 @@ public class NotificationJobs(
     /// Never the walk-in's plate.
     /// </summary>
     private async Task<bool> ManagerBookedBayAsync(BookedBayCase bayCase, Reservation reservation, string notificationType,
-        ParkingLot lot, string bookedBay, string newBay, string arrival)
+        ParkingLot lot, string bookedBay, string newBay, string arrival, string occupant = "A walk-in parked in", bool overstay = false)
     {
         // The walk-in was just found in the bay: told even if Staff already handled it before this job ran
         var taken = notificationType == NotificationTypes.BookedBayTaken;
@@ -494,12 +497,12 @@ public class NotificationJobs(
         var byManager = managerId == bayCase.ResolvedBy;
         var who = byManager ? "You" : bySystem ? "The system" : await EmployeeNameAsync(bayCase.ResolvedBy);
         var atLane = bayCase.ResolutionNote?.Contains("entry lane", StringComparison.OrdinalIgnoreCase) == true ? " at the entry lane" : "";
-        var takenText = $"A walk-in parked in bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}.";
+        var takenText = $"{occupant} bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}.";
 
         (string Title, string Message) text;
         if (taken)
         {
-            text = ("A walk-in took a booked bay",
+            text = (overstay ? "A vehicle stayed past its booking in a booked bay" : "A walk-in took a booked bay",
                 $"{takenText} Staff must move the booking to another free bay, or compensate the customer when none is left. " +
                 "You will be told how it was handled.");
         }

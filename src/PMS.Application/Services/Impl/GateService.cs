@@ -1108,6 +1108,21 @@ public class GateService(
     /// Prices the stay up to now (BR-10, BR-22, FR-RSV-07). With <paramref name="mutate"/> it is a fee request
     /// at a payment point: Active → PendingPayment, Paid past its Exit Window → PendingPayment, nothing due → Paid.
     /// </summary>
+    /// <summary>
+    /// True when the session belongs to a scheduled booking and the vehicle is still inside after the booking's
+    /// departure time: the deposit is kept by the lot. Pay-as-you-go has no departure, so it never loses it.
+    /// </summary>
+    private async Task<bool> LeftAfterDepartureAsync(ParkingSession session)
+    {
+        if (session.ReservationId == null)
+            return false;
+        var booking = await pmsContext.Reservations.AsNoTracking()
+            .Where(r => r.Id == session.ReservationId)
+            .Select(r => new { r.BookingMode, r.DepartureTime })
+            .FirstOrDefaultAsync();
+        return booking is { BookingMode: BookingMode.Scheduled, DepartureTime: { } departure } && Now > departure;
+    }
+
     private async Task<CheckoutQuoteModel> QuoteAsync(ParkingSession session, string exitPlate, decimal? exitConfidence, bool mutate)
     {
         if (session.Status == SessionStatus.LostTicketPending)
@@ -1137,19 +1152,23 @@ public class GateService(
             breakdown = breakdown with { Total = Math.Max(0, breakdown.Total - firstHour.Total) };
         }
         var deposit = session.ReservationId != null ? await paymentService.DepositHeldAsync(session.ReservationId.Value) : 0;
+        // Team rule (2026-11-09): a scheduled booking that leaves after its departure time loses its deposit and pays
+        // the whole fee; leaving on time, or a pay-as-you-go booking, has the deposit deducted and the rest refunded
+        var depositForfeited = deposit > 0 && await LeftAfterDepartureAsync(session);
+        var depositCredit = depositForfeited ? 0 : deposit;
         var exitWindowMissed = session.ExitWindowEndsAt != null && Now > session.ExitWindowEndsAt && session.PaidAmount > 0;
         var lostFee = session.IsLostCard ? tariff.LostTicketFee : 0;
 
         // Paid at the lane (no Exit Window), or prepaid and still inside the window: the payment stands
         var settledPaid = session.Status == SessionStatus.Paid && !exitWindowMissed;
         var settlement = settledPaid
-            ? new Settlement(session.OriginalFee, 0, 0, session.DepositApplied, session.PaidAmount, 0, Math.Max(0, deposit - session.DepositApplied))
-            : FeeCalculator.Settle(breakdown.Total, deposit, session.PaidAmount, exitWindowMissed, Rules.ExitWindowLateFee, lostFee);
+            ? new Settlement(session.OriginalFee, 0, 0, session.DepositApplied, session.PaidAmount, 0, depositForfeited ? 0 : Math.Max(0, deposit - session.DepositApplied))
+            : FeeCalculator.Settle(breakdown.Total, depositCredit, session.PaidAmount, exitWindowMissed, Rules.ExitWindowLateFee, lostFee);
 
         var zeroReason = settledPaid ? session.ZeroFeeReason
             : session.SessionType == SessionType.Whitelist ? "Whitelist"
             : breakdown.WithinGrace && lostFee == 0 ? "GracePeriod"
-            : settlement.AmountDue == 0 && session.PaidAmount == 0 && deposit > 0 ? "CoveredByDeposit"
+            : settlement.AmountDue == 0 && session.PaidAmount == 0 && depositCredit > 0 ? "CoveredByDeposit"
             : null;
 
         if (mutate && !settledPaid)

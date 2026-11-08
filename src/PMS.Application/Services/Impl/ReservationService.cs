@@ -510,12 +510,15 @@ public class ReservationService(
     }
 
     /// <summary>
-    /// NFR-15 over time: no other booking of the bay overlaps the new window. A window runs from
-    /// check-in opening (arrival - EarlyArrivalMinutes) to the departure; pay-as-you-go is open-ended.
+    /// NFR-15 over time: no other booking of the bay overlaps the new window. A window runs from the arrival to the
+    /// departure plus the turnover gap (30 minutes), so a booking of 1:00 to 3:00 lets the next one arrive from 3:30;
+    /// pay-as-you-go is open-ended.
     /// </summary>
     private async Task EnsureSlotFreeForAsync(int slotId, DateTime arrival, DateTime? departure, long? except)
     {
-        var from = arrival.Add(-options.EarlyArrivalTime);
+        var gap = options.TurnoverTime;
+        var from = arrival;
+        DateTime? to = departure?.Add(gap);
         var others = await pmsContext.Reservations.AsNoTracking()
             .Where(r => r.SlotId == slotId && r.Id != except && ReservationStatus.Active.Contains(r.Status))
             .Select(r => new { r.StartTime, r.DepartureTime, r.BookingMode })
@@ -523,9 +526,9 @@ public class ReservationService(
 
         foreach (var other in others)
         {
-            var otherFrom = other.StartTime.Add(-options.EarlyArrivalTime);
-            DateTime? otherTo = other.BookingMode == BookingMode.Scheduled ? other.DepartureTime : null;
-            var overlaps = (departure == null || otherFrom < departure) && (otherTo == null || from < otherTo);
+            var otherFrom = other.StartTime;
+            DateTime? otherTo = other.BookingMode == BookingMode.Scheduled ? other.DepartureTime?.Add(gap) : null;
+            var overlaps = (to == null || otherFrom < to) && (otherTo == null || from < otherTo);
             if (overlaps)
                 throw new ConflictException("This bay is already booked for part of that time. Pick another time or bay.");
         }
@@ -533,8 +536,11 @@ public class ReservationService(
 
     /// <summary>
     /// Locks the bay of every booking that is now HoldAheadMinutes from arrival (run every minute).
-    /// When the bay is taken (a car stayed longer, a walk-in parked there) the booking moves to another
-    /// free bay of the same lot and vehicle type, same zone first. Returns how many bays were locked.
+    /// When the bay is out of service the booking moves to another free bay of the same lot and vehicle type,
+    /// same zone first. Team rule (2026-11-09): a bay with a vehicle still in it is not given up early, for the
+    /// vehicle may leave in time; the booking waits for it, and once the arrival time passes with the vehicle still
+    /// there the lot's Staff get a booked bay case (see BookedBayCaseService) to move the booking or compensate.
+    /// Returns how many bays were locked.
     /// </summary>
     public async Task<int> ActivateDueHoldsAsync()
     {
@@ -550,6 +556,11 @@ public class ReservationService(
         var held = 0;
         foreach (var reservation in due)
         {
+            // A vehicle is still in the booked bay: wait for it to leave, Staff handle it if it stays too long
+            if (await pmsContext.ParkingSessions.AnyAsync(s => s.SlotId == reservation.SlotId && s.ReservationId != reservation.Id
+                                                               && SessionStatus.Open.Contains(s.Status)))
+                continue;
+
             // The booked bay first, then free bays of the same lot that fit the vehicle
             var candidates = new List<int> { reservation.SlotId!.Value };
             candidates.AddRange(await pmsContext.Slots.AsNoTracking()
