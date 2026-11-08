@@ -23,7 +23,13 @@ public sealed class KnowledgeRetriever(
     /// <summary>After a failed embedding call, questions go straight to keyword search for this long instead of waiting on the same error.</summary>
     private static readonly TimeSpan PauseAfterFailure = TimeSpan.FromSeconds(30);
 
+    /// <summary>Most question vectors kept; the cache is emptied when it is full.</summary>
+    private const int QueryCacheCapacity = 500;
+
     private DateTimeOffset _semanticPausedUntil = DateTimeOffset.MinValue;
+
+    /// <summary>Vectors of questions already seen, so asking again skips the embedding call (about 0.4 s).</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, float[]> _queryVectors = new();
 
     public async Task<RetrievalResult> SearchAsync(string query, int take, CancellationToken cancellationToken)
     {
@@ -35,7 +41,14 @@ public sealed class KnowledgeRetriever(
         {
             try
             {
-                var vector = (await model.EmbedAsync([query], cancellationToken))[0];
+                var key = AnswerCache.Key(query);
+                if (!_queryVectors.TryGetValue(key, out var vector))
+                {
+                    vector = (await model.EmbedAsync([query], cancellationToken))[0];
+                    if (_queryVectors.Count >= QueryCacheCapacity)
+                        _queryVectors.Clear();
+                    _queryVectors[key] = vector;
+                }
                 var ranked = chunks
                     .Select(c => new ScoredChunk(c, Cosine(vector, c.Embedding)))
                     .OrderByDescending(s => s.Score)

@@ -27,6 +27,7 @@ public sealed class AssistantService(
     IKnowledgeRetriever retriever,
     KnowledgeBase knowledge,
     ModelClient model,
+    AnswerCache answers,
     ILogger<AssistantService> logger) : IAssistantService
 {
     /// <summary>A follow-up shorter than this is searched together with the previous question.</summary>
@@ -79,18 +80,31 @@ public sealed class AssistantService(
     public async IAsyncEnumerable<AssistantEvent> AnswerAsync(IReadOnlyList<AssistantChatMessage> conversation,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        // A stand-alone question answered before comes straight from the cache
+        var standAlone = conversation.Count == 1;
+        var question = conversation[^1].Content;
+        if (standAlone && answers.TryGet(question, out var cachedAnswer, out var cachedSources))
+        {
+            yield return new AssistantSourcesEvent(cachedSources, AssistantModes.Model);
+            yield return new AssistantDeltaEvent(cachedAnswer);
+            yield return new AssistantDoneEvent();
+            yield break;
+        }
+
         var retrieval = await retriever.SearchAsync(SearchQuery(conversation), options.TopK, cancellationToken);
         var context = retrieval.Semantic
             ? retrieval.Chunks.Where(c => c.Score >= options.MinScore).ToList()
             : retrieval.Chunks.ToList();
 
         var useModel = options.UsesModel && await model.IsAvailableAsync(cancellationToken);
-        yield return new AssistantSourcesEvent(
-            context.Select(c => new AssistantSource(c.Chunk.File, c.Chunk.Heading, c.Chunk.Title, Math.Round(c.Score, 3))).ToList(),
-            useModel ? AssistantModes.Model : AssistantModes.SearchOnly);
+        var sources = context
+            .Select(c => new AssistantSource(c.Chunk.File, c.Chunk.Heading, c.Chunk.Title, Math.Round(c.Score, 3)))
+            .ToList();
+        yield return new AssistantSourcesEvent(sources, useModel ? AssistantModes.Model : AssistantModes.SearchOnly);
 
         if (useModel)
         {
+            var answer = new StringBuilder();
             var sentAnything = false;
             Exception failure = null;
             var stream = model.StreamChatAsync(AssistantPrompt.Build(conversation, context), cancellationToken)
@@ -112,6 +126,7 @@ public sealed class AssistantService(
                     if (!hasNext)
                         break;
                     sentAnything = true;
+                    answer.Append(stream.Current);
                     yield return new AssistantDeltaEvent(stream.Current);
                 }
             }
@@ -122,6 +137,8 @@ public sealed class AssistantService(
 
             if (failure == null)
             {
+                if (standAlone)
+                    answers.Save(question, answer.ToString(), sources);
                 yield return new AssistantDoneEvent();
                 yield break;
             }

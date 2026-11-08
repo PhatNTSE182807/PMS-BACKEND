@@ -23,6 +23,7 @@ public static class AssistantDependencyInjection
         services.AddHttpClient(ModelClient.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(options.RequestTimeoutSeconds));
         services.AddSingleton<ModelClient>();
         services.AddSingleton<KnowledgeBase>();
+        services.AddSingleton<AnswerCache>();
         services.AddSingleton<IKnowledgeRetriever, KnowledgeRetriever>();
         services.AddSingleton<IAssistantService, AssistantService>();
 
