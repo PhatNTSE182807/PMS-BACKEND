@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers.Parking;
+using PMS.Application.Models.Notifications;
 using PMS.Application.Models.Operations;
 using PMS.Application.Models.VehicleDocuments;
 using PMS.DataAccess.Persistence;
@@ -18,7 +19,8 @@ public class ReservationService(
     ParkingTokenSigner signer,
     LotScopeService lotScope,
     TimeProvider clock,
-    IParkingRealtimeNotifier notifier = null) : IReservationService
+    IParkingRealtimeNotifier notifier = null,
+    IUserNotificationPublisher notices = null) : IReservationService
 {
     private ReservationRules Rules => options.Reservations;
 
@@ -585,6 +587,7 @@ public class ReservationService(
     private Task<bool> TryHoldAsync(Reservation reservation, int candidateId, IReadOnlyDictionary<int, VehicleType> types) =>
         ParkingInventory.WithSlotLockAsync([candidateId], async () =>
         {
+            int? previousSlotId = null;
             var slot = await pmsContext.Slots.FirstOrDefaultAsync(s => s.Id == candidateId);
             if (slot is not { IsActive: true, Status: SlotStatus.Available }
                 || !ParkingInventory.Compatible(types, slot.VehicleTypeId, reservation.VehicleTypeId ?? slot.VehicleTypeId))
@@ -600,6 +603,7 @@ public class ReservationService(
                     return false;
                 }
                 Log(reservation.Id, "SlotChanged", reservation.SlotId?.ToString(), slot.Code, "System");
+                previousSlotId = reservation.SlotId;
                 reservation.SlotId = slot.Id;
                 reservation.ZoneId = slot.ZoneId;
             }
@@ -608,6 +612,9 @@ public class ReservationService(
             reservation.SlotHeldAt = Now;
             reservation.UpdatedAt = Now;
             await pmsContext.SaveChangesAsync();
+            // The booked bay was still in use (a vehicle staying past its time, maintenance): tell the customer
+            if (previousSlotId != null)
+                notices?.ReservationNotice(reservation.Id, NotificationTypes.BookingBayMoved, previousSlotId);
             return true;
         });
 

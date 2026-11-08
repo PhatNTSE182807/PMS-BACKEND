@@ -375,3 +375,7 @@ src/PMS.API/wwwroot/uploads/**/*
 .githooks/
 AGENTS.md
 CLAUDE.md
+# Embedding cache of the chat assistant (rebuilt from App_Data/knowledge)
+**/App_Data/knowledge-index/
+# Output of tests/AssistantEval/run-eval.js
+tests/AssistantEval/eval-report.json
