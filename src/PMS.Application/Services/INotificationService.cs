@@ -45,6 +45,13 @@ public interface IUserNotificationPublisher
     /// </summary>
     void BookedBayCaseChanged(long caseId, string notificationType);
 
+    /// <summary>
+    /// A booking notice: <paramref name="notificationType"/> is DepartureSoon or DepartureOverdue (a parked vehicle's
+    /// scheduled departure; the overdue notice also goes to the lot's Staff), or BookingBayMoved (the booking left
+    /// <paramref name="previousSlotId"/> because that bay was still in use).
+    /// </summary>
+    void ReservationNotice(long reservationId, string notificationType, int? previousSlotId = null);
+
     /// <summary>A Staff closed their cash drawer: tells the lot's Manager when, and how the count compares.</summary>
     void CashDrawerClosed(long drawerId);
 }
