@@ -33,7 +33,9 @@ amounts and refunds.
 
 ## How many bookings you can have
 
-An account can have at most 2 active bookings at a time, and each vehicle at most 1 active booking.
+There are two limits, and both apply:
+- An account can have at most 2 active bookings at a time.
+- Each vehicle can have at most 1 active booking, so the 2 bookings must be for 2 different vehicles.
 A booking stops counting once it is completed, cancelled or expired.
 
 ## Checking in with a booking
