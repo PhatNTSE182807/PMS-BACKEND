@@ -18,6 +18,12 @@ each block costs the price of the hour it starts in. Fees are rounded up to the 
 Some lots charge a single price per entry instead of by time. Then the vehicle pays that price once
 for each calendar day it is parked, however long it stays that day.
 
+## Monthly passes and subscriptions
+
+XXIV Parking does not sell monthly passes, season tickets, subscriptions or company passes. Every
+visit is paid by the lot's price list, either as a walk-in or with a booking. Regular customers can
+use the XXIV wallet to pay quickly.
+
 ## Daily cap
 
 Many lots have a daily cap: the most you pay for one calendar day of parking, whatever the number of

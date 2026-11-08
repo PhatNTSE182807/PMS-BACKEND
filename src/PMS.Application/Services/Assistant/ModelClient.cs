@@ -62,17 +62,34 @@ public sealed class ModelClient(
         return available;
     }
 
-    /// <summary>One vector per input, in the same order.</summary>
+    /// <summary>Wait before the second try of an embedding call that hit a short outage.</summary>
+    private static readonly TimeSpan EmbedRetryDelay = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// One vector per input, in the same order. A momentary outage (429 or 5xx, common on the free
+    /// tier) is tried once more before the caller falls back to keyword search.
+    /// </summary>
     public async Task<float[][]> EmbedAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken)
     {
-        using var response = await CreateClient().PostAsJsonAsync("embeddings",
-            new { model = options.EmbeddingModel, input = inputs }, Json, cancellationToken);
+        var response = await PostEmbeddingsAsync(inputs, cancellationToken);
+        if ((int)response.StatusCode is 429 or >= 500)
+        {
+            logger.LogInformation("Assistant: embedding returned {Status}, trying once more", (int)response.StatusCode);
+            response.Dispose();
+            await Task.Delay(EmbedRetryDelay, cancellationToken);
+            response = await PostEmbeddingsAsync(inputs, cancellationToken);
+        }
+
+        using var _ = response;
         await EnsureSuccessAsync(response, cancellationToken);
         var body = await response.Content.ReadFromJsonAsync<EmbeddingResponse>(Json, cancellationToken);
         if (body?.Data == null || body.Data.Count != inputs.Count)
             throw new HttpRequestException("The embedding model returned the wrong number of vectors.");
         return body.Data.OrderBy(d => d.Index).Select(d => d.Embedding).ToArray();
     }
+
+    private Task<HttpResponseMessage> PostEmbeddingsAsync(IReadOnlyList<string> inputs, CancellationToken cancellationToken) =>
+        CreateClient().PostAsJsonAsync("embeddings", new { model = options.EmbeddingModel, input = inputs }, Json, cancellationToken);
 
     /// <summary>Streams the answer of the chat model piece by piece.</summary>
     public async IAsyncEnumerable<string> StreamChatAsync(IReadOnlyList<ChatMessage> messages,
