@@ -90,6 +90,8 @@ public class WalkInSimulationService(
                 break;
             }
             result.Entered++;
+            // Every vehicle is saved by now: forget its rows, so filling a big lot does not slow down vehicle by vehicle
+            pmsContext.ChangeTracker.Clear();
         }
 
         return result;
@@ -382,6 +384,8 @@ public class WalkInSimulationService(
             {
                 await LeaveAsync(id, plate);
                 result.CheckedOut++;
+                // Saved: forget the rows, so emptying a full lot keeps the same pace to the last vehicle
+                pmsContext.ChangeTracker.Clear();
             }
             catch (Exception e) when (e is BadRequestException or ConflictException or ForbiddenException or NotFoundException)
             {
