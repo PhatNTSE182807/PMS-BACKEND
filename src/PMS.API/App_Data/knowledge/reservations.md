@@ -16,7 +16,9 @@ free for other drivers until 2 hours before your arrival time, then it is held f
 
 A pay-as-you-go booking only has an arrival time: you pay for the time you actually park when you
 leave. A scheduled booking also has a departure time, so the bay is planned for a set window of at
-least 30 minutes and at most 24 hours.
+least 30 minutes and at most 24 hours. The same bay can be booked by another driver from 30 minutes
+after your departure time, so leave on time: a scheduled booking that is still inside after its
+departure time loses its deposit.
 
 ## Booking a motorbike bay
 
@@ -79,17 +81,21 @@ minutes before your departure time while your vehicle is still parked.
 
 ## Leaving after your scheduled departure time
 
-There is no fine for leaving after the departure time of a scheduled booking: the parking fee always
-follows the real parking time, so you simply pay the extra time by the lot's price list. Please still
-leave on time, because another driver may have booked your bay after you. If your vehicle is still
-parked 5 minutes after the departure time, the app tells you and the lot's staff are told too; a
-later booking of your bay is moved to another free bay of the same type.
+If a scheduled booking is still inside after its departure time, even by a few minutes, the lot keeps
+the whole deposit and you pay the whole parking fee for the real time you parked (the deposit is not
+deducted). Leaving on time, or a pay-as-you-go booking, has the deposit deducted from the fee as
+usual. A booking without a deposit just pays the extra time by the lot's price list. The app reminds
+you 15 minutes before the departure time; if your vehicle is still parked 5 minutes after it, the app
+tells you and the lot's staff are told too, because another driver may have booked your bay from 30
+minutes after your departure.
 
 ## Your booking moved before you arrived
 
-Your bay is held for you from 2 hours before your arrival time. If the bay is still in use at that
-moment (for example a vehicle staying past its own booking), your booking moves to another free bay of
-the same type and the app tells you the new bay. Nothing else about the booking changes.
+Your bay is held for you from 2 hours before your arrival time. If the bay is out of service at that
+moment (for example under maintenance), your booking moves to another free bay of the same type and
+the app tells you the new bay. Nothing else about the booking changes. If instead another vehicle is
+still in your bay, the bay waits for it to leave; if it is still there when you arrive, the staff
+move your booking or compensate you (see the next section).
 
 ## When your booked bay is taken by another vehicle
 

@@ -3,8 +3,8 @@
 ## Where to see prices
 
 Each lot sets its own prices per vehicle type. Open a lot in the app or on the website to see its
-price list. The assistant does not quote prices; always check the lot's price list, which is the
-current price.
+price list. Virgo, the chat assistant, can also tell you the prices each lot charges now and compare
+lots; the lot's price list in the app stays the final word.
 
 ## How the parking fee is calculated
 

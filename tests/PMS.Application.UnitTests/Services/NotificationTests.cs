@@ -117,6 +117,9 @@ public class NotificationTests : IDisposable
             NotificationTypes.BookingCancelledByLot,
             NotificationTypes.DepositRefunded,
             NotificationTypes.CompensationPaid,
+            NotificationTypes.DepartureSoon,
+            NotificationTypes.DepartureOverdue,
+            NotificationTypes.BookingBayMoved,
             NotificationTypes.CashDrawerClosed);
         NotificationTypes.All.Should().OnlyHaveUniqueItems();
     }

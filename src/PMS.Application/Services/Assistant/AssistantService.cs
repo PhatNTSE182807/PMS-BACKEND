@@ -28,6 +28,7 @@ public sealed class AssistantService(
     KnowledgeBase knowledge,
     ModelClient model,
     AnswerCache answers,
+    LiveLotData liveLots,
     ILogger<AssistantService> logger) : IAssistantService
 {
     /// <summary>A follow-up shorter than this is searched together with the previous question.</summary>
@@ -80,10 +81,14 @@ public sealed class AssistantService(
     public async IAsyncEnumerable<AssistantEvent> AnswerAsync(IReadOnlyList<AssistantChatMessage> conversation,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        // A stand-alone question answered before comes straight from the cache
+        // Lots and prices as they are now; the cache key carries their version, so a new lot or price is never
+        // answered from an old cached reply
+        var lots = await liveLots.GetAsync(cancellationToken);
         var standAlone = conversation.Count == 1;
         var question = conversation[^1].Content;
-        if (standAlone && answers.TryGet(question, out var cachedAnswer, out var cachedSources))
+        var cacheKey = $"{lots.Version} {question}";
+        // A stand-alone question answered before comes straight from the cache
+        if (standAlone && answers.TryGet(cacheKey, out var cachedAnswer, out var cachedSources))
         {
             yield return new AssistantSourcesEvent(cachedSources, AssistantModes.Model);
             yield return new AssistantDeltaEvent(cachedAnswer);
@@ -107,7 +112,7 @@ public sealed class AssistantService(
             var answer = new StringBuilder();
             var sentAnything = false;
             Exception failure = null;
-            var stream = model.StreamChatAsync(AssistantPrompt.Build(conversation, context), cancellationToken)
+            var stream = model.StreamChatAsync(AssistantPrompt.Build(conversation, context, lots), cancellationToken)
                 .GetAsyncEnumerator(cancellationToken);
             try
             {
@@ -138,7 +143,7 @@ public sealed class AssistantService(
             if (failure == null)
             {
                 if (standAlone)
-                    answers.Save(question, answer.ToString(), sources);
+                    answers.Save(cacheKey, answer.ToString(), sources);
                 yield return new AssistantDoneEvent();
                 yield break;
             }

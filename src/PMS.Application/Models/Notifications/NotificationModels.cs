@@ -32,7 +32,7 @@ public static class NotificationTypes
     public const string DepartureSoon = "DepartureSoon";
     /// <summary>A scheduled booking's planned departure has passed and the vehicle is still parked (customer and Staff).</summary>
     public const string DepartureOverdue = "DepartureOverdue";
-    /// <summary>The booked bay was still in use when the hold started, so the booking was moved to another bay.</summary>
+    /// <summary>The booked bay was out of service when the hold started, so the booking was moved to another bay.</summary>
     public const string BookingBayMoved = "BookingBayMoved";
     /// <summary>Manager bell: a Staff closed their cash drawer (when, counted vs expected, the difference).</summary>
     public const string CashDrawerClosed = "CashDrawerClosed";
@@ -41,7 +41,7 @@ public static class NotificationTypes
     [
         VehicleApproved, VehicleRejected, CheckIn, CheckOut, PriceChanged,
         BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid,
-        CashDrawerClosed
+        DepartureSoon, DepartureOverdue, BookingBayMoved, CashDrawerClosed
     ];
 }
 

@@ -623,7 +623,7 @@ public class ReservationService(
             reservation.SlotHeldAt = Now;
             reservation.UpdatedAt = Now;
             await pmsContext.SaveChangesAsync();
-            // The booked bay was still in use (a vehicle staying past its time, maintenance): tell the customer
+            // The booked bay was out of service when the hold started: tell the customer their new bay
             if (previousSlotId != null)
                 notices?.ReservationNotice(reservation.Id, NotificationTypes.BookingBayMoved, previousSlotId);
             return true;

@@ -37,9 +37,10 @@ request, or go to the lane and talk to the staff.
 
 ## Directions to a lot
 
-Open View map on a lot, or directions on the parked-vehicle card, to see a full-screen map with the
-driving route from where you are. The Open in Google Maps button opens the same destination in
-Google Maps for turn-by-turn navigation.
+On the Dashboard, open a lot's 3D model (Book Slot) and press View map under the model, next to the
+lot's address, to see a full-screen map with the exact location and the driving route from where you
+are. The route icon next to each lot's name, and directions on the parked-vehicle card, open the same
+map. The Open in Google Maps button opens the destination in Google Maps for turn-by-turn navigation.
 
 ## Notifications
 
@@ -50,7 +51,9 @@ delete them.
 
 ## What the chat assistant can help with
 
-Virgo, the chat assistant (the round XXIV logo at the bottom right), answers questions about XXIV Parking: booking, deposits and refunds, prices and
-fees, paying and leaving, the wallet, vehicle verification, lost tickets and your account. It cannot
-see your own bookings, vehicles or payments and cannot make changes for you; use the app pages or
-ask the staff at the lot for that.
+Virgo, the chat assistant (the round XXIV logo at the bottom right), answers questions about XXIV
+Parking: booking, deposits and refunds, prices and fees, paying and leaving, the wallet, vehicle
+verification, lost tickets and your account. It also knows the lots in the system now, with their
+address, status, opening hours and current prices, so it can list the lots, compare prices and tell
+you where a lot is. It cannot see free spaces, your own bookings, vehicles or payments, and cannot
+make changes for you; use the app pages or ask the staff at the lot for that.

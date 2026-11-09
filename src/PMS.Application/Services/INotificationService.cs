@@ -54,7 +54,7 @@ public interface IUserNotificationPublisher
     /// <summary>
     /// A booking notice: <paramref name="notificationType"/> is DepartureSoon or DepartureOverdue (a parked vehicle's
     /// scheduled departure; the overdue notice also goes to the lot's Staff), or BookingBayMoved (the booking left
-    /// <paramref name="previousSlotId"/> because that bay was still in use).
+    /// <paramref name="previousSlotId"/> because that bay was out of service).
     /// </summary>
     void ReservationNotice(long reservationId, string notificationType, int? previousSlotId = null);
 
