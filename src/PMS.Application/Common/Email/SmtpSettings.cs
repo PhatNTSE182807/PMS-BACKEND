@@ -14,6 +14,14 @@ public class SmtpSettings
 
     public string Password { get; set; }
 
+    /// <summary>
+    /// Brevo API key. When set, email goes out over HTTPS instead of SMTP, for hosts that block SMTP ports
+    /// (Render's free plan blocks 25, 465 and 587).
+    /// </summary>
+    public string BrevoApiKey { get; set; }
+
+    public bool UsesBrevo => !string.IsNullOrWhiteSpace(BrevoApiKey) && !BrevoApiKey.StartsWith('<');
+
     /// <summary>False while appsettings.json still holds the "&lt;account&gt;" placeholders.</summary>
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Server) &&

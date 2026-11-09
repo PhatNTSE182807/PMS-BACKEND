@@ -40,10 +40,14 @@ public static class ApplicationDependencyInjection
         services.AddScoped<IGoogleTokenValidator, GoogleTokenValidator>();
         services.AddScoped<LotJobs>();
 
-        // Development only logs emails until real SMTP credentials are set (e.g. in user-secrets)
+        // Brevo's HTTPS API when a key is set (the host may block SMTP ports), otherwise SMTP.
+        // Development only logs emails until real credentials are set (e.g. in user-secrets).
+        services.AddHttpClient(BrevoEmailService.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(20));
         services.AddScoped<IEmailService>(sp =>
         {
             var smtpSettings = sp.GetRequiredService<SmtpSettings>();
+            if (smtpSettings.UsesBrevo)
+                return ActivatorUtilities.CreateInstance<BrevoEmailService>(sp);
             return env.IsDevelopment() && !smtpSettings.IsConfigured
                 ? ActivatorUtilities.CreateInstance<DevEmailService>(sp)
                 : new EmailService(smtpSettings);

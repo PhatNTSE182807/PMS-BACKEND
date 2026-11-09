@@ -60,6 +60,8 @@ Thêm trong Azure Portal → Web app → **Settings → Environment variables**,
 
 Forgot password gửi link về frontend: đặt `App__FrontendBaseUrl` = URL frontend đã deploy (ví dụ `https://pms-web.example.com`), nếu không link sẽ trỏ về `http://localhost:5173`. Cần cấu hình `SmtpSettings__*` để email được gửi đi.
 
+Hosts that block SMTP ports (Render's free plan blocks 25, 465 and 587) cannot send email over SMTP. Set `SmtpSettings__BrevoApiKey` to a Brevo API key and the API sends email through Brevo's HTTPS API instead; `SmtpSettings__SenderEmail` must be a sender verified in that Brevo account.
+
 Chat assistant (Gemini): `setup-azure.sh` already sets `Assistant__Provider=Gemini` and
 `Assistant__IndexCachePath=/home/data/assistant/embeddings.json`. Add the Gemini API key from
 Google AI Studio as `Assistant__ApiKey` (never commit it). Without the key the API still runs and
