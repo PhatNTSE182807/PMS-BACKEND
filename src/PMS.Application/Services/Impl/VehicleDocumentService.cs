@@ -386,7 +386,10 @@ public class VehicleDocumentService(
 
     private static string SafeFileName(string fileName)
     {
-        var name = Path.GetFileName(fileName ?? string.Empty);
+        // Some browsers send the whole path from the customer's computer. Cut at both "\" and "/":
+        // Path.GetFileName only knows "/" on the Linux servers the API runs on.
+        var name = fileName ?? string.Empty;
+        name = name[(name.LastIndexOfAny(['\\', '/']) + 1)..];
         return name.Length > 200 ? name[..200] : name;
     }
 }
