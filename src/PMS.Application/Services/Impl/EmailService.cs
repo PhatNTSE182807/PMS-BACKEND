@@ -14,7 +14,8 @@ public class EmailService(SmtpSettings smtpSettings) : IEmailService
 
     private async Task SendAsync(MimeMessage message)
     {
-        using var client = new SmtpClient();
+        // Fail in seconds rather than hang when the host blocks SMTP ports
+        using var client = new SmtpClient { Timeout = 15000 };
 
         try
         {
