@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -15,6 +16,9 @@ public interface IUserProfileService
 
     /// <summary>Uploads and saves a new avatar image for the user. Returns the updated profile.</summary>
     Task<UserProfileResponseModel> UploadAvatarAsync(string userId, IFormFile file);
+
+    /// <summary>A stored profile photo by its public id, or null when there is none.</summary>
+    Task<AvatarImageModel> GetAvatarAsync(Guid avatarId);
 
     Task<List<VehicleResponseModel>> GetVehiclesAsync(string userId);
 
