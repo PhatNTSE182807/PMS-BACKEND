@@ -239,7 +239,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | FR-RSV-07 | Cấn trừ cọc khi check-out; phí nhỏ hơn cọc thì phần dư hoàn vào ví (BR-03) | Hệ thống | M |
 | FR-RSV-08 | Callback cọc đến sau khi đặt chỗ Hết hạn: tự hoàn tiền và thông báo | Hệ thống, E1 | M |
 | FR-RSV-09 | Hủy phía bãi: Manager hủy đặt chỗ của bãi mình, hoặc bãi Tạm đóng; hoàn 100% cọc và thông báo | Manager, Hệ thống | M |
-| FR-RSV-10 | Nhắc lịch trong app: 15 phút trước giờ đến và 5 phút trước khi hết thời gian giữ. Đặt chỗ theo lịch có xe đang đỗ: nhắc 15 phút trước giờ rời; quá giờ rời 5 phút thì báo khách và Staff của bãi (không phụ phí, phí vẫn tính theo bảng giá). Đặt chỗ bị chuyển slot lúc bắt đầu giữ chỗ vì slot cũ còn xe thì báo khách slot mới | Hệ thống | S |
+| FR-RSV-10 | Nhắc lịch trong app: 15 phút trước giờ đến và 5 phút trước khi hết thời gian giữ. Đặt chỗ theo lịch có xe đang đỗ: nhắc 15 phút trước giờ rời (kèm cảnh báo mất cọc nếu ra trễ, BR-05); quá giờ rời 5 phút thì báo khách và Staff của bãi. Đặt chỗ bị chuyển slot lúc bắt đầu giữ chỗ vì slot cũ ngừng phục vụ thì báo khách slot mới | Hệ thống | S |
 | FR-RSV-11 | Xe máy nhận chỗ ngay: chạm slot trống trên tầng xe máy, không chọn giờ, không cọc; hệ thống gửi yêu cầu check-in tới làn vào để Staff thấy biển số; phí trả khi ra | User | M |
 | FR-RSV-12 | Giới hạn: tối đa 2 đặt chỗ hiệu lực mỗi tài khoản và 1 mỗi xe; mỗi xe chỉ một session mở | Hệ thống | M |
 | FR-RSV-13 | Manager xem đặt chỗ hôm nay và sắp tới của bãi; Staff tra đặt chỗ theo QR, mã hoặc biển số tại làn vào | Manager, Staff | M |
@@ -316,7 +316,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | FR-SYS-07 | Danh mục loại xe: CAR_4, CAR_7, MOTORBIKE đang dùng; loại cho phép đặt trước và loại nhận chỗ ngay | Admin | M |
 | FR-SYS-08 | Hàng chờ duyệt của Manager: xác nhận chốt ngăn kéo, yêu cầu bổ sung tiền mặt | Manager | M |
 | FR-SYS-09 | Mô phỏng vận hành (Admin, cho demo): khi bật, một block giá kéo dài N giây với cùng giá block và không trần ngày; thời gian giữ, hạn cọc, đến sớm, hạn hủy được hoàn và Exit Window tính bằng giây; luồng xe vãng lai biển số ngẫu nhiên (không trùng biển số đã đăng ký, đang đỗ hoặc trong danh sách) đi qua làn vào thật, đỗ slot trống ngẫu nhiên hoặc slot chọn trên 3D, tự trả tiền mặt và ra; có thể báo mất vé hoặc đỗ nhầm vào slot đặt chỗ; “Lấp đầy bãi”. Session mô phỏng gắn cờ IsSimulated; phí, thanh toán, counter là thật; tắt thì khôi phục quy tắc thường | Admin | S |
-| FR-SYS-10 | Trợ lý hỏi đáp AI cho Guest và User: trả lời câu hỏi về đặt chỗ, cọc, phí, thanh toán, ví, xác minh xe chỉ dựa trên bộ kiến thức của hệ thống (RAG); không đọc dữ liệu cá nhân ở phiên bản đầu; nói không biết khi ngoài phạm vi; có giới hạn tần suất | Guest, User, E6 | S |
+| FR-SYS-10 | Trợ lý hỏi đáp AI (Virgo) cho Guest và User: trả lời câu hỏi về đặt chỗ, cọc, phí, thanh toán, ví, xác minh xe dựa trên bộ kiến thức của hệ thống (RAG) và dữ liệu công khai hiện tại (các bãi khách xem được: địa chỉ, trạng thái, giờ mở cửa, bảng giá đang áp dụng theo loại xe; không có số chỗ trống); hỏi địa chỉ thì hướng dẫn nút "View map" dưới mô hình 3D của bãi; không đọc dữ liệu cá nhân; nói không biết khi ngoài phạm vi; có giới hạn tần suất | Guest, User, E6 | S |
 
 ## 4. Luồng nghiệp vụ
 
@@ -428,8 +428,9 @@ Edge Service và vận hành offline chưa được xây dựng ở v1.5 (FR-OPS
 | User bỏ dở thanh toán cọc | Hết 10 phút thì đặt chỗ Hết hạn, slot về Trống |
 | Callback cọc đến muộn | Tự hoàn tiền (FR-RSV-08) |
 | Đổi giờ đến / giờ rời / chế độ / slot | Cho phép tới 30 phút trước giờ đến; ghi lịch sử thay đổi |
-| Đặt theo lịch: xe còn đỗ quá giờ rời | Không phụ phí, phí tính theo thời gian đỗ thật; nhắc 15 phút trước giờ rời, quá 5 phút thì báo khách và Staff (FR-RSV-10) |
-| Slot đặt còn xe khi bắt đầu giữ chỗ (2 giờ trước giờ đến) | Hệ thống chuyển đặt chỗ sang slot trống cùng loại và báo khách; không còn slot thì xử lý tại cổng theo BR-08 |
+| Đặt theo lịch: xe còn đỗ quá giờ rời | Mất toàn bộ cọc và trả đủ phí theo thời gian đỗ thật (BR-05); nhắc 15 phút trước giờ rời, quá 5 phút thì báo khách và Staff (FR-RSV-10) |
+| Slot đặt ngừng phục vụ khi bắt đầu giữ chỗ (2 giờ trước giờ đến) | Hệ thống chuyển đặt chỗ sang slot trống cùng loại và báo khách |
+| Slot đặt còn xe của lượt trước | Slot chờ xe cũ rời đi; tới giờ đến mà xe vẫn còn thì mở hồ sơ slot đặt bị chiếm cho Staff (BR-08) |
 | Bãi Tạm đóng hoặc Manager hủy | Hủy phía bãi, hoàn 100% cọc, thông báo |
 | Vượt số đặt chỗ tối đa | Từ chối đặt mới |
 | Xe chưa có trên tài khoản hoặc đang chờ duyệt | Từ chối đặt |
@@ -598,9 +599,9 @@ Giá trị mặc định cấu hình được trong mục `Parking` của cấu 
 | --- | --- | --- |
 | BR-01 | Giờ đến phải trong tương lai và không quá N ngày kể từ lúc đặt; slot chỉ bị giữ từ M phút trước giờ đến. Ô tô đặt trước; xe máy chỉ nhận chỗ ngay | N = 30 ngày; M = 120 phút |
 | BR-02 | Cửa sổ đến = [giờ đến − thời gian đến sớm, giờ đến + thời gian giữ]; thời gian giữ phụ thuộc có cọc hay không | Đến sớm 15 phút; giữ 15 phút (không cọc) / 30 phút (có cọc) |
-| BR-03 | Cọc được cấn trừ vào phí khi check-out; phí nhỏ hơn cọc thì phần dư hoàn tự động vào ví XXIV | Hoàn phần dư vào ví |
+| BR-03 | Cọc được cấn trừ vào phí khi check-out; phí nhỏ hơn cọc thì phần dư hoàn tự động vào ví XXIV. Ngoại lệ: đặt chỗ theo lịch còn trong bãi sau giờ rời thì không cấn trừ (BR-05) | Hoàn phần dư vào ví |
 | BR-04 | Hủy trước giờ đến ít nhất H phút: hoàn 100% cọc vào ví; sau mốc đó không hoàn. H cũng là hạn đổi đặt chỗ | H = 30 phút |
-| BR-05 | No-show: giữ toàn bộ cọc | 100% cọc |
+| BR-05 | No-show: giữ toàn bộ cọc. Đặt chỗ theo lịch còn trong bãi sau giờ rời (tính lúc tính phí): giữ toàn bộ cọc và thu đủ phí (quy tắc nhóm 2026-11-09). Giữa giờ rời của một đặt chỗ theo lịch và giờ đến của đặt chỗ kế tiếp cùng slot có khoảng đệm | 100% cọc; đệm 30 phút |
 | BR-06 | Cọc tùy chọn; mức cọc cố định theo loại xe; thời hạn thanh toán cọc tính từ lúc đặt | 30.000đ; 10 phút |
 | BR-07 | Số đặt chỗ hiệu lực tối đa mỗi tài khoản và mỗi xe; mỗi xe một session mở | 2 / tài khoản, 1 / xe |
 | BR-08 | Slot đặt bị chiếm khi khách tới: đổi slot cùng loại và miễn block đầu; không còn slot thì vào khu vãng lai, hủy đặt chỗ, hoàn 100% cọc và trả bồi thường của bảng giá vào ví | Bồi thường 100.000đ ô tô, 50.000đ xe máy |

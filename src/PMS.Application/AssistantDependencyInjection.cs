@@ -24,6 +24,7 @@ public static class AssistantDependencyInjection
         services.AddSingleton<ModelClient>();
         services.AddSingleton<KnowledgeBase>();
         services.AddSingleton<AnswerCache>();
+        services.AddSingleton<LiveLotData>();
         services.AddSingleton<IKnowledgeRetriever, KnowledgeRetriever>();
         services.AddSingleton<IAssistantService, AssistantService>();
 

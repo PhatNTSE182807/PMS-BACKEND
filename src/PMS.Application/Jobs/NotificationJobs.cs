@@ -399,17 +399,28 @@ public class NotificationJobs(
                     return false;
                 var departure = LocalTime(departureUtc, lot);
                 data["departureTime"] = Iso(departureUtc);
+                // Team rule (2026-11-09, GateService): leaving after the departure time keeps the deposit and charges the whole fee
+                var deposit = reservation.DepositAmount > 0
+                    ? $"{reservation.DepositAmount.ToString("N0", CultureInfo.InvariantCulture)} VND deposit"
+                    : null;
                 if (notificationType == NotificationTypes.DepartureSoon)
                 {
                     text = ("Your booked time ends soon",
                         $"Your booking {reservation.ReservationCode} at {lotName} ends at {departure}. Please drive out by then: " +
-                        "another driver may need the bay. If you stay longer, you pay the extra time by the lot's price list.");
+                        "another driver may have booked the bay after you. " +
+                        (deposit != null
+                            ? $"If you are still inside after {departure}, you lose your {deposit} and pay the whole parking fee."
+                            : "If you stay longer, you pay the extra time by the lot's price list."));
                 }
                 else
                 {
                     text = ("Your booked time has ended",
                         $"Your booking {reservation.ReservationCode} at {lotName} ended at {departure}, and your vehicle is still in " +
-                        $"bay {bay ?? "your bay"}. The fee keeps running by the lot's price list; please drive out as soon as you can.");
+                        $"bay {bay ?? "your bay"}. " +
+                        (deposit != null
+                            ? $"Because you stayed past it, your {deposit} is kept by the lot and you pay the whole parking fee. "
+                            : "The fee keeps running by the lot's price list. ") +
+                        "Please drive out as soon as you can.");
                     await StaffOverstayAsync(reservation, lotName, bay, departure, data);
                 }
                 break;
@@ -422,8 +433,9 @@ public class NotificationJobs(
                 data["previousBayCode"] = previousBay;
                 // A booking can move more than once; each new bay is its own notice
                 refId = $"{reservation.Id}:{reservation.SlotId}";
+                // The hold job only moves a booking off a bay that is out of service (a bay with a vehicle in it waits)
                 text = ("Your booking moved to another bay",
-                    $"Bay {previousBay ?? "you booked"} at {lotName} is still in use, so your booking {reservation.ReservationCode} " +
+                    $"Bay {previousBay ?? "you booked"} at {lotName} is out of service, so your booking {reservation.ReservationCode} " +
                     $"for {LocalTime(reservation.StartTime, lot)} now has bay {bay ?? "a new bay"} of the same type. Nothing else changes.");
                 break;
             }
@@ -461,8 +473,8 @@ public class NotificationJobs(
                 Type = NotificationTypes.DepartureOverdue,
                 Title = "A booked vehicle stayed past its time",
                 Message = $"The vehicle of booking {reservation.ReservationCode} is still in bay {bay ?? "its bay"} at {lotName}; " +
-                          $"its booked time ended at {departure}. Bookings that need this bay later are moved to a free bay " +
-                          "automatically; check the lot if none is free.",
+                          $"its booked time ended at {departure}. If the next booking of this bay arrives while it is still " +
+                          "there, a booked bay case opens in Exceptions & Alerts to move that booking or compensate the customer.",
                 RefType = "Reservation",
                 RefId = reservation.Id.ToString(CultureInfo.InvariantCulture),
                 EventAt = Now

@@ -116,8 +116,31 @@ Extra facts are fine when they agree with the main or the related references. Ou
 reference): pass only when the answer politely declines or says it does not know, invents no XXIV
 Parking facts, and gives out no plate numbers or personal data.`
 
-async function judge(q, answer, sourceIds, key) {
-  const reference = q.source ? sections[q.source] ?? '(missing)' : null
+/** Questions about the lots and prices in the system now; graded against the public API, not a help section. */
+const isLive = (q) => q.source === 'live'
+
+/** The public lots and their prices now, from the same API the homepage uses: the reference for "live" questions. */
+async function liveReference() {
+  const get = async (url) => (await (await fetch(`${baseUrl}${url}`)).json()).result
+  const lots = await get('/api/public/lots')
+  const lines = []
+  for (const lot of lots) {
+    lines.push(`${lot.name}: ${[lot.address, lot.district, lot.city].filter(Boolean).join(', ')}; ` +
+      `${lot.isBookable ? 'open, takes bookings' : 'under maintenance, no bookings'}`)
+    for (const p of await get(`/api/public/lots/${lot.id}/prices`))
+      lines.push(`  ${p.vehicleTypeName}: ${p.chargeModel}, first ${p.firstBlockMinutes ?? p.blockMinutes} min ` +
+        `${p.firstBlockPrice ?? p.blockPrice} VND, then ${p.blockPrice} VND per ${p.blockMinutes} min, ` +
+        `daily cap ${p.maxDailyFee ?? 'none'} per calendar day, entry fee ${p.entryFee}`)
+  }
+  // What the app shows, in the words of the help files (using-the-app.md, "Directions to a lot")
+  return lines.join('\n') +
+    '\nIn the app, Dashboard > Book Slot shows each lot\'s 3D model; the "View map" button under the model, next to the' +
+    ' address, opens a map with the exact location and the driving route; the route icon next to each lot name opens' +
+    ' the same map, and the map has an "Open in Google Maps" button. Free-space counts are shown live in the lot list.'
+}
+
+async function judge(q, answer, sourceIds, key, live) {
+  const reference = isLive(q) ? live : q.source ? sections[q.source] ?? '(missing)' : null
   // The other sections the assistant was given: extra facts taken from them are not mistakes
   const related = sourceIds.filter((id) => id !== q.source).map((id) => `- ${sections[id] ?? ''}`).join('\n')
   const prompt = reference
@@ -163,14 +186,16 @@ async function main() {
   const key = useJudge ? judgeKey() : null
   if (useJudge && !key) console.log('No Gemini key found (GEMINI_API_KEY or user-secrets): running without the judge.\n')
   console.log(`Assistant evaluation: ${selected.length} questions against ${baseUrl}${key ? ', judged by Gemini' : ''}\n`)
+  const live = selected.some(isLive) ? await liveReference() : null
 
   const rows = []
   for (const [i, q] of selected.entries()) {
     if (i > 0) await sleep(delayMs)
     const r = await ask(q.question)
     const ids = r.sources.map((s) => `${s.file}#${s.heading}`)
-    const hit = q.source ? ids.includes(q.source) : null
-    const rank = q.source ? ids.indexOf(q.source) + 1 : null
+    // Live questions have no help section to find; only the judge grades them
+    const hit = q.source && !isLive(q) ? ids.includes(q.source) : null
+    const rank = q.source && !isLive(q) ? ids.indexOf(q.source) + 1 : null
 
     const vietnamese = isVietnamese(r.answer)
     const checkable = q.mustMention.filter((m) => !vietnamese || /\d/.test(m))
@@ -179,16 +204,16 @@ async function main() {
         ? !digits(r.answer).includes(digits(m).replace(/[^\d]/g, ''))
         : !r.answer.toLowerCase().includes(m.toLowerCase()),
     )
-    const verdict = key ? await judge(q, r.answer, ids, key) : null
+    const verdict = key ? await judge(q, r.answer, ids, key, live) : null
 
     rows.push({ ...q, mode: r.mode, sources: ids, scores: r.sources.map((s) => s.score), answer: r.answer, error: r.error, hit, rank, vietnamese, missing, judge: verdict })
-    const search = q.outOfScope ? 'OOS ' : hit ? 'HIT ' : 'MISS'
+    const search = q.outOfScope ? 'OOS ' : isLive(q) ? 'LIVE' : hit ? 'HIT ' : 'MISS'
     const graded = verdict ? (verdict.pass === true ? 'PASS' : verdict.pass === false ? 'FAIL' : 'N/A ') : ''
     const notes = verdict && verdict.pass === false ? [...verdict.missing.map((m) => `missing: ${m}`), ...verdict.wrong.map((w) => `wrong: ${w}`)].join('; ') : ''
     console.log(`${search} ${graded} ${q.id.padEnd(7)} ${notes}${r.error ? ` error: ${r.error}` : ''}`)
   }
 
-  const scored = rows.filter((r) => r.source)
+  const scored = rows.filter((r) => r.source && !isLive(r))
   const hits = scored.filter((r) => r.hit).length
   const top1 = scored.filter((r) => r.rank === 1).length
   const wordFacts = scored.filter((r) => r.missing.length === 0).length

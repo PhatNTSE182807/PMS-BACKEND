@@ -16,7 +16,8 @@ let problems = 0; const used = new Set(); const ids = new Set();
 for (const q of questions) {
   if (ids.has(q.id)) { problems++; console.log('duplicate id', q.id); } ids.add(q.id);
   for (const code of q.srs || []) if (!new RegExp('\| ' + code.replace(/-/g, '\-') + ' \|').test(srs)) { problems++; console.log(q.id, 'SRS code not in v1.5 tables:', code); }
-  if (!q.source) continue;
+  // "live" questions are about the lots and prices in the system now: run-eval.js grades them against the API
+  if (!q.source || q.source === 'live') continue;
   const text = sections[q.source];
   if (!text) { problems++; console.log(q.id, 'missing source', q.source); continue; }
   used.add(q.source);
