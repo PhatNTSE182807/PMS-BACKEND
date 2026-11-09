@@ -114,6 +114,8 @@ public partial class PmsDbContext : DbContext
 
     public virtual DbSet<SystemSetting> SystemSettings { get; set; }
 
+    public virtual DbSet<CustomerAvatar> CustomerAvatars { get; set; }
+
     public virtual DbSet<User> Users { get; set; }
 
     public virtual DbSet<UserConsent> UserConsents { get; set; }
@@ -1175,6 +1177,19 @@ public partial class PmsDbContext : DbContext
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())");
             entity.Property(e => e.RenewedBy).HasMaxLength(450);
+        });
+
+        modelBuilder.Entity<CustomerAvatar>(entity =>
+        {
+            entity.ToTable("CustomerAvatars");
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.HasIndex(e => e.CustomerId, "UX_CustomerAvatars_CustomerId").IsUnique();
+            entity.Property(e => e.Content).IsRequired();
+            entity.Property(e => e.ContentType)
+                .IsRequired()
+                .HasMaxLength(50)
+                .IsUnicode(false);
+            entity.Property(e => e.CreatedAt).HasPrecision(3);
         });
 
         modelBuilder.Entity<SystemSetting>(entity =>

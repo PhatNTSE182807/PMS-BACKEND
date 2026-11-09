@@ -34,6 +34,7 @@ public static partial class AutomatedMigration
                 await EnsureGateRequestsTableAsync(pmsContext);
                 await EnsureNotificationsTableAsync(pmsContext);
                 await EnsureSystemSettingsTableAsync(pmsContext);
+                await EnsureCustomerAvatarsTableAsync(pmsContext);
                 await SetBookedBayCompensationDefaultsAsync(pmsContext);
             }
 
@@ -472,6 +473,25 @@ public static partial class AutomatedMigration
                     CONSTRAINT [PK_SystemSettings] PRIMARY KEY CLUSTERED ([Id] ASC)
                 );
                 CREATE UNIQUE NONCLUSTERED INDEX [UX_SystemSettings_SettingKey] ON [dbo].[SystemSettings]([SettingKey] ASC);
+            END");
+    }
+
+    // Profile photos live in the database: the hosting disk does not survive a redeploy
+    private static async Task EnsureCustomerAvatarsTableAsync(PmsDbContext pmsContext)
+    {
+        await pmsContext.Database.ExecuteSqlRawAsync(@"
+            IF OBJECT_ID(N'[dbo].[CustomerAvatars]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[CustomerAvatars](
+                    [Id] [uniqueidentifier] NOT NULL,
+                    [CustomerId] [int] NOT NULL,
+                    [Content] [varbinary](max) NOT NULL,
+                    [ContentType] [varchar](50) NOT NULL,
+                    [CreatedAt] [datetime2](3) NOT NULL,
+                    CONSTRAINT [PK_CustomerAvatars] PRIMARY KEY CLUSTERED ([Id] ASC),
+                    CONSTRAINT [FK_CustomerAvatars_Customers] FOREIGN KEY ([CustomerId]) REFERENCES [dbo].[Customers]([Id]) ON DELETE CASCADE
+                );
+                CREATE UNIQUE NONCLUSTERED INDEX [UX_CustomerAvatars_CustomerId] ON [dbo].[CustomerAvatars]([CustomerId] ASC);
             END");
     }
 
