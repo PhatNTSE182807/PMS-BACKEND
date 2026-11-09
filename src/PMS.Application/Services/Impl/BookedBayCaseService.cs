@@ -45,9 +45,12 @@ public class BookedBayCaseService(
             return null;
 
         var ownBooking = session.ReservationId ?? 0;
+        // The soonest booking of the bay is the one that is blocked
         var reservation = await pmsContext.Reservations
-            .FirstOrDefaultAsync(r => r.ParkingLotId == session.ParkingLotId && r.SlotId == bayId
-                                      && r.Status == ReservationStatus.Confirmed && r.Id != ownBooking);
+            .Where(r => r.ParkingLotId == session.ParkingLotId && r.SlotId == bayId
+                        && r.Status == ReservationStatus.Confirmed && r.Id != ownBooking)
+            .OrderBy(r => r.StartTime)
+            .FirstOrDefaultAsync();
         if (reservation == null
             || await pmsContext.BookedBayCases.AnyAsync(c => c.ReservationId == reservation.Id && c.Status == BookedBayCaseStatus.Open))
             return null;
@@ -70,8 +73,12 @@ public class BookedBayCaseService(
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstAsync(l => l.Id == session.ParkingLotId);
         var plate = session.HasPlate ? session.EntryPlateNumber : "A plate-less walk-in";
-        var message = $"Walk-in {plate} parked in bay {bay.Code}, booked by {reservation.ReservationCode} (arrives {LocalTime(reservation.StartTime, lot)}). " +
-                      "Move the booking in Exceptions & Alerts.";
+        // A vehicle that came in on its own booking and stayed past it, or a walk-in
+        var message = session.ReservationId != null
+            ? $"{(session.HasPlate ? session.EntryPlateNumber : "A vehicle")} stayed past its booking in bay {bay.Code}, booked next by {reservation.ReservationCode} (arrives {LocalTime(reservation.StartTime, lot)}). " +
+              "Move the booking in Exceptions & Alerts, or compensate the customer when no bay is free."
+            : $"Walk-in {plate} parked in bay {bay.Code}, booked by {reservation.ReservationCode} (arrives {LocalTime(reservation.StartTime, lot)}). " +
+              "Move the booking in Exceptions & Alerts.";
         var (lotId, walkInId) = (session.ParkingLotId, session.Id);
         inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "BOOKED_BAY_TAKEN", message, walkInId) ?? Task.CompletedTask);
         await inventory.FlushAsync();
@@ -210,6 +217,7 @@ public class BookedBayCaseService(
     /// </summary>
     public async Task<int> SweepAsync(int? lotId = null)
     {
+        await OpenForOverstaysAsync(lotId);
         var open = await pmsContext.BookedBayCases
             .Where(c => c.Status == BookedBayCaseStatus.Open && (lotId == null || c.ParkingLotId == lotId))
             .ToListAsync();
@@ -259,6 +267,39 @@ public class BookedBayCaseService(
         await pmsContext.SaveChangesAsync();
         await inventory.FlushAsync();
         return changed;
+    }
+
+    /// <summary>
+    /// Team rule (2026-11-09): a vehicle that stays past its booking and still fills the bay when the next booking's
+    /// arrival time comes opens a case for the lot's Staff, the same as a walk-in in a booked bay: they move the
+    /// booking to another free bay, or compensate the customer when none is left. Returns how many cases opened.
+    /// </summary>
+    public async Task<int> OpenForOverstaysAsync(int? lotId = null)
+    {
+        var now = Now;
+        var blocked = await pmsContext.Reservations.AsNoTracking()
+            .Where(r => r.Status == ReservationStatus.Confirmed && r.SlotId != null && r.StartTime <= now
+                        && (lotId == null || r.ParkingLotId == lotId)
+                        && !pmsContext.BookedBayCases.Any(c => c.ReservationId == r.Id && c.Status == BookedBayCaseStatus.Open))
+            .Select(r => new
+            {
+                r.Id,
+                SessionId = pmsContext.ParkingSessions
+                    .Where(s => s.SlotId == r.SlotId && s.ReservationId != r.Id && SessionStatus.Open.Contains(s.Status))
+                    .OrderBy(s => s.EntryTime)
+                    .Select(s => (long?)s.Id)
+                    .FirstOrDefault()
+            })
+            .Where(r => r.SessionId != null)
+            .ToListAsync();
+
+        var opened = 0;
+        foreach (var item in blocked)
+        {
+            if (await OpenIfBookedAsync(item.SessionId!.Value) != null)
+                opened++;
+        }
+        return opened;
     }
 
     /* Helpers --------------------------------------------------------- */

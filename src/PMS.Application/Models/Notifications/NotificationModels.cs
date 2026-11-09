@@ -28,11 +28,20 @@ public static class NotificationTypes
     public const string DepositRefunded = "DepositRefunded";
     /// <summary>A compensation was paid into the XXIV wallet.</summary>
     public const string CompensationPaid = "CompensationPaid";
+    /// <summary>The planned departure of a parked vehicle's scheduled booking is near.</summary>
+    public const string DepartureSoon = "DepartureSoon";
+    /// <summary>A scheduled booking's planned departure has passed and the vehicle is still parked (customer and Staff).</summary>
+    public const string DepartureOverdue = "DepartureOverdue";
+    /// <summary>The booked bay was out of service when the hold started, so the booking was moved to another bay.</summary>
+    public const string BookingBayMoved = "BookingBayMoved";
+    /// <summary>Manager bell: a Staff closed their cash drawer (when, counted vs expected, the difference).</summary>
+    public const string CashDrawerClosed = "CashDrawerClosed";
 
     public static readonly string[] All =
     [
         VehicleApproved, VehicleRejected, CheckIn, CheckOut, PriceChanged,
-        BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid
+        BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid,
+        DepartureSoon, DepartureOverdue, BookingBayMoved, CashDrawerClosed
     ];
 }
 

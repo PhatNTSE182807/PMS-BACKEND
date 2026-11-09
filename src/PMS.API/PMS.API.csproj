@@ -28,6 +28,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Help files of the chat assistant, read at run time -->
+        <Content Include="App_Data\knowledge\*.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\PMS.Application\PMS.Application.csproj" />
     </ItemGroup>
 </Project>

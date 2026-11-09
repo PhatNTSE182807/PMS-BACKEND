@@ -46,6 +46,9 @@ public class ParkingOptions
     /// <summary>Check-in opens this long before the arrival time (BR-02).</summary>
     public TimeSpan EarlyArrivalTime => Pick(s => s.EarlyArrivalSeconds, Reservations.EarlyArrivalMinutes);
 
+    /// <summary>Gap between two bookings of one bay (always in real minutes).</summary>
+    public TimeSpan TurnoverTime => TimeSpan.FromMinutes(Math.Max(0, Reservations.TurnoverMinutes));
+
     /// <summary>Full refund and changes allowed until this long before arrival (BR-04).</summary>
     public TimeSpan CancelRefundTime => Pick(s => s.CancelRefundSeconds, Reservations.CancelRefundMinutes);
 
@@ -85,6 +88,12 @@ public class ReservationRules
     /// <summary>BR-06: the deposit must be paid within this many minutes of picking the slot.</summary>
     public int DepositMinutes { get; set; } = 10;
 
+    /// <summary>
+    /// Team rule (2026-11-09): the gap a bay keeps between one scheduled booking's departure and the next booking's
+    /// arrival, so a booking of 1:00 to 3:00 lets the next one start at 3:30.
+    /// </summary>
+    public int TurnoverMinutes { get; set; } = 30;
+
     /// <summary>BR-02: check-in opens this many minutes before the arrival time.</summary>
     public int EarlyArrivalMinutes { get; set; } = 15;
 
@@ -117,6 +126,15 @@ public class ReservationRules
 
     /// <summary>FR-RSV-10: remind this many minutes before the hold ends.</summary>
     public int HoldEndReminderMinutes { get; set; } = 5;
+
+    /// <summary>A parked vehicle on a scheduled booking is reminded this many minutes before its planned departure.</summary>
+    public int DepartureReminderMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// This long after the planned departure, a vehicle still parked on its scheduled booking is overdue: the customer
+    /// and the lot's Staff are told. There is no extra fee; the fee keeps running by the price list.
+    /// </summary>
+    public int OverstayGraceMinutes { get; set; } = 5;
 
     /// <summary>BR-06: fixed deposit per vehicle type code; types not listed use <see cref="DefaultDeposit"/>.</summary>
     public Dictionary<string, decimal> DepositByVehicleType { get; set; } = new();

@@ -22,7 +22,8 @@ public class CashDrawerService(
     LotScopeService lotScope,
     ParkingOptions options,
     TimeProvider clock,
-    IParkingRealtimeNotifier notifier = null)
+    IParkingRealtimeNotifier notifier = null,
+    IUserNotificationPublisher notifications = null)
 {
     /// <summary>BR-12: a larger difference needs a reason and a Manager's confirmation.</summary>
     public const decimal DifferenceThreshold = 20_000;
@@ -120,6 +121,8 @@ public class CashDrawerService(
         await AlertAsync(drawer.ParkingLotId, "CASH_CLOSED", difference == 0
             ? $"{who} closed cash drawer {drawer.CloseNo}: it balances. Confirm it in the Approval Queue.{handover}"
             : $"{who} closed cash drawer {drawer.CloseNo}: {difference:+#,0;-#,0} VND off. Check it in the Approval Queue.{handover}");
+        // ...and keeps it in their notification bell (closing time, count and difference)
+        notifications?.CashDrawerClosed(drawer.Id);
         return await ToModelAsync(drawer);
     }
 
@@ -426,7 +429,7 @@ public class CashDrawerService(
         {
             if (payment.CashReceivedJson == null)
             {
-                // Taken as an amount only (POS without tapping the notes, a forced check-out): it is still cash in the
+                // Taken as an amount only (POS without tapping the notes): it is still cash in the
                 // drawer, so the expected notes count it as the fewest notes that make it. Otherwise the notes column
                 // would come out short by exactly that amount and the count would show a loss that is not there.
                 untracked += payment.Amount;
