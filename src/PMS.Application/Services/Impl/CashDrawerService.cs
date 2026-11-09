@@ -429,7 +429,7 @@ public class CashDrawerService(
         {
             if (payment.CashReceivedJson == null)
             {
-                // Taken as an amount only (POS without tapping the notes, a forced check-out): it is still cash in the
+                // Taken as an amount only (POS without tapping the notes): it is still cash in the
                 // drawer, so the expected notes count it as the fewest notes that make it. Otherwise the notes column
                 // would come out short by exactly that amount and the count would show a loss that is not there.
                 untracked += payment.Amount;

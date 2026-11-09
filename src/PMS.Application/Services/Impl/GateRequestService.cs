@@ -178,50 +178,6 @@ public class GateRequestService(
         return (await ToModelsAsync([request]))[0];
     }
 
-    public async Task<GateRequestModel> ForceCheckOutAsync(long sessionId)
-    {
-        var session = await pmsContext.ParkingSessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == sessionId)
-                      ?? throw new NotFoundException("Parking session not found.");
-        await lotScope.EnsureCanOperateAsync(session.ParkingLotId);
-        if (session.SessionType != SessionType.WalkIn || session.ReservationId != null)
-            throw new BadRequestException("Only a walk-in can be checked out from here; a booked vehicle leaves through its own check-out.");
-        if (session.Status == SessionStatus.LostTicketPending)
-            throw new BadRequestException("The lost ticket must be decided first (Exceptions & Alerts).");
-        if (!SessionStatus.Inside.Contains(session.Status))
-            throw new BadRequestException("This vehicle is not parked.");
-
-        var plate = session.HasPlate ? session.EntryPlateNumber : null;
-        if (session.Status != SessionStatus.Paid)
-        {
-            // The same fee as the POS: the quote, then what is owed taken in cash (nothing to take when it is 0 VND)
-            var quote = await gateService.RequestPaymentAsync(sessionId, new CheckoutQuoteRequestModel { PlateNumber = plate });
-            if (quote.AmountDue > 0)
-                await gateService.PayCashAsync(sessionId, new CashPaymentModel { Amount = quote.AmountDue });
-        }
-
-        // The vehicle drives to the exit lane: one waiting check-out request, kept if it is already there
-        var waiting = await pmsContext.GateRequests
-            .FirstOrDefaultAsync(g => g.SessionId == sessionId && g.Kind == GateRequestKind.CheckOut && g.Status == GateRequestStatus.Waiting);
-        if (waiting == null)
-        {
-            waiting = new GateRequest
-            {
-                ParkingLotId = session.ParkingLotId,
-                Kind = GateRequestKind.CheckOut,
-                Status = GateRequestStatus.Waiting,
-                CustomerId = session.CustomerId,
-                SessionId = session.Id,
-                VehicleId = session.VehicleId,
-                PlateNumber = session.EntryPlateNumber,
-                CreatedAt = Now
-            };
-            pmsContext.GateRequests.Add(waiting);
-            await pmsContext.SaveChangesAsync();
-            await PushAsync(waiting);
-        }
-        return (await ToModelsAsync([waiting]))[0];
-    }
-
     public async Task<GateRequestDecisionModel> ApproveAsync(long requestId, ApproveGateRequestModel model)
     {
         model ??= new ApproveGateRequestModel();
