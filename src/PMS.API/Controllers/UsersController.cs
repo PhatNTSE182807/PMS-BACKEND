@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -172,6 +173,24 @@ public class UsersController(
     {
         var userId = claimService.GetUserId();
         return Ok(ApiResult<UserProfileResponseModel>.Success(await userProfileService.UploadAvatarAsync(userId, file)));
+    }
+
+    /// <summary>
+    /// Serves a profile photo. Public because an image tag cannot send the sign-in token; the id is a random
+    /// GUID that changes on every upload, so the response never changes and can be cached for a long time.
+    /// </summary>
+    [HttpGet("avatars/{avatarId:guid}")]
+    [Tags(SwaggerTags.Profile)]
+    [AllowAnonymous]
+    [ResponseCache(Duration = 31536000, Location = ResponseCacheLocation.Any)]
+    public async Task<IActionResult> GetAvatarAsync(Guid avatarId)
+    {
+        var avatar = await userProfileService.GetAvatarAsync(avatarId);
+        if (avatar == null)
+            return NotFound();
+
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return File(avatar.Content, avatar.ContentType);
     }
 
     [HttpGet("profile/vehicles")]

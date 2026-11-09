@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +20,6 @@ public class UserProfileService : IUserProfileService
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly PmsDbContext _pmsContext;
-    private readonly IWebHostEnvironment? _env;
 
     /// <summary>Allowed MIME types for avatar images.</summary>
     private static readonly HashSet<string> AllowedImageTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -29,14 +27,16 @@ public class UserProfileService : IUserProfileService
         "image/jpeg", "image/png", "image/gif", "image/webp"
     };
 
+    /// <summary>Public URL prefix of a stored avatar (served by GET api/Users/avatars/{id}).</summary>
+    private const string AvatarUrlPrefix = "/api/users/avatars/";
+
     /// <summary>Maximum avatar file size: 10 MB.</summary>
     private const long MaxAvatarBytes = 10 * 1024 * 1024;
 
-    public UserProfileService(UserManager<ApplicationUser> userManager, PmsDbContext pmsContext, IWebHostEnvironment? env = null)
+    public UserProfileService(UserManager<ApplicationUser> userManager, PmsDbContext pmsContext)
     {
         _userManager = userManager;
         _pmsContext = pmsContext;
-        _env = env;
     }
 
     public async Task<UserProfileResponseModel> GetProfileAsync(string userId)
@@ -205,37 +205,66 @@ public class UserProfileService : IUserProfileService
         if (user == null)
             throw new NotFoundException("User not found.");
 
+        // Read the bytes and trust the file signature, not the browser's Content-Type header
+        byte[] content;
+        await using (var stream = file.OpenReadStream())
+        using (var buffer = new MemoryStream())
+        {
+            await stream.CopyToAsync(buffer);
+            content = buffer.ToArray();
+        }
+
+        var contentType = DetectImageType(content)
+            ?? throw new BadRequestException("The file is not a valid JPEG, PNG, GIF or WebP image.");
+
         var customer = await GetOrCreateCustomerAsync(user);
 
-        // Build a unique file name: userId + timestamp + original extension
-        var extension = Path.GetExtension(file.FileName)?.ToLowerInvariant() ?? ".jpg";
-        var fileName = $"{userId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}{extension}";
+        // Stored in the database: the API's disk is wiped on every redeploy.
+        // One photo per customer, so the previous one is replaced.
+        var previous = await _pmsContext.CustomerAvatars.Where(a => a.CustomerId == customer.Id).ToListAsync();
+        _pmsContext.CustomerAvatars.RemoveRange(previous);
 
-        var uploadsDir = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), "uploads", "avatars");
-        Directory.CreateDirectory(uploadsDir);
-
-        var filePath = Path.Combine(uploadsDir, fileName);
-        await using (var stream = new FileStream(filePath, FileMode.Create))
+        var avatar = new CustomerAvatar
         {
-            await file.CopyToAsync(stream);
-        }
+            Id = Guid.NewGuid(),
+            CustomerId = customer.Id,
+            Content = content,
+            ContentType = contentType,
+            CreatedAt = DateTime.UtcNow
+        };
+        _pmsContext.CustomerAvatars.Add(avatar);
 
-        // Delete the old avatar file when it was served from local storage
-        if (!string.IsNullOrWhiteSpace(customer.AvatarUrl) && customer.AvatarUrl.StartsWith("/uploads/"))
-        {
-            var oldPath = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"),
-                customer.AvatarUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-            if (File.Exists(oldPath))
-            {
-                try { File.Delete(oldPath); } catch { /* best-effort cleanup */ }
-            }
-        }
-
-        customer.AvatarUrl = $"/uploads/avatars/{fileName}";
+        // A new random id per upload gives a new URL, so browsers and CDNs never show the old photo
+        customer.AvatarUrl = AvatarUrlPrefix + avatar.Id.ToString("N");
         customer.UpdatedAt = DateTime.UtcNow;
         await _pmsContext.SaveChangesAsync();
 
         return await GetProfileAsync(userId);
+    }
+
+    public async Task<AvatarImageModel> GetAvatarAsync(Guid avatarId)
+    {
+        return await _pmsContext.CustomerAvatars
+            .AsNoTracking()
+            .Where(a => a.Id == avatarId)
+            .Select(a => new AvatarImageModel { Content = a.Content, ContentType = a.ContentType })
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>MIME type from the first bytes of the file, or null when it is not a supported image.</summary>
+    private static string DetectImageType(byte[] data)
+    {
+        if (data.Length >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
+            return "image/jpeg";
+        if (data.Length >= 8 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47
+            && data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A)
+            return "image/png";
+        if (data.Length >= 6 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F' && data[3] == '8')
+            return "image/gif";
+        if (data.Length >= 12 && data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F'
+            && data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P')
+            return "image/webp";
+        return null;
     }
 
     public async Task<List<VehicleResponseModel>> GetVehiclesAsync(string userId)
