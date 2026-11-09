@@ -595,11 +595,11 @@ public class UserProfileServiceTests : IDisposable
     public async Task UploadAvatarAsync_Should_Throw_When_File_Exceeds_Max_Size()
     {
         var file = Substitute.For<Microsoft.AspNetCore.Http.IFormFile>();
-        file.Length.Returns(3 * 1024 * 1024); // 3 MB > 2 MB
+        file.Length.Returns(11 * 1024 * 1024); // 11 MB > 10 MB
 
         var act = () => _sut.UploadAvatarAsync("user-1", file);
         await act.Should().ThrowAsync<BadRequestException>()
-            .WithMessage("Avatar image must be smaller than 2 MB.");
+            .WithMessage("Avatar image must be smaller than 10 MB.");
     }
 
     public void Dispose()
