@@ -29,8 +29,8 @@ public class UserProfileService : IUserProfileService
         "image/jpeg", "image/png", "image/gif", "image/webp"
     };
 
-    /// <summary>Maximum avatar file size: 2 MB.</summary>
-    private const long MaxAvatarBytes = 2 * 1024 * 1024;
+    /// <summary>Maximum avatar file size: 10 MB.</summary>
+    private const long MaxAvatarBytes = 10 * 1024 * 1024;
 
     public UserProfileService(UserManager<ApplicationUser> userManager, PmsDbContext pmsContext, IWebHostEnvironment? env = null)
     {
@@ -196,7 +196,7 @@ public class UserProfileService : IUserProfileService
             throw new BadRequestException("No file was uploaded.");
 
         if (file.Length > MaxAvatarBytes)
-            throw new BadRequestException("Avatar image must be smaller than 2 MB.");
+            throw new BadRequestException("Avatar image must be smaller than 10 MB.");
 
         if (!AllowedImageTypes.Contains(file.ContentType))
             throw new BadRequestException("Only JPEG, PNG, GIF and WebP images are allowed.");
