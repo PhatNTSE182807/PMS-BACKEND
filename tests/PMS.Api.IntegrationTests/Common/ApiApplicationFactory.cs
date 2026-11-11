@@ -18,6 +18,15 @@ namespace PMS.Api.IntegrationTests.Common;
 
 public class ApiApplicationFactory<TProgram> : WebApplicationFactory<TProgram> where TProgram : class
 {
+    static ApiApplicationFactory()
+    {
+        // Every test starts its own API, and each one would watch appsettings*.json for changes. Linux allows
+        // only 128 such watchers per user on CI runners (GitHub), so a parallel test run fails with
+        // "The configured user limit (128) on the number of inotify instances has been reached".
+        // Tests never edit those files: read them once instead.
+        Environment.SetEnvironmentVariable("DOTNET_hostBuilder__reloadConfigOnChange", "false");
+    }
+
     private readonly string _inMemoryDatabaseName = Guid.NewGuid().ToString().Replace("-", string.Empty);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
