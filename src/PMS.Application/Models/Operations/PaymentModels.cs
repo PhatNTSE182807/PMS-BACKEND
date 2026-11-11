@@ -57,6 +57,12 @@ public class PaymentResponseModel
     /// <summary>Hosted payment page to redirect to (or show as a QR at the lane).</summary>
     public string PayUrl { get; set; }
 
+    /// <summary>
+    /// What to encode in a QR for the customer to scan: MoMo's own app QR when the gateway gave one,
+    /// otherwise the pay page (<see cref="PayUrl"/>).
+    /// </summary>
+    public string QrCode { get; set; }
+
     public DateTime? ExpiresAt { get; set; }
 
     public DateTime CreatedAt { get; set; }
