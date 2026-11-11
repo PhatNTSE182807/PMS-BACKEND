@@ -35,9 +35,11 @@ public sealed record GatewayCheckoutRequest(
     string IpnUrl,
     string ClientIp,
     DateTime CreatedAtUtc,
-    DateTime ExpiresAtUtc);
+    DateTime ExpiresAtUtc,
+    bool ScanToPay = false);
 
-public sealed record GatewayCheckout(string PayUrl, string RawResponse = null);
+/// <param name="QrCode">Text for a QR the provider's own app scans (MoMo's qrCodeUrl); null when the provider has none.</param>
+public sealed record GatewayCheckout(string PayUrl, string RawResponse = null, string QrCode = null);
 
 /// <param name="SignatureValid">False means the callback must be ignored (VNPay RspCode 97).</param>
 /// <param name="Success">The provider says the money was taken.</param>

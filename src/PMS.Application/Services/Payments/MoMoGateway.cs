@@ -33,8 +33,10 @@ public class MoMoGateway(
         var amount = ToAmount(request.Amount);
         var requestId = request.PaymentCode;
         const string extraData = "";
+        // A QR at the lane is scanned with the MoMo app: only "captureWallet" returns a QR the app accepts (qrCodeUrl)
+        var requestType = request.ScanToPay ? "captureWallet" : Settings.RequestType;
         var raw = CreateSignatureData(Settings.AccessKey, amount, extraData, request.IpnUrl, request.PaymentCode, request.OrderInfo,
-            Settings.PartnerCode, request.ReturnUrl, requestId, Settings.RequestType);
+            Settings.PartnerCode, request.ReturnUrl, requestId, requestType);
 
         var body = new Dictionary<string, object>
         {
@@ -45,7 +47,7 @@ public class MoMoGateway(
             ["orderInfo"] = request.OrderInfo,
             ["redirectUrl"] = request.ReturnUrl,
             ["ipnUrl"] = request.IpnUrl,
-            ["requestType"] = Settings.RequestType,
+            ["requestType"] = requestType,
             ["extraData"] = extraData,
             ["autoCapture"] = true,
             ["lang"] = Settings.Lang,
@@ -62,7 +64,27 @@ public class MoMoGateway(
         if (resultCode != "0" || string.IsNullOrWhiteSpace(payUrl))
             throw new InvalidOperationException($"MoMo refused the payment: {Field(response, "message")} ({resultCode}).");
 
-        return new GatewayCheckout(payUrl, JsonSerializer.Serialize(response));
+        var qrCode = Field(response, "qrCodeUrl");
+        return new GatewayCheckout(payUrl, JsonSerializer.Serialize(response), string.IsNullOrWhiteSpace(qrCode) ? null : qrCode);
+    }
+
+    /// <summary>The MoMo-app QR text (qrCodeUrl) saved in a create response, or null.</summary>
+    public static string QrCodeFrom(string rawResponse)
+    {
+        if (string.IsNullOrWhiteSpace(rawResponse)) return null;
+        try
+        {
+            using var json = JsonDocument.Parse(rawResponse);
+            return json.RootElement.ValueKind == JsonValueKind.Object
+                   && json.RootElement.TryGetProperty("qrCodeUrl", out var qr) && qr.ValueKind == JsonValueKind.String
+                   && !string.IsNullOrWhiteSpace(qr.GetString())
+                ? qr.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     public GatewayCallback ParseCallback(IReadOnlyDictionary<string, string> fields)
