@@ -781,7 +781,9 @@ public class PaymentService(
                 $"{apiBase}/api/payments/{provider}/ipn",
                 context?.ClientIp,
                 payment.CreatedAt,
-                payment.ExpiresAt ?? payment.CreatedAt.AddMinutes(15)));
+                payment.ExpiresAt ?? payment.CreatedAt.AddMinutes(15),
+                // Lane and kiosk payments are shown as a QR for the customer's wallet app
+                payment.Channel is PaymentChannel.Lane or PaymentChannel.Kiosk));
 
             payment.PayUrl = checkout.PayUrl;
             if (checkout.RawResponse != null) payment.PayloadResponse = checkout.RawResponse;
@@ -899,6 +901,9 @@ public class PaymentService(
             Amount = p.Amount,
             Status = p.Status,
             PayUrl = p.Status == PaymentStatus.Pending ? p.PayUrl : null,
+            QrCode = p.Status == PaymentStatus.Pending && p.PayUrl != null
+                ? (p.GatewayProvider == PaymentProviders.MoMo ? MoMoGateway.QrCodeFrom(p.PayloadResponse) : null) ?? p.PayUrl
+                : null,
             ExpiresAt = p.ExpiresAt,
             CreatedAt = p.CreatedAt,
             PaidAt = p.PaidAt,
