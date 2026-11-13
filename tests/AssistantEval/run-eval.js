@@ -106,7 +106,7 @@ async function ask(question) {
   }
 }
 
-const JUDGE_RULES = `You grade the answers of Virgo, the help chatbot of the XXIV Parking app.
+const JUDGE_RULES = `You grade the answers of Optimus Prime, the help chatbot of the XXIV Parking app.
 Reply with one JSON object only, no other text:
 {"pass": true or false, "missing": [required facts the answer does not convey], "wrong": [statements in the answer that contradict the reference]}
 

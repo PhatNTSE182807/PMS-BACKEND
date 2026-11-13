@@ -13,7 +13,10 @@ using PMS.DataAccess.Persistence.Entities;
 
 namespace PMS.Application.Services.Impl;
 
-public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier notifier = null) : IParkingLotService
+public class ParkingLotService(
+    PmsDbContext pmsContext,
+    ILotRealtimeNotifier notifier = null,
+    ILotDataChangeListener lotDataChanged = null) : IParkingLotService
 {
     public async Task<IEnumerable<ParkingLotResponseModel>> GetAllAsync(string searchTerm = null, string status = null, bool includeDeleted = false)
     {
@@ -429,6 +432,7 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
 
         // Zones, slots, capacity and the published 3D layout all come from the chosen model
         await LotTemplates.ApplyAsync(pmsContext, lot, model.LayoutTemplate, createdBy);
+        lotDataChanged?.LotDataChanged(lot.Id);
 
         // A new lot has no Staff yet, so it is shown as Maintenance until its Manager adds some
         return await ToResponseAsync(lot);
@@ -440,6 +444,7 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
             ?? throw new NotFoundException($"Parking lot with ID {id} was not found.");
 
         await LotTemplates.ApplyAsync(pmsContext, lot, templateId, userId);
+        lotDataChanged?.LotDataChanged(id);
         if (notifier != null)
             await notifier.LayoutChangedAsync(id);
 
@@ -484,6 +489,7 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         lot.UpdatedAt = DateTime.UtcNow;
 
         await pmsContext.SaveChangesAsync();
+        lotDataChanged?.LotDataChanged(id);
 
         return await ToResponseAsync(lot);
     }
@@ -505,6 +511,7 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         lot.UpdatedAt = DateTime.UtcNow;
 
         await pmsContext.SaveChangesAsync();
+        lotDataChanged?.LotDataChanged(id);
         // A temporary closure ends on its own: LotJobs.ReopenDueLotsAsync reopens the lot at ClosedUntil.
         if (notifier != null)
             await notifier.LotStatusChangedAsync(id, lot.Status);
@@ -535,6 +542,7 @@ public class ParkingLotService(PmsDbContext pmsContext, ILotRealtimeNotifier not
         lot.UpdatedAt = DateTime.UtcNow;
 
         await pmsContext.SaveChangesAsync();
+        lotDataChanged?.LotDataChanged(id);
         return true;
     }
 

@@ -25,7 +25,8 @@ public class PricingRuleService(
     ParkingOptions parkingOptions,
     TimeProvider clock,
     ILotPriceNotifier priceNotifier = null,
-    ILogger<PricingRuleService> logger = null) : IPricingRuleService
+    ILogger<PricingRuleService> logger = null,
+    ILotDataChangeListener lotDataChanged = null) : IPricingRuleService
 {
     private static readonly string[] ValidStatuses = ["Draft", "Active", "Inactive", "Archived"];
 
@@ -183,6 +184,7 @@ public class PricingRuleService(
 
         pmsContext.PricingRules.Add(rule);
         await pmsContext.SaveChangesAsync();
+        lotDataChanged?.LotDataChanged(lotId);
 
         var resultModel = ToModel(rule, vehicleType.Code, vehicleType.Name);
 
@@ -253,6 +255,7 @@ public class PricingRuleService(
             await pmsContext.SaveChangesAsync();
             return (tracked, before, livePrices);
         });
+        lotDataChanged?.LotDataChanged(lotId);
 
         var newModel = ToModel(rule, vehicleType.Code, vehicleType.Name);
         var priceChanged = proposed != previous;
@@ -310,6 +313,7 @@ public class PricingRuleService(
         }
 
         await pmsContext.SaveChangesAsync();
+        lotDataChanged?.LotDataChanged(lotId);
 
         await TryRecordHistoryAsync(rule.Id, "StatusChange", JsonSerializer.Serialize(new { Status = oldStatus }), JsonSerializer.Serialize(new { Status = model.Status }), model.Reason ?? $"Status changed from {oldStatus} to {model.Status}", now);
 
@@ -334,6 +338,7 @@ public class PricingRuleService(
         rule.UpdatedAt = now;
 
         await pmsContext.SaveChangesAsync();
+        lotDataChanged?.LotDataChanged(lotId);
 
         await TryRecordHistoryAsync(rule.Id, "Delete", JsonSerializer.Serialize(new { Status = oldStatus }), JsonSerializer.Serialize(new { Status = "Archived" }), "Pricing rule archived", now);
     }

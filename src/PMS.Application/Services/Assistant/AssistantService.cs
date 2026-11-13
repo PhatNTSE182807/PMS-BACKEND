@@ -156,8 +156,8 @@ public sealed class AssistantService(
             }
         }
 
-        // No model: hand back the closest help sections as they are
-        yield return new AssistantDeltaEvent(SearchOnlyAnswer(context));
+        // No model: hand back the closest help sections as they are, and the live lot list for lot or price questions
+        yield return new AssistantDeltaEvent(SearchOnlyAnswer(question, context, lots));
         yield return new AssistantDoneEvent();
     }
 
@@ -169,14 +169,37 @@ public sealed class AssistantService(
         return questions.Count > 1 && last.Length < ShortFollowUpLength ? questions[^2] + "\n" + last : last;
     }
 
-    private static string SearchOnlyAnswer(IReadOnlyList<ScoredChunk> context)
+    /// <summary>
+    /// The answer without a model. A question about lots, addresses or prices starts with the live lot list (each
+    /// lot's address, status, opening hours and prices), since the help files hold no lot or price.
+    /// </summary>
+    public static string SearchOnlyAnswer(string question, IReadOnlyList<ScoredChunk> context, LiveLotSnapshot lots)
     {
-        if (context.Count == 0)
+        var showLots = lots is { Lots: > 0 } && AsksAboutLots(question);
+        if (context.Count == 0 && !showLots)
             return "I could not find this in the XXIV Parking help. Try other words, or ask the staff at the lot.";
 
-        var answer = new StringBuilder("Here is what the XXIV Parking help says:");
-        foreach (var section in context.Take(SearchOnlySections))
-            answer.Append("\n\n**").Append(section.Chunk.Heading).Append("**\n").Append(section.Chunk.Content);
+        var answer = new StringBuilder();
+        if (showLots)
+            answer.Append("XXIV Parking lots and their prices now:\n\n").Append(lots.Text);
+        if (context.Count > 0)
+        {
+            if (answer.Length > 0)
+                answer.Append("\n\n");
+            answer.Append("Here is what the XXIV Parking help says:");
+            foreach (var section in context.Take(SearchOnlySections))
+                answer.Append("\n\n**").Append(section.Chunk.Heading).Append("**\n").Append(section.Chunk.Content);
+        }
         return answer.ToString();
     }
+
+    /// <summary>Words of a question about lots, where they are or what they cost, in Vietnamese (with or without accents) or English.</summary>
+    private static readonly System.Text.RegularExpressions.Regex LotWords = new(
+        @"\b(giá|gia|bao nhiêu|bao nhieu|phí|phi|tiền|tien|bãi|bai|địa chỉ|dia chi|ở đâu|o dau|chỗ nào|cho nao|"
+        + @"price|prices|fee|fees|cost|how much|lot|lots|address|where)\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>True when the question asks which lots there are, where one is or what parking costs.</summary>
+    public static bool AsksAboutLots(string question) =>
+        !string.IsNullOrWhiteSpace(question) && LotWords.IsMatch(question);
 }
