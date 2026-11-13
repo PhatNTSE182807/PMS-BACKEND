@@ -96,7 +96,7 @@
     { "id": "app-05", "question": "Làm sao xem đường đi tới bãi xe?", "source": "using-the-app.md#Directions to a lot", "srs": ["FR-CUS-08"], "mustMention": ["View map", "route"] },
     { "id": "app-06", "question": "App sẽ báo cho tôi những gì?", "source": "using-the-app.md#Notifications", "srs": ["FR-CUS-09"], "mustMention": ["approved", "reminders", "price changes", "refunds"] },
     { "id": "app-07", "question": "Bạn có thể hủy đặt chỗ giúp tôi không?", "source": "reservations.md#Cancelling a booking", "srs": ["FR-SYS-10", "FR-RSV-03"], "mustMention": ["My bookings"] },
-    { "id": "app-08", "question": "Virgo giúp được tôi những gì?", "source": "using-the-app.md#What the chat assistant can help with", "srs": ["FR-SYS-10"], "mustMention": ["your own bookings", "current prices"] },
+    { "id": "app-08", "question": "Optimus Prime giúp được tôi những gì?", "source": "using-the-app.md#What the chat assistant can help with", "srs": ["FR-SYS-10"], "mustMention": ["your own bookings", "current prices"] },
 
     { "id": "prv-01", "question": "Ai xem được biển số và ảnh của tôi?", "source": "privacy.md#Who can see your plate and photos", "srs": ["FR-3D-08", "FR-VER-06", "NFR-07"], "mustMention": ["never show plates", "logged"] },
     { "id": "prv-02", "question": "Ảnh xe ra vào được lưu bao lâu?", "source": "privacy.md#How long data is kept", "srs": ["BR-26"], "mustMention": ["90 days"] },
