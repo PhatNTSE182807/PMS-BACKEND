@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PMS.Application.Models.ParkingLot;
 using PMS.Application.Models.Pricing;
+using PMS.Application.Services.Impl;
 
 namespace PMS.Application.Services.Assistant;
 
@@ -19,9 +20,11 @@ public sealed record LiveLotSnapshot(string Text, string Version, int Lots)
 /// gates charge right now, written as plain text for the assistant's prompt. It reuses the public services behind
 /// the homepage and the lot price list, so it never shows anything a Guest cannot already see (no plates, no
 /// account data). Free bays are left out on purpose: they change every minute and the lot list shows them live.
-/// Rebuilt at most once a minute.
+/// Rebuilt as soon as a lot or a price is saved (<see cref="ILotDataChangeListener"/>), and at least once a minute
+/// for changes made another way (a lot going into maintenance when its last Staff is locked, for example).
 /// </summary>
 public sealed class LiveLotData(IServiceScopeFactory scopes, TimeProvider clock, ILogger<LiveLotData> logger)
+    : ILotDataChangeListener
 {
     private static readonly TimeSpan CacheFor = TimeSpan.FromMinutes(1);
 
@@ -32,16 +35,28 @@ public sealed class LiveLotData(IServiceScopeFactory scopes, TimeProvider clock,
     private LiveLotSnapshot _snapshot = LiveLotSnapshot.Empty;
     private DateTimeOffset _builtAt = DateTimeOffset.MinValue;
 
+    /// <summary>Goes up on every change; a snapshot read before the latest change is not used.</summary>
+    private long _changes;
+    private long _builtFromChanges = -1;
+
+    private bool IsFresh() =>
+        _builtFromChanges == Interlocked.Read(ref _changes) && clock.GetUtcNow() - _builtAt < CacheFor;
+
+    /// <summary>A lot or one of its prices was saved: the next question reads the lots again.</summary>
+    public void LotDataChanged(int lotId) => Interlocked.Increment(ref _changes);
+
     public async Task<LiveLotSnapshot> GetAsync(CancellationToken cancellationToken)
     {
-        if (clock.GetUtcNow() - _builtAt < CacheFor)
+        if (IsFresh())
             return _snapshot;
 
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (clock.GetUtcNow() - _builtAt < CacheFor)
+            if (IsFresh())
                 return _snapshot;
+            // Read before building: a change saved while the lots are being read makes the next question read them again
+            var changes = Interlocked.Read(ref _changes);
             try
             {
                 _snapshot = await BuildAsync();
@@ -52,6 +67,7 @@ public sealed class LiveLotData(IServiceScopeFactory scopes, TimeProvider clock,
                 logger.LogWarning(e, "Assistant: the live lot data could not be read");
             }
             _builtAt = clock.GetUtcNow();
+            _builtFromChanges = changes;
             return _snapshot;
         }
         finally
@@ -83,10 +99,7 @@ public sealed class LiveLotData(IServiceScopeFactory scopes, TimeProvider clock,
             if (!string.IsNullOrWhiteSpace(lot.Phone))
                 text.Append("  Phone: ").Append(lot.Phone).Append('\n');
 
-            var prices = await pricing.GetPublicPricesAsync(lot.Id);
-            text.Append("  Prices now:\n");
-            foreach (var price in prices)
-                text.Append("    ").Append(price.VehicleTypeName).Append(": ").Append(Describe(price)).Append('\n');
+            AppendPrices(text, lot, await pricing.GetPublicPricesAsync(lot.Id));
         }
 
         var body = text.ToString().TrimEnd();
@@ -94,6 +107,42 @@ public sealed class LiveLotData(IServiceScopeFactory scopes, TimeProvider clock,
         var version = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(body)))[..12];
         return new LiveLotSnapshot(body, version, lots.Count);
     }
+
+    /// <summary>
+    /// The lot's bays in total per vehicle family, then the price of each vehicle type it has bays for, so the
+    /// assistant never quotes a car price at a motorbike-only lot. A lot whose bays are not set up yet lists the
+    /// price of every type. 4- and 7-seat cars share the car bays, so both are listed when the lot has car bays.
+    /// </summary>
+    public static void AppendPrices(StringBuilder text, PublicParkingLotResponseModel lot, IReadOnlyList<PublicLotPriceModel> prices)
+    {
+        var bays = (lot.BaysByVehicle ?? [])
+            .Where(b => !string.IsNullOrWhiteSpace(b.VehicleType) && b.TotalBays > 0)
+            .ToList();
+        var families = bays.Select(b => ParkingInventory.Family(b.VehicleType)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var shown = bays.Count == 0
+            ? prices.ToList()
+            : prices.Where(p => families.Contains(ParkingInventory.Family(p.VehicleTypeCode))).ToList();
+
+        if (bays.Count > 0)
+            text.Append("  Bays in total: ")
+                .Append(string.Join(", ", bays.Select(b => $"{b.TotalBays} {BayName(b.VehicleType)}")))
+                .Append('\n');
+
+        if (shown.Count == 0)
+        {
+            text.Append("  Prices now: no price is set for this lot yet\n");
+            return;
+        }
+
+        text.Append(bays.Count == 0 ? "  Prices now (bays not set up yet):\n" : "  Prices now:\n");
+        foreach (var price in shown)
+            text.Append("    ").Append(price.VehicleTypeName).Append(": ").Append(Describe(price)).Append('\n');
+    }
+
+    private static string BayName(string family) =>
+        string.Equals(family, "MOTORBIKE", StringComparison.OrdinalIgnoreCase) ? "motorbike"
+        : string.Equals(family, "CAR", StringComparison.OrdinalIgnoreCase) ? "car"
+        : family.ToLowerInvariant();
 
     /// <summary>The street address, with the district and city added only when the address does not already name them.</summary>
     private static string Address(PublicParkingLotResponseModel lot)

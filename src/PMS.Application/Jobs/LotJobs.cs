@@ -8,7 +8,7 @@ using PMS.DataAccess.Persistence;
 namespace PMS.Application.Jobs;
 
 /// <summary>Background jobs for lots and sign-in data, run by Hangfire (see PMS.API).</summary>
-public class LotJobs(PmsDbContext pmsContext, ILotRealtimeNotifier notifier = null)
+public class LotJobs(PmsDbContext pmsContext, ILotRealtimeNotifier notifier = null, ILotDataChangeListener lotDataChanged = null)
 {
     public const string ReopenDueLotsJobId = "reopen-due-lots";
     public const string CleanupCredentialsJobId = "cleanup-expired-credentials";
@@ -34,6 +34,8 @@ public class LotJobs(PmsDbContext pmsContext, ILotRealtimeNotifier notifier = nu
         }
 
         await pmsContext.SaveChangesAsync();
+        foreach (var lot in lots)
+            lotDataChanged?.LotDataChanged(lot.Id);
 
         if (notifier != null)
             foreach (var lot in lots)
