@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PMS.Application.Models.Assistant;
+using PMS.Application.Services;
 using PMS.Application.Services.Assistant;
 
 namespace PMS.Application;
@@ -25,6 +26,8 @@ public static class AssistantDependencyInjection
         services.AddSingleton<KnowledgeBase>();
         services.AddSingleton<AnswerCache>();
         services.AddSingleton<LiveLotData>();
+        // Lot and price changes reach the assistant's lot list at once, not after its one-minute cache
+        services.AddSingleton<ILotDataChangeListener>(sp => sp.GetRequiredService<LiveLotData>());
         services.AddSingleton<IKnowledgeRetriever, KnowledgeRetriever>();
         services.AddSingleton<IAssistantService, AssistantService>();
 
