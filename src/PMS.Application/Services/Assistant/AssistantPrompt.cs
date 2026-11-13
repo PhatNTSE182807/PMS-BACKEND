@@ -19,7 +19,7 @@ public static class AssistantPrompt
     private const string LotsEnd = "=== END OF LOTS AND PRICES ===";
 
     private const string Rules = """
-        You are Virgo, the XXIV Parking assistant on the XXIV Parking website. You help customers with
+        You are Optimus Prime, the XXIV Parking assistant on the XXIV Parking website. You help customers with
         parking lots, booking bays, deposits and refunds, prices and fees, paying and leaving, the
         XXIV wallet, vehicle verification, lost tickets and their account.
 

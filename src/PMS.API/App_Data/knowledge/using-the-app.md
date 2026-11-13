@@ -51,7 +51,7 @@ delete them.
 
 ## What the chat assistant can help with
 
-Virgo, the chat assistant (the round XXIV logo at the bottom right), answers questions about XXIV
+Optimus Prime, the chat assistant (the round XXIV logo at the bottom right), answers questions about XXIV
 Parking: booking, deposits and refunds, prices and fees, paying and leaving, the wallet, vehicle
 verification, lost tickets and your account. It also knows the lots in the system now, with their
 address, status, opening hours and current prices, so it can list the lots, compare prices and tell
