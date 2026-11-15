@@ -24,4 +24,7 @@ public interface IParkingRealtimeNotifier
 
     /// <summary>A check-in / check-out request from the app was created or handled: to the lot's Staff and to the customer.</summary>
     Task GateRequestChangedAsync(int lotId, string userId, long requestId, string kind, string status);
+
+    /// <summary>Private lot-channel invalidation only; no employee attendance details are broadcast.</summary>
+    Task WorkAttendanceChangedAsync(int lotId);
 }

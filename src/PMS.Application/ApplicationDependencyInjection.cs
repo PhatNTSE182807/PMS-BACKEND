@@ -31,6 +31,16 @@ public static class ApplicationDependencyInjection
         services.AddScoped<IUserProfileService, UserProfileService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IEmployeeAccountService, EmployeeAccountService>();
+        services.AddScoped<WorkSchedulingService>();
+        services.AddScoped<WorkScheduleNotificationJob>();
+        services.AddScoped<WorkAttendanceJobs>();
+        var attendanceOptions = new PMS.Application.Models.WorkScheduling.WorkAttendanceOptions();
+        services.AddSingleton(sp =>
+        {
+            var rules = sp.GetRequiredService<IConfiguration>().GetSection("WorkAttendance").Get<PMS.Application.Models.WorkScheduling.WorkAttendanceOptions>() ?? attendanceOptions;
+            rules.Validate();
+            return rules;
+        });
         services.AddScoped<ILayoutService, LayoutService>();
         services.AddScoped<IParkingLotService, ParkingLotService>();
         services.AddScoped<IZoneService, ZoneService>();

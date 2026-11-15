@@ -33,6 +33,7 @@ public static partial class AutomatedMigration
                 await RemoveRejectedVehiclesAsync(pmsContext);
                 await EnsureGateRequestsTableAsync(pmsContext);
                 await EnsureNotificationsTableAsync(pmsContext);
+                await EnsureWorkSchedulingTablesAsync(pmsContext);
                 await EnsureSystemSettingsTableAsync(pmsContext);
                 await EnsureCustomerAvatarsTableAsync(pmsContext);
                 await SetBookedBayCompensationDefaultsAsync(pmsContext);

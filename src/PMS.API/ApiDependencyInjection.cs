@@ -109,6 +109,7 @@ public static class ApiDependencyInjection
         app.UseHangfireDashboard("/hangfire");
 
         var jobs = app.Services.GetRequiredService<IRecurringJobManager>();
+        jobs.AddOrUpdate<WorkAttendanceJobs>("work-attendance-deadlines", j => j.RunAsync(), Cron.Minutely());
         jobs.AddOrUpdate<LotJobs>(LotJobs.ReopenDueLotsJobId, j => j.ReopenDueLotsAsync(), Cron.Minutely());
         jobs.AddOrUpdate<LotJobs>(LotJobs.CleanupCredentialsJobId, j => j.CleanupExpiredCredentialsAsync(), Cron.Daily(3));
         // BR-26: vehicle paper photos are deleted 30 days after the final decision
