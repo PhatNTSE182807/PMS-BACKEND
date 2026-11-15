@@ -64,16 +64,16 @@ public class LayoutServiceTests
     {
         var lot = await CreateLotAsync("L3S50");
 
-        lot.Capacity.Should().Be(150);
+        lot.Capacity.Should().Be(156);
         lot.LayoutTemplate.Should().Be("L3S50");
 
         var zones = await _context.Zones.Include(z => z.Slots).Include(z => z.ZoneCounter)
             .Where(z => z.ParkingLotId == lot.Id).OrderBy(z => z.FloorNo).ToListAsync();
         zones.Select(z => z.Code).Should().Equal("L1", "L2", "L3");
-        // 50 bays a level plus 12 penalty bays, which stay outside the capacity and the counter
-        zones.Should().OnlyContain(z => z.Slots.Count(s => s.Kind == SlotKind.Standard) == 50
+        // 52 bays a level (four full rows of 13) plus 12 penalty bays, which stay outside the capacity and the counter
+        zones.Should().OnlyContain(z => z.Slots.Count(s => s.Kind == SlotKind.Standard) == 52
                                         && z.Slots.Count(s => s.Kind == SlotKind.Penalty) == 12
-                                        && z.ZoneCounter.TotalCapacity == 50);
+                                        && z.ZoneCounter.TotalCapacity == 52);
         zones[0].Slots.Where(s => s.Kind == SlotKind.Penalty).Select(s => s.Code).Should().Contain("L1-X01").And.Contain("L1-X12");
         zones[0].Slots.First().Code.Should().Be("L1-01");
 
@@ -81,7 +81,9 @@ public class LayoutServiceTests
         layout.TemplateId.Should().Be("L3S50");
         layout.Version.Should().Be(1);
         layout.Floors.Should().HaveCount(3).And.OnlyContain(f => f.Rows == 4 && f.Cols == 13);
-        layout.Slots.Should().HaveCount(186);
+        layout.Slots.Should().HaveCount(192);
+        // Every row of normal bays is full: 13 bays in each of the 4 rows
+        layout.Slots.Where(s => s.Kind == SlotKind.Standard).GroupBy(s => (s.FloorNo, s.Row)).Should().OnlyContain(g => g.Count() == 13);
         layout.Slots.Count(s => s.Kind == SlotKind.Penalty).Should().Be(36);
         // The penalty block starts one empty column after the last normal bay
         layout.Slots.Where(s => s.Kind == SlotKind.Penalty).Should().OnlyContain(s => s.Col >= 14);

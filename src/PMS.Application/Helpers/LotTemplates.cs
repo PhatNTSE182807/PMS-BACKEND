@@ -28,7 +28,8 @@ public static class LotTemplates
     private static readonly Definition[] Definitions =
     [
         new("L3S20", "Compact deck", "3 levels × 20 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 20, 6),
-        new("L3S50", "Wide deck", "3 levels × 50 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 50, 12),
+        // 52 bays: four full rows of 13 (50 left the last row two bays short); the id stays for lots built earlier
+        new("L3S50", "Wide deck", "3 levels × 52 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 52, 12),
         new("L4S30", "Tower", "4 levels × 30 bays · 3 car levels, motorbikes on the ground", [Motorbike, Car, Car, Car], 30, 6)
     ];
 
@@ -187,6 +188,98 @@ public static class LotTemplates
             Col = floor.Cols + 1 + index / floor.Rows,
             Rotation = row % 2 == 0 ? 0 : 180
         };
+    }
+
+    /// <summary>
+    /// At startup, before the penalty bays: a level built when its model had fewer bays (the Wide deck had 50 a level
+    /// before 2026-11-16, now 52) gets the missing ones at the end of its rows, with their place in the published
+    /// layout. The zone's capacity, its counter (as free bays) and the lot's capacity grow with them. Bays are never
+    /// removed, and a level that already has its bays is left alone.
+    /// </summary>
+    public static async Task AddMissingStandardBaysAsync(PmsDbContext pmsContext)
+    {
+        var lots = await pmsContext.ParkingLots
+            .Where(l => l.LayoutTemplate != null && pmsContext.Zones.Any(z => z.ParkingLotId == l.Id))
+            .ToListAsync();
+        foreach (var lot in lots)
+        {
+            var template = Find(lot.LayoutTemplate);
+            if (template == null)
+                continue;
+            var zones = await pmsContext.Zones
+                .Include(z => z.ZoneCounter)
+                .Where(z => z.ParkingLotId == lot.Id)
+                .Select(z => new
+                {
+                    Zone = z,
+                    VehicleTypeId = z.Slots.Select(s => (int?)s.VehicleTypeId).FirstOrDefault(),
+                    Standard = z.Slots.Count(s => s.Kind != PenaltyKind)
+                })
+                .ToListAsync();
+            if (zones.All(z => z.Standard >= template.SlotsPerFloor))
+                continue;
+            var layout = await pmsContext.LotLayouts
+                .Where(l => l.ParkingLotId == lot.Id && l.Status == "Published")
+                .OrderByDescending(l => l.Version)
+                .FirstOrDefaultAsync();
+            if (layout == null)
+                continue;
+
+            var now = DateTime.UtcNow;
+            var added = new List<(LayoutFloorModel Floor, Slot Slot, int Index)>();
+            foreach (var floor in template.Floors)
+            {
+                var zone = zones.FirstOrDefault(z => z.Zone.FloorNo == floor.FloorNo && z.Zone.Code == floor.Name)
+                           ?? zones.FirstOrDefault(z => z.Zone.FloorNo == floor.FloorNo);
+                if (zone?.VehicleTypeId == null || zone.Standard >= template.SlotsPerFloor)
+                    continue;
+                var missing = template.SlotsPerFloor - zone.Standard;
+                for (var i = zone.Standard; i < template.SlotsPerFloor; i++)
+                {
+                    var bay = new Slot
+                    {
+                        VehicleTypeId = zone.VehicleTypeId.Value,
+                        Code = $"{floor.Name}-{i + 1:D2}",
+                        Status = "Available",
+                        IsActive = true,
+                        RowVersion = Array.Empty<byte>()
+                    };
+                    zone.Zone.Slots.Add(bay);
+                    added.Add((floor, bay, i));
+                }
+                // The new bays are free: the zone holds that many more, all of them available
+                zone.Zone.Capacity += missing;
+                zone.Zone.MaxReservationSlots = (zone.Zone.MaxReservationSlots ?? 0) + missing;
+                zone.Zone.UpdatedAt = now;
+                if (zone.Zone.ZoneCounter != null)
+                {
+                    zone.Zone.ZoneCounter.TotalCapacity += missing;
+                    zone.Zone.ZoneCounter.AvailableSpaces += missing;
+                    zone.Zone.ZoneCounter.LastUpdatedAt = now;
+                }
+            }
+            if (added.Count == 0)
+                continue;
+            lot.Capacity += added.Count;
+            lot.UpdatedAt = now;
+            await pmsContext.SaveChangesAsync();
+
+            // Same place as a bay built with the model: row by row, odd rows facing the other way
+            foreach (var (floor, bay, index) in added)
+            {
+                var row = index / floor.Cols;
+                pmsContext.LotLayoutSlots.Add(new LotLayoutSlot
+                {
+                    LayoutId = layout.Id,
+                    SlotId = bay.Id,
+                    FloorNo = floor.FloorNo,
+                    Row = row,
+                    Col = index % floor.Cols,
+                    Rotation = row % 2 == 0 ? 0 : 180
+                });
+            }
+            await pmsContext.SaveChangesAsync();
+        }
     }
 
     /// <summary>
