@@ -198,7 +198,7 @@ public class WalkInSimulationService(
             CompletedCount = await completed.CountAsync(),
             Revenue = await completed.SumAsync(s => (decimal?)s.FinalFee) ?? 0,
             TotalBays = lotId is { } id
-                ? await pmsContext.Slots.CountAsync(s => s.Zone.ParkingLotId == id && s.Zone.IsActive && s.IsActive)
+                ? await pmsContext.Slots.CountAsync(s => s.Zone.ParkingLotId == id && s.Zone.IsActive && s.IsActive && s.Kind != SlotKind.Penalty)
                 : null,
             FreeBays = lotId is { } lot ? (await FreeBaysAsync(lot)).Count : null
         };

@@ -28,6 +28,12 @@ public class BookedBayCase
     /// <summary>Bay the booking was moved to (Reassigned).</summary>
     public int? NewSlotId { get; set; }
 
+    /// <summary>Bay the offending vehicle was towed to (Relocated): a penalty bay, or a walk-in bay when every penalty bay was taken.</summary>
+    public int? RelocatedToSlotId { get; set; }
+
+    /// <summary>Penalty the offending vehicle owes at check-out (Relocated).</summary>
+    public decimal PenaltyFee { get; set; }
+
     /// <summary>Deposit refunded to the wallet (Compensated).</summary>
     public decimal DepositRefunded { get; set; }
 

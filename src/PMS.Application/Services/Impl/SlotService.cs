@@ -232,7 +232,8 @@ public class SlotService(PmsDbContext pmsContext, ILotRealtimeNotifier notifier 
             Status = s.Status,
             DedicatedVehicleId = s.DedicatedVehicleId,
             DedicatedNote = s.DedicatedNote,
-            IsActive = s.IsActive
+            IsActive = s.IsActive,
+            Kind = s.Kind ?? "Standard"
         };
     }
 }

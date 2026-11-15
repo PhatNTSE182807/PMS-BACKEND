@@ -75,6 +75,23 @@ public class BookedBayCaseModel
 
     /// <summary>Free bays of the booked vehicle type the booking can move to (open cases only). Empty: cancel and compensate.</summary>
     public List<BookedBayOptionModel> FreeBays { get; set; } = [];
+
+    /// <summary>
+    /// Bays the offending vehicle can be towed to (open cases only), best first: free penalty bays, then, when every
+    /// penalty bay is taken, free walk-in bays. Empty: move the booking instead, or compensate.
+    /// </summary>
+    public List<BookedBayOptionModel> TowBays { get; set; } = [];
+
+    /// <summary>WrongBay (a walk-in) or Overstay (a booking that stayed past its time): what towing would charge for.</summary>
+    public string Offence { get; set; }
+
+    /// <summary>The penalty a tow adds to the offending vehicle's fee now (open), or what it was charged (Relocated).</summary>
+    public decimal PenaltyFee { get; set; }
+
+    /// <summary>Bay the offending vehicle was towed to (Relocated).</summary>
+    public int? TowedToBayId { get; set; }
+
+    public string TowedToBayCode { get; set; }
 }
 
 public class BookedBayOptionModel
@@ -84,6 +101,17 @@ public class BookedBayOptionModel
     public string Code { get; set; }
 
     public string ZoneName { get; set; }
+
+    /// <summary>Standard or Penalty.</summary>
+    public string Kind { get; set; } = "Standard";
+}
+
+/// <summary>Tow the offending vehicle out of the booked bay; without a bay, the first free penalty bay (or walk-in bay) is used.</summary>
+public class TowVehicleModel
+{
+    public int? SlotId { get; set; }
+
+    public string Note { get; set; }
 }
 
 /// <summary>Move the booking to another free bay of its type.</summary>

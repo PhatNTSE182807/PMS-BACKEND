@@ -58,7 +58,8 @@ public sealed record Settlement(
     decimal DepositApplied,
     decimal AlreadyPaid,
     decimal AmountDue,
-    decimal DepositRefund);
+    decimal DepositRefund,
+    decimal PenaltyFee = 0);
 
 /// <summary>
 /// Parking fee rules of SRS BR-09, BR-10 and BR-22. Pure functions: every example of the SRS fee table
@@ -160,10 +161,11 @@ public static class FeeCalculator
     /// Window was missed) minus the deposit and what was paid already. A deposit larger than the fee leaves
     /// a residual that is refunded (BR-03); money paid earlier is never refunded here.
     /// </summary>
-    public static Settlement Settle(decimal fee, decimal deposit, decimal alreadyPaid, bool exitWindowMissed, decimal exitWindowLateFee, decimal lostTicketFee = 0)
+    /// <param name="penaltyFee">Owed by a vehicle towed out of a booked bay (team rule of 2026-11-15).</param>
+    public static Settlement Settle(decimal fee, decimal deposit, decimal alreadyPaid, bool exitWindowMissed, decimal exitWindowLateFee, decimal lostTicketFee = 0, decimal penaltyFee = 0)
     {
         var late = exitWindowMissed ? exitWindowLateFee : 0;
-        var gross = fee + lostTicketFee + late;
+        var gross = fee + lostTicketFee + late + penaltyFee;
         var credit = deposit + alreadyPaid;
         var due = Math.Max(0, gross - credit);
 
@@ -171,7 +173,7 @@ public static class FeeCalculator
         var depositUsed = Math.Min(deposit, Math.Max(0, gross - alreadyPaid));
         var depositRefund = deposit - depositUsed;
 
-        return new Settlement(fee, lostTicketFee, late, depositUsed, alreadyPaid, RoundUp(due), depositRefund);
+        return new Settlement(fee, lostTicketFee, late, depositUsed, alreadyPaid, RoundUp(due), depositRefund, penaltyFee);
     }
 
     public static decimal RoundUp(decimal amount) =>

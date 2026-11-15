@@ -79,6 +79,24 @@ public static class SlotStatus
     public const string Maintenance = "Maintenance";
 }
 
+/// <summary>What a bay is for (Slots.Kind).</summary>
+public static class SlotKind
+{
+    /// <summary>A normal bay: booked or used by walk-ins, counted in its zone's capacity.</summary>
+    public const string Standard = "Standard";
+    /// <summary>Set apart for towed vehicles: never booked, never given to a walk-in, outside the zone counter.</summary>
+    public const string Penalty = "Penalty";
+}
+
+/// <summary>Why a vehicle was towed to a penalty bay (ParkingSessions.PenaltyReason).</summary>
+public static class PenaltyReason
+{
+    /// <summary>A walk-in parked in a booked bay.</summary>
+    public const string WrongBay = "WrongBay";
+    /// <summary>A booked vehicle stayed past its booking and blocked the next one.</summary>
+    public const string Overstay = "Overstay";
+}
+
 /// <summary>Parking lot states (ParkingLots.Status).</summary>
 public static class LotStatus
 {
@@ -125,6 +143,8 @@ public static class BookedBayCaseStatus
     public const string Open = "Open";
     /// <summary>The booking was moved to another free bay of its type.</summary>
     public const string Reassigned = "Reassigned";
+    /// <summary>Staff towed the offending vehicle to a penalty bay (or a walk-in bay): the booking keeps its bay.</summary>
+    public const string Relocated = "Relocated";
     /// <summary>No bay was left: the booking was cancelled, the deposit refunded and a compensation paid to the wallet.</summary>
     public const string Compensated = "Compensated";
     /// <summary>Nothing left to do: the walk-in left first, or the booking ended another way.</summary>

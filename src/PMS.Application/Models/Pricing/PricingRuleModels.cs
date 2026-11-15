@@ -73,6 +73,9 @@ public class PricingRuleModel
     /// <summary>Paid into the customer's XXIV wallet when a walk-in took their booked bay and no other bay was free.</summary>
     public decimal BookedBayCompensation { get; set; }
 
+    /// <summary>Owed at check-out by a vehicle towed out of a booked bay (a walk-in in the wrong bay, or an overstay).</summary>
+    public decimal PenaltyFee { get; set; }
+
     public string Currency { get; set; } = "VND";
 
     public int Priority { get; set; }
@@ -173,6 +176,9 @@ public class CreatePricingRuleModel
     /// <summary>Paid into the customer's XXIV wallet when a walk-in took their booked bay and no other bay was free.</summary>
     public decimal BookedBayCompensation { get; set; }
 
+    /// <summary>Owed at check-out by a vehicle towed out of a booked bay. Left out: the default of the vehicle type (new rule) or the current value.</summary>
+    public decimal? PenaltyFee { get; set; }
+
     public string Currency { get; set; } = "VND";
 
     public int Priority { get; set; } = 0;
@@ -229,6 +235,9 @@ public class UpdatePricingRuleModel
 
     /// <summary>Paid into the customer's XXIV wallet when a walk-in took their booked bay and no other bay was free.</summary>
     public decimal BookedBayCompensation { get; set; }
+
+    /// <summary>Owed at check-out by a vehicle towed out of a booked bay. Left out: the default of the vehicle type (new rule) or the current value.</summary>
+    public decimal? PenaltyFee { get; set; }
 
     public int Priority { get; set; } = 0;
 

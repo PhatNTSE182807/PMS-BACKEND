@@ -64,7 +64,7 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
         var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
         var free = await pmsContext.Slots.AsNoTracking()
             .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available
-                        && !occupied.Contains(s.Id))
+                        && s.Kind != SlotKind.Penalty && !occupied.Contains(s.Id))
             .ToListAsync();
         if (vehicleTypeId is { } typeId)
         {
@@ -150,7 +150,10 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
             await AdjustCounterAsync(zoneId.Value, lotId, available: heldBefore ? 0 : -1, occupied: +1);
     }
 
-    /// <summary>The vehicle left (or a ghost session was closed): the bay and the space come back.</summary>
+    /// <summary>
+    /// The vehicle left (or a ghost session was closed): the bay and the space come back. A vehicle in a penalty bay
+    /// gave its space back to the zone when it was towed there, so only the bay comes back.
+    /// </summary>
     public async Task LeaveAsync(int? zoneId, int? slotId, int lotId)
     {
         if (slotId != null)
@@ -162,6 +165,8 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
                 zoneId ??= slot.ZoneId;
                 QueueSlot(lotId, slot);
             }
+            if (slot?.Kind == SlotKind.Penalty)
+                return;
         }
 
         if (zoneId != null)

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Models.Zone;
+using PMS.Application.Models.Operations;
 using PMS.DataAccess.Persistence;
 using PMS.DataAccess.Persistence.Entities;
 
@@ -185,7 +186,7 @@ public class ZoneService(PmsDbContext pmsContext) : IZoneService
             IsActive = z.IsActive,
             CreatedAt = z.CreatedAt,
             UpdatedAt = z.UpdatedAt,
-            TotalSlots = z.Slots?.Count ?? 0
+            TotalSlots = z.Slots?.Count(s => s.Kind != SlotKind.Penalty) ?? 0
         };
     }
 }

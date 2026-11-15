@@ -56,7 +56,7 @@ public static class AdminDashboardQueries
     /// </summary>
     public static IQueryable<LotBaysRow> BaysFromSlotsWithoutCounter(this PmsDbContext db) =>
         db.Slots
-            .Where(s => s.IsActive && s.Zone.IsActive && !s.Zone.ParkingLot.IsDeleted && s.Zone.ZoneCounter == null)
+            .Where(s => s.IsActive && s.Kind != SlotKind.Penalty && s.Zone.IsActive && !s.Zone.ParkingLot.IsDeleted && s.Zone.ZoneCounter == null)
             .GroupBy(s => s.Zone.ParkingLotId)
             .Select(g => new LotBaysRow
             {

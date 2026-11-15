@@ -70,14 +70,21 @@ public class LayoutServiceTests
         var zones = await _context.Zones.Include(z => z.Slots).Include(z => z.ZoneCounter)
             .Where(z => z.ParkingLotId == lot.Id).OrderBy(z => z.FloorNo).ToListAsync();
         zones.Select(z => z.Code).Should().Equal("L1", "L2", "L3");
-        zones.Should().OnlyContain(z => z.Slots.Count == 50 && z.ZoneCounter.TotalCapacity == 50);
+        // 50 bays a level plus 10 penalty bays, which stay outside the capacity and the counter
+        zones.Should().OnlyContain(z => z.Slots.Count(s => s.Kind == SlotKind.Standard) == 50
+                                        && z.Slots.Count(s => s.Kind == SlotKind.Penalty) == 10
+                                        && z.ZoneCounter.TotalCapacity == 50);
+        zones[0].Slots.Where(s => s.Kind == SlotKind.Penalty).Select(s => s.Code).Should().Contain("L1-X01").And.Contain("L1-X10");
         zones[0].Slots.First().Code.Should().Be("L1-01");
 
         var layout = await _sut.GetPublishedAsync(lot.Id);
         layout.TemplateId.Should().Be("L3S50");
         layout.Version.Should().Be(1);
         layout.Floors.Should().HaveCount(3).And.OnlyContain(f => f.Rows == 4 && f.Cols == 13);
-        layout.Slots.Should().HaveCount(150);
+        layout.Slots.Should().HaveCount(180);
+        layout.Slots.Count(s => s.Kind == SlotKind.Penalty).Should().Be(30);
+        // The penalty block starts one empty column after the last normal bay
+        layout.Slots.Where(s => s.Kind == SlotKind.Penalty).Should().OnlyContain(s => s.Col >= 14);
         layout.Slots.Select(s => (s.FloorNo, s.Row, s.Col)).Should().OnlyHaveUniqueItems();
         layout.Slots.Where(s => s.FloorNo == 0).Should().OnlyContain(s => s.VehicleTypeCode == "MOTORBIKE");
         layout.Slots.Where(s => s.FloorNo > 0).Should().OnlyContain(s => s.VehicleTypeCode == "CAR_4");
@@ -104,7 +111,8 @@ public class LayoutServiceTests
 
         result.TotalZones.Should().Be(3);
         result.TotalSlots.Should().Be(60);
-        (await _sut.GetPublishedAsync(legacy.Id)).Slots.Should().HaveCount(60);
+        // 60 bays plus 5 penalty bays on each of the 3 levels
+        (await _sut.GetPublishedAsync(legacy.Id)).Slots.Should().HaveCount(75);
     }
 
     [Fact]
@@ -131,7 +139,7 @@ public class LayoutServiceTests
 
         var status = await _sut.GetStatusAsync(lot.Id);
 
-        status.Slots.Should().HaveCount(60);
+        status.Slots.Should().HaveCount(75);
         status.Slots.Single(s => s.SlotId == slot.Id).Status.Should().Be("Occupied");
         status.Zones.Single(z => z.ZoneId == slot.ZoneId).Free.Should().Be(19);
     }
@@ -147,8 +155,11 @@ public class LayoutServiceTests
         var cells = await _sut.Get2DAsync(lot.Id, LayoutDetail.Slots);
         cells.Detail.Should().Be("slots");
         cells.Floors.Should().HaveCount(3);
-        cells.Floors[0].Cells.Should().HaveCount(20);
+        cells.Floors[0].Cells.Should().HaveCount(25);
+        cells.Floors[0].Cells.Count(c => c.Kind == SlotKind.Penalty).Should().Be(5);
         cells.Floors[0].Free.Should().Be(19);
+        cells.Floors[0].PenaltyTotal.Should().Be(5);
+        cells.Floors[0].PenaltyFree.Should().Be(5);
         cells.Floors[0].Cells.First().Should().BeEquivalentTo(new { Row = 0, Col = 0, Code = "L1-01", Status = "Occupied" });
 
         var blocks = await _sut.Get2DAsync(lot.Id, "ZONES");

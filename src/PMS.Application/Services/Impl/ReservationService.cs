@@ -504,6 +504,9 @@ public class ReservationService(
             throw new BadRequestException("The slot is not in this lot.");
         if (!slot.IsActive || slot.Status == SlotStatus.Maintenance)
             throw new ConflictException("This slot is out of service.");
+        // Penalty bays are kept for towed vehicles: nobody books them
+        if (slot.Kind == SlotKind.Penalty)
+            throw new BadRequestException("This is a penalty bay and cannot be booked. Pick another bay.");
         if (mustBeFreeNow && slot.Status != SlotStatus.Available)
             throw new ConflictException("This slot is no longer available.");
         return slot;
@@ -564,7 +567,8 @@ public class ReservationService(
             // The booked bay first, then free bays of the same lot that fit the vehicle
             var candidates = new List<int> { reservation.SlotId!.Value };
             candidates.AddRange(await pmsContext.Slots.AsNoTracking()
-                .Where(s => s.Zone.ParkingLotId == reservation.ParkingLotId && s.IsActive && s.Status == SlotStatus.Available && s.Id != reservation.SlotId)
+                .Where(s => s.Zone.ParkingLotId == reservation.ParkingLotId && s.IsActive && s.Status == SlotStatus.Available && s.Id != reservation.SlotId
+                            && s.Kind != SlotKind.Penalty)
                 .OrderBy(s => s.ZoneId == reservation.ZoneId ? 0 : 1).ThenBy(s => s.Id)
                 .Select(s => s.Id)
                 .Take(50)
