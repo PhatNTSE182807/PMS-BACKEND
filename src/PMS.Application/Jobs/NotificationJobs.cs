@@ -610,6 +610,80 @@ public class NotificationJobs(
         });
     }
 
+    /// <summary>
+    /// A zone became almost full, full, or has space again (<paramref name="notificationType"/> is LotAlmostFull, LotFull or
+    /// LotSpaceAvailable): the bell of every active Staff of the lot and of its Manager says which zone and how many bays
+    /// are taken. One notice per person and level change (<paramref name="changedAt"/> keys it), so a retry never repeats it.
+    /// </summary>
+    public async Task<bool> ZoneFillChangedAsync(int zoneId, string notificationType, DateTime changedAt)
+    {
+        if (notificationType is not (NotificationTypes.LotAlmostFull or NotificationTypes.LotFull or NotificationTypes.LotSpaceAvailable))
+            return false;
+
+        var zone = await pmsContext.Zones.AsNoTracking()
+            .Include(z => z.ZoneCounter)
+            .Include(z => z.ParkingLot)
+            .FirstOrDefaultAsync(z => z.Id == zoneId);
+        if (zone?.ZoneCounter == null || zone.ParkingLot == null || zone.ParkingLot.IsDeleted)
+            return false;
+
+        var lot = zone.ParkingLot;
+        var total = zone.ZoneCounter.TotalCapacity;
+        var free = zone.ZoneCounter.AvailableSpaces;
+        var taken = Math.Max(0, total - free);
+        var percent = ZoneFillLevel.OccupiedPercent(total, free);
+        var where = $"{zone.Name} at {lot.Name}";
+        var counts = $"{taken} of {total} bays are taken ({percent.ToString("0.#", CultureInfo.InvariantCulture)} %), {free} free";
+
+        (string Title, string Message) text = notificationType switch
+        {
+            NotificationTypes.LotFull => ($"{zone.Name} is full",
+                $"{where} has no free bay left ({counts}). Walk-ins are turned away at the entry lane; booked and whitelisted vehicles still get in."),
+            NotificationTypes.LotAlmostFull => ($"{zone.Name} is almost full",
+                $"{where} is filling up: {counts}. Customers see the lot as almost full."),
+            _ => ($"{zone.Name} has free bays again",
+                $"{where} is no longer full: {counts}. Walk-ins can park again.")
+        };
+
+        var staff = await pmsContext.Employees.AsNoTracking()
+            .Where(e => e.ParkingLotId == lot.Id && e.Status == "Active" && e.Position != "Manager" && e.UserId != null)
+            .Select(e => e.UserId)
+            .Distinct()
+            .ToListAsync();
+        var managerId = await LotManagerAsync(lot.Id);
+        var recipients = staff.Select(id => (UserId: id, Audience: "staff")).ToList();
+        if (managerId != null && !staff.Contains(managerId))
+            recipients.Add((managerId, "manager"));
+
+        var refId = $"{zoneId}:{changedAt.Ticks.ToString(CultureInfo.InvariantCulture)}";
+        var sent = false;
+        foreach (var (userId, audience) in recipients)
+        {
+            sent |= await SaveAndPushAsync(new UserNotification
+            {
+                UserId = userId,
+                Type = notificationType,
+                Title = text.Title,
+                Message = text.Message,
+                RefType = "Zone",
+                RefId = refId,
+                EventAt = changedAt
+            }, new Dictionary<string, string>
+            {
+                ["audience"] = audience,
+                ["lotId"] = lot.Id.ToString(CultureInfo.InvariantCulture),
+                ["lotName"] = lot.Name,
+                ["zoneId"] = zoneId.ToString(CultureInfo.InvariantCulture),
+                ["zoneName"] = zone.Name,
+                ["totalBays"] = total.ToString(CultureInfo.InvariantCulture),
+                ["freeBays"] = free.ToString(CultureInfo.InvariantCulture),
+                ["occupancyPercent"] = percent.ToString(CultureInfo.InvariantCulture)
+            });
+        }
+
+        return sent;
+    }
+
     /// <summary>The active Manager of the lot (ParkingLots.ManagerUserId), or null.</summary>
     private Task<string> LotManagerAsync(int lotId) =>
         pmsContext.ParkingLots.AsNoTracking()

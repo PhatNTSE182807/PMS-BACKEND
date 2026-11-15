@@ -104,6 +104,7 @@ Guest không phải một role trong cơ sở dữ liệu. Hệ thống có 4 ro
 | Tính phí | Bỏ thời gian miễn phí: block đầu tính ngay khi vào (2026-10-25). Bảng giá sửa tại chỗ, có hiệu lực ngay; xe đang trong bãi giữ giá lúc vào; mọi khách nhận thông báo đổi giá (2026-11-04). Phụ phí qua đêm và quá hạn được lưu nhưng chưa áp dụng |
 | Đặt chỗ | Đặt trước tối đa 30 ngày, slot chỉ bị giữ từ 2 giờ trước giờ đến; hai chế độ Đặt theo giờ / Đặt theo lịch; cọc tùy chọn: không cọc giữ 15 phút, có cọc giữ 30 phút (2026-10-23, 10-24) |
 | Xe máy | Không đặt trước; chạm slot trống trên 3D để nhận chỗ ngay, không cọc, gửi yêu cầu check-in tới làn vào (2026-10-30) |
+| Báo đầy bãi | Mỗi zone có mức Còn chỗ / Gần đầy (từ 80% chỗ đã dùng) / Hết chỗ (không còn chỗ trống). Staff và Manager của bãi nhận thông báo khi zone gần đầy, hết chỗ và khi có chỗ trở lại; khách thấy nhãn Gần đầy / Hết chỗ và banner khi bãi hết chỗ; vẫn đặt được cho giờ đến sau thời gian giữ (2026-11-15) |
 | Slot đặt bị chiếm | Hồ sơ slot đặt bị chiếm: hệ thống hoặc Staff đổi slot và miễn block đầu; không còn slot thì hủy đặt chỗ, hoàn 100% cọc và trả bồi thường vào ví (mặc định 100.000đ ô tô, 50.000đ xe máy) (2026-11-06, 11-07) |
 | Cổng | Bỏ bước cảm biến vòng từ: Staff mở barie vào là session có hiệu lực (2026-11-04). Barie ra chỉ mở ở tab Check-out; mọi xe đã trả phí được xếp vào hàng chờ check-out (2026-11-04). Xe không biển số phải có lý do (2026-10-28). Buộc check-out xe vãng lai từ mô hình 3D (2026-11-07) |
 | Yêu cầu cổng | Khách gửi yêu cầu check-in (đặt chỗ trong cửa sổ đến, xe máy) và check-out từ app; Staff duyệt hoặc từ chối có lý do (2026-10-21 → 11-04) |
@@ -204,7 +205,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | FR-OPS-12 | Đóng session bất thường (session “ma”): Manager của bãi đóng kèm lý do; slot/counter được trả lại, đặt chỗ liên quan chuyển Hoàn tất | Manager | M |
 | FR-OPS-13 | Kiểm kê tồn bãi theo zone | Staff, Manager | C |
 | FR-OPS-14 | Độ tin cậy đọc biển số dưới ngưỡng (BR-18): Staff xác nhận hoặc sửa biển số trước khi mở barie | Staff, E3 | M |
-| FR-OPS-15 | Zone đếm hết chỗ: chặn xe vãng lai; xe đặt chỗ và Whitelist vẫn vào | Staff, Hệ thống | M |
+| FR-OPS-15 | Zone đếm hết chỗ: chặn xe vãng lai; xe đặt chỗ và Whitelist vẫn vào. Staff và Manager của bãi được báo khi zone gần đầy hoặc hết chỗ (FR-OPS-24) | Staff, Hệ thống | M |
 | FR-OPS-16 | Xe đỗ quá 24 giờ được đánh dấu quá hạn, quá 7 ngày là xe bỏ quên (BR-20) | Hệ thống, Staff | S |
 | FR-OPS-17 | Hàng chờ xung đột đồng bộ Edge | Manager | C |
 | FR-OPS-18 | Chế độ khẩn cấp (mở toàn bộ barie, trạng thái Ra khẩn cấp) | Manager, Staff | C |
@@ -213,6 +214,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | FR-OPS-21 | Buộc check-out xe vãng lai từ mô hình 3D: thu phí bằng tiền mặt vào ngăn kéo của Staff và xếp xe vào hàng chờ check-out | Staff | S |
 | FR-OPS-22 | Camera làn trên màn hình cổng: mỗi tab Check-in/Check-out có bốn camera làn 3D; xe của làn dừng ở barie đóng và chỉ chạy qua khi Staff mở; camera theo một xe qua cả bốn góc và phát lại lúc vào khi xe ra | Staff | S |
 | FR-OPS-23 | Lịch sử session của bãi cho Staff, mới nhất trước | Staff | M |
+| FR-OPS-24 | Báo đầy bãi theo zone: zone Gần đầy khi từ 80% chỗ đã dùng (chỗ đang đỗ và đang giữ), Hết chỗ khi không còn chỗ trống. Mỗi lần đổi mức, Staff và Manager của bãi nhận một thông báo real-time: gần đầy, hết chỗ, có chỗ trở lại (khi zone hết chỗ có lại ít nhất 2 chỗ hoặc 5% chỗ). Báo gần đầy lại chỉ sau khi zone xuống dưới 70%; mức đã báo được lưu nên khởi động lại không báo trùng. Khách thấy nhãn Gần đầy / Hết chỗ của bãi và loại xe, banner khi bãi hết chỗ; nhận chỗ xe máy bị khóa khi tầng xe máy hết chỗ; đặt chỗ có giờ đến trong thời gian giữ (2 giờ) bị từ chối khi không còn slot trống cùng loại, giờ đến sau đó vẫn đặt được | Hệ thống, Staff, Manager, User | S |
 
 ### 3.5 Bảng giá và tính phí (FR-PRC)
 
@@ -275,7 +277,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | FR-CUS-06 | Gỡ xe khỏi tài khoản; không gỡ được khi xe có session đang mở hoặc đặt chỗ hiệu lực | User | S |
 | FR-CUS-07 | Trang Active Sessions: mọi xe đang đỗ và đặt chỗ hiện có; trang My Bookings: đặt chỗ, QR, đổi/hủy, trả cọc | User | M |
 | FR-CUS-08 | Chỉ đường tới bãi: bản đồ Mapbox toàn màn hình với lộ trình từ vị trí khách, nút mở Google Maps; không có khóa Mapbox thì chỉ hiện nút này | Guest, User | S |
-| FR-CUS-09 | Chuông thông báo trong app, đẩy real-time: xe được duyệt/từ chối, check-in, check-out, nhắc lịch, đổi giá, slot đặt bị chiếm/đã đổi/đã trống, bãi hủy đặt chỗ, hoàn cọc, bồi thường; đánh dấu đã đọc, xóa | User, Staff, Manager | M |
+| FR-CUS-09 | Chuông thông báo trong app, đẩy real-time: xe được duyệt/từ chối, check-in, check-out, nhắc lịch, đổi giá, slot đặt bị chiếm/đã đổi/đã trống, bãi hủy đặt chỗ, hoàn cọc, bồi thường; Staff và Manager: zone gần đầy, hết chỗ, có chỗ trở lại (FR-OPS-24); đánh dấu đã đọc, xóa | User, Staff, Manager | M |
 
 ### 3.9 Xác minh phương tiện (FR-VER)
 
@@ -380,7 +382,8 @@ Admin
 | Xe không đọc được biển số | Staff bỏ trống biển số, chọn tùy chọn không biển số và ghi lý do (FR-OPS-10) |
 | Biển số đã có session đang mở | Chặn; Staff xử lý (session “ma” thì báo Manager đóng bất thường) (FR-OPS-11) |
 | Xe Blacklist | Chặn; Staff xem lý do và quyết định; xe Whitelist được miễn phí |
-| Zone đếm hết chỗ | Chặn xe vãng lai; xe đặt chỗ và Whitelist vẫn vào (FR-OPS-15) |
+| Zone đếm hết chỗ | Chặn xe vãng lai; xe đặt chỗ và Whitelist vẫn vào (FR-OPS-15); Staff và Manager được báo (FR-OPS-24) |
+| Đặt chỗ khi bãi hết chỗ | Giờ đến trong thời gian giữ: từ chối, báo bãi hết chỗ cho loại xe đó; giờ đến sau đó: cho đặt (FR-OPS-24) |
 | Xe quay đầu trước khi vào | Staff hủy session đang chờ vào; counter không đổi |
 | Đặt chỗ: QR không hợp lệ hoặc của bãi khác | Từ chối check-in theo đặt chỗ; Staff tra theo biển số hoặc mã |
 | Đặt chỗ: không quét được QR | Staff tra đặt chỗ theo mã hoặc biển số |
