@@ -567,8 +567,8 @@ public class NotificationJobs(
     }
 
     /// <summary>
-    /// A Staff closed their cash drawer: the lot Manager's bell says who, at what time, the count against the expected
-    /// cash and the difference with its reason, so the Manager can confirm it in the Approval Queue.
+    /// A Staff handed in their cash drawer: the lot Manager's bell says who, at what time and with how much cash,
+    /// so the Manager can confirm it in the Approval Queue.
     /// </summary>
     public async Task<bool> CashDrawerClosedAsync(long drawerId)
     {
@@ -583,22 +583,16 @@ public class NotificationJobs(
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == drawer.ParkingLotId);
         static string Money(decimal value) => $"{value.ToString("N0", CultureInfo.InvariantCulture)} VND";
         var who = await EmployeeNameAsync(drawer.StaffUserId);
-        var counted = drawer.CountedTotal ?? 0;
-        var expected = drawer.ExpectedTotal ?? 0;
-        var difference = drawer.Difference ?? counted - expected;
-        var result = difference == 0
-            ? "It balances. Confirm it in the Approval Queue."
-            : $"It is {Money(Math.Abs(difference))} {(difference > 0 ? "over" : "short")}" +
-              (string.IsNullOrWhiteSpace(drawer.DifferenceReason) ? "." : $". Reason: \"{drawer.DifferenceReason.Trim()}\".") +
-              " Check it in the Approval Queue.";
+        // Banknotes are no longer counted (2026-11-15): the drawer is handed in with the total the system kept
+        var total = drawer.ExpectedTotal ?? drawer.FloatTotal;
 
         return await SaveAndPushAsync(new UserNotification
         {
             UserId = managerId,
             Type = NotificationTypes.CashDrawerClosed,
-            Title = difference == 0 ? $"{who} closed cash drawer {drawer.CloseNo}" : $"{who} closed cash drawer {drawer.CloseNo} with a difference",
-            Message = $"{who} closed cash drawer {drawer.CloseNo} at {lot?.Name ?? "the parking lot"} at {LocalTime(drawer.ClosedAt.Value, lot)}. " +
-                      $"Counted {Money(counted)}, expected {Money(expected)}. {result}",
+            Title = $"{who} handed in cash drawer {drawer.CloseNo}",
+            Message = $"{who} handed in cash drawer {drawer.CloseNo} at {lot?.Name ?? "the parking lot"} at {LocalTime(drawer.ClosedAt.Value, lot)} " +
+                      $"with {Money(total)} (float {Money(drawer.FloatTotal)}). Confirm it in the Approval Queue.",
             RefType = "DailyCashClose",
             RefId = drawer.Id.ToString(CultureInfo.InvariantCulture),
             EventAt = drawer.ClosedAt
@@ -611,10 +605,8 @@ public class NotificationJobs(
             ["lotName"] = lot?.Name,
             ["staffName"] = who,
             ["closedAt"] = Iso(drawer.ClosedAt.Value),
-            ["countedTotal"] = counted.ToString(CultureInfo.InvariantCulture),
-            ["expectedTotal"] = expected.ToString(CultureInfo.InvariantCulture),
-            ["difference"] = difference.ToString(CultureInfo.InvariantCulture),
-            ["reason"] = drawer.DifferenceReason
+            ["floatTotal"] = drawer.FloatTotal.ToString(CultureInfo.InvariantCulture),
+            ["cashTotal"] = total.ToString(CultureInfo.InvariantCulture)
         });
     }
 
