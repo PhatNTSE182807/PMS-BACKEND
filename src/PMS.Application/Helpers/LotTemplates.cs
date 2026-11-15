@@ -18,14 +18,17 @@ public static class LotTemplates
 
     private const string Motorbike = "motorbike";
 
-    /// <param name="PenaltySlotsPerFloor">Penalty bays added to every level, outside its capacity (team rule of 2026-11-15).</param>
+    /// <param name="PenaltySlotsPerFloor">
+    /// Penalty bays added to every level, outside its capacity (team rule of 2026-11-15). Always a multiple of the
+    /// level's rows (2 up to 30 bays, 4 above), so the penalty block is a full rectangle in the 3D model.
+    /// </param>
     private sealed record Definition(string Id, string Name, string Summary, string[] Floors, int SlotsPerFloor, int PenaltySlotsPerFloor);
 
     // Keep in sync with GARAGE_TEMPLATES in the frontend (src/components/customer/garage/garageModel.ts)
     private static readonly Definition[] Definitions =
     [
-        new("L3S20", "Compact deck", "3 levels × 20 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 20, 5),
-        new("L3S50", "Wide deck", "3 levels × 50 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 50, 10),
+        new("L3S20", "Compact deck", "3 levels × 20 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 20, 6),
+        new("L3S50", "Wide deck", "3 levels × 50 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 50, 12),
         new("L4S30", "Tower", "4 levels × 30 bays · 3 car levels, motorbikes on the ground", [Motorbike, Car, Car, Car], 30, 6)
     ];
 
@@ -187,30 +190,39 @@ public static class LotTemplates
     }
 
     /// <summary>
-    /// Once per lot, at startup: a lot built from a template before penalty bays existed gets them on every level, with
-    /// their place in its published layout. Lots that already have penalty bays, or no template, are left alone.
+    /// At startup: every level of a lot built from a template gets the template's number of penalty bays, with their
+    /// place in its published layout. Lots built before penalty bays existed get all of them; lots built when a level
+    /// had fewer (5 or 10 before 2026-11-16) get the missing ones after the bays they already have. Bays are never
+    /// removed. A lot whose levels are complete, or that has no template, is left alone.
     /// </summary>
     public static async Task AddMissingPenaltyBaysAsync(PmsDbContext pmsContext)
     {
         var lots = await pmsContext.ParkingLots
-            .Where(l => l.LayoutTemplate != null
-                        && pmsContext.Zones.Any(z => z.ParkingLotId == l.Id)
-                        && !pmsContext.Slots.Any(s => s.Zone.ParkingLotId == l.Id && s.Kind == PenaltyKind))
+            .Where(l => l.LayoutTemplate != null && pmsContext.Zones.Any(z => z.ParkingLotId == l.Id))
             .ToListAsync();
         foreach (var lot in lots)
         {
             var template = Find(lot.LayoutTemplate);
+            if (template == null || template.PenaltySlotsPerFloor == 0)
+                continue;
+            var zones = await pmsContext.Zones
+                .Where(z => z.ParkingLotId == lot.Id)
+                .Select(z => new
+                {
+                    Zone = z,
+                    VehicleTypeId = z.Slots.Select(s => (int?)s.VehicleTypeId).FirstOrDefault(),
+                    Penalty = z.Slots.Count(s => s.Kind == PenaltyKind)
+                })
+                .ToListAsync();
+            if (zones.All(z => z.Penalty >= template.PenaltySlotsPerFloor))
+                continue;
             var layout = await pmsContext.LotLayouts
                 .Where(l => l.ParkingLotId == lot.Id && l.Status == "Published")
                 .OrderByDescending(l => l.Version)
                 .FirstOrDefaultAsync();
-            if (template == null || template.PenaltySlotsPerFloor == 0 || layout == null)
+            if (layout == null)
                 continue;
 
-            var zones = await pmsContext.Zones
-                .Where(z => z.ParkingLotId == lot.Id)
-                .Select(z => new { Zone = z, VehicleTypeId = z.Slots.Select(s => (int?)s.VehicleTypeId).FirstOrDefault() })
-                .ToListAsync();
             var added = new List<(LayoutFloorModel Floor, Slot Slot, int Index)>();
             foreach (var floor in template.Floors)
             {
@@ -218,7 +230,8 @@ public static class LotTemplates
                            ?? zones.FirstOrDefault(z => z.Zone.FloorNo == floor.FloorNo);
                 if (zone?.VehicleTypeId == null)
                     continue;
-                for (var i = 0; i < template.PenaltySlotsPerFloor; i++)
+                // The bays a level already has keep their codes and places; the new ones continue the block
+                for (var i = zone.Penalty; i < template.PenaltySlotsPerFloor; i++)
                 {
                     var bay = NewPenaltyBay(zone.VehicleTypeId.Value, floor.Name, i);
                     zone.Zone.Slots.Add(bay);
