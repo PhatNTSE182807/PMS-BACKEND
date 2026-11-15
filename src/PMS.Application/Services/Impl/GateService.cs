@@ -664,7 +664,7 @@ public class GateService(
         // A Staff's cash goes into their drawer of the day: one opens on its own when none is (an extra close after the first)
         if (cashDrawers != null && lotScope.Role == "Staff")
             await cashDrawers.EnsureOpenAsync(session.ParkingLotId, lotScope.UserId);
-        return await paymentService.RecordCashAsync(session, quote.AmountDue, model.Amount, model.Prepaid, lotScope.UserId, model.Received, model.Change);
+        return await paymentService.RecordCashAsync(session, quote.AmountDue, model.Amount, model.Prepaid, lotScope.UserId);
     }
 
     public async Task<PaymentResponseModel> PayOnlineAtLaneAsync(long sessionId, LanePaymentModel model, PaymentRequestContext context)

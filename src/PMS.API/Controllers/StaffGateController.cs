@@ -15,22 +15,22 @@ namespace PMS.API.Controllers;
 [Authorize(Roles = "Staff,Manager,Admin")]
 public class StaffGateController(IGateService gateService, IReservationService reservationService, PlateListService plateLists, CashDrawerService cashDrawers) : ApiController
 {
-    /// <summary>The signed-in Staff's cash drawer of today at the lot: float, cash taken, expected banknotes (BR-12).</summary>
+    /// <summary>The signed-in Staff's cash drawer at the lot: float, cash taken and the running cash total.</summary>
     [HttpGet("lots/{lotId:int}/cash-drawer")]
     public async Task<IActionResult> GetCashDrawerAsync(int lotId) =>
         Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.GetCurrentAsync(lotId)));
 
-    /// <summary>Opens today's drawer with the counted float.</summary>
+    /// <summary>Opens the drawer with the float the Staff starts with (the standard float when none is given).</summary>
     [HttpPost("lots/{lotId:int}/cash-drawer/open")]
     public async Task<IActionResult> OpenCashDrawerAsync(int lotId, [FromBody] OpenCashDrawerModel model) =>
         Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.OpenAsync(lotId, model)));
 
-    /// <summary>Closes the drawer with the blind banknote count; a large difference needs a reason.</summary>
+    /// <summary>Hands the drawer in with the cash total the system kept (nothing is counted); the next drawer opens at once.</summary>
     [HttpPost("lots/{lotId:int}/cash-drawer/close")]
-    public async Task<IActionResult> CloseCashDrawerAsync(int lotId, [FromBody] CloseCashDrawerModel model) =>
-        Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.CloseAsync(lotId, model)));
+    public async Task<IActionResult> CloseCashDrawerAsync(int lotId) =>
+        Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.CloseAsync(lotId)));
 
-    /// <summary>Asks the lot's Manager for banknotes to add to the open drawer (one waiting request at a time).</summary>
+    /// <summary>Asks the lot's Manager for an amount of cash to add to the open drawer (one waiting request at a time).</summary>
     [HttpPost("lots/{lotId:int}/cash-drawer/top-ups")]
     public async Task<IActionResult> RequestCashTopUpAsync(int lotId, [FromBody] RequestCashTopUpModel model) =>
         Ok(ApiResult<CashTopUpModel>.Success(await cashDrawers.RequestTopUpAsync(lotId, model)));

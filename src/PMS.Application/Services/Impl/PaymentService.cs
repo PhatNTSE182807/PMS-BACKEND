@@ -212,8 +212,11 @@ public class PaymentService(
         return ToModel(paymentOnline);
     }
 
-    public async Task<PaymentResponseModel> RecordCashAsync(ParkingSession session, decimal amountDue, decimal received, bool prepaid, string staffUserId,
-        IReadOnlyDictionary<int, int> receivedNotes = null, IReadOnlyDictionary<int, int> changeNotes = null)
+    /// <summary>
+    /// Cash taken by a Staff: only the fee is recorded (the change goes back to the customer), and it adds to the
+    /// Staff's drawer total. Banknotes are not recorded (user decision, 2026-11-15).
+    /// </summary>
+    public async Task<PaymentResponseModel> RecordCashAsync(ParkingSession session, decimal amountDue, decimal received, bool prepaid, string staffUserId)
     {
         if (session.Status != SessionStatus.PendingPayment)
             throw new BadRequestException("The session is not waiting for payment.");
@@ -228,18 +231,6 @@ public class PaymentService(
         payment.SessionId = session.Id;
         payment.ParkingLotId = session.ParkingLotId;
         payment.CollectedByUserId = staffUserId;
-        if (receivedNotes is { Count: > 0 })
-        {
-            // Note by note: what came in and what went back must match the money and the fee exactly
-            var inNotes = CashDrawerService.CleanNotes(receivedNotes, "money received");
-            var outNotes = CashDrawerService.CleanNotes(changeNotes, "change");
-            if (CashDrawerService.Total(inNotes) != received)
-                throw new BadRequestException("The banknotes received do not add up to the amount received.");
-            if (CashDrawerService.Total(inNotes) - CashDrawerService.Total(outNotes) != amountDue)
-                throw new BadRequestException($"The change given back does not leave exactly {amountDue:N0} VND.");
-            payment.CashReceivedJson = CashDrawerService.Write(inNotes);
-            payment.CashChangeJson = CashDrawerService.Write(outNotes);
-        }
         payment.Status = PaymentStatus.Succeeded;
         payment.PaidAt = Now;
         invoice.Status = "Paid";
