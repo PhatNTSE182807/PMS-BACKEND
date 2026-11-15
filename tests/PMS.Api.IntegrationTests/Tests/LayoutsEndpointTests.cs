@@ -54,18 +54,18 @@ public class LayoutsEndpointTests
         layout.TemplateId.Should().Be("L4S30");
         layout.Floors.Should().HaveCount(4);
         layout.Zones.Should().HaveCount(4);
-        layout.Slots.Should().HaveCount(120);
+        layout.Slots.Should().HaveCount(144); // 4 levels × (30 bays + 6 penalty bays)
 
         var statusResponse = await client.GetAsync($"/api/public/lots/{lotId}/layout/status");
         statusResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var status = (await ResponseHelper.GetApiResultAsync<LayoutStatusResponseModel>(statusResponse)).Result;
-        status.Slots.Should().HaveCount(120).And.OnlyContain(s => s.Status == "Available");
+        status.Slots.Should().HaveCount(144).And.OnlyContain(s => s.Status == "Available");
         status.Zones.Should().OnlyContain(z => z.Free == 30 && z.Total == 30);
 
         var plan = (await ResponseHelper.GetApiResultAsync<Layout2DResponseModel>(
             await client.GetAsync($"/api/public/lots/{lotId}/layout/2d"))).Result;
         plan.Detail.Should().Be("slots");
-        plan.Floors.Sum(f => f.Cells.Count).Should().Be(120);
+        plan.Floors.Sum(f => f.Cells.Count).Should().Be(144);
 
         var lowDetail = (await ResponseHelper.GetApiResultAsync<Layout2DResponseModel>(
             await client.GetAsync($"/api/public/lots/{lotId}/layout/2d?detail=zones"))).Result;

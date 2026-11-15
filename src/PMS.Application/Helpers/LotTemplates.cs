@@ -18,14 +18,15 @@ public static class LotTemplates
 
     private const string Motorbike = "motorbike";
 
-    private sealed record Definition(string Id, string Name, string Summary, string[] Floors, int SlotsPerFloor);
+    /// <param name="PenaltySlotsPerFloor">Penalty bays added to every level, outside its capacity (team rule of 2026-11-15).</param>
+    private sealed record Definition(string Id, string Name, string Summary, string[] Floors, int SlotsPerFloor, int PenaltySlotsPerFloor);
 
     // Keep in sync with GARAGE_TEMPLATES in the frontend (src/components/customer/garage/garageModel.ts)
     private static readonly Definition[] Definitions =
     [
-        new("L3S20", "Compact deck", "3 levels × 20 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 20),
-        new("L3S50", "Wide deck", "3 levels × 50 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 50),
-        new("L4S30", "Tower", "4 levels × 30 bays · 3 car levels, motorbikes on the ground", [Motorbike, Car, Car, Car], 30)
+        new("L3S20", "Compact deck", "3 levels × 20 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 20, 5),
+        new("L3S50", "Wide deck", "3 levels × 50 bays · 2 car levels, motorbikes on the ground", [Motorbike, Car, Car], 50, 10),
+        new("L4S30", "Tower", "4 levels × 30 bays · 3 car levels, motorbikes on the ground", [Motorbike, Car, Car, Car], 30, 6)
     ];
 
     /// <summary>Vehicle type each floor kind is built for (codes seeded by AutomatedMigration).</summary>
@@ -103,6 +104,10 @@ public static class LotTemplates
                 });
             }
 
+            // Penalty bays: same vehicle type as the level, never booked, outside the capacity and the counter
+            for (var i = 0; i < template.PenaltySlotsPerFloor; i++)
+                zone.Slots.Add(NewPenaltyBay(vehicleTypes[VehicleTypeCodes[floor.Kind]], floor.Name, i));
+
             return (Floor: floor, Zone: zone);
         }).ToList();
 
@@ -128,7 +133,7 @@ public static class LotTemplates
         foreach (var (floor, zone) in floorsWithZones)
         {
             var index = 0;
-            foreach (var slot in zone.Slots)
+            foreach (var slot in zone.Slots.Where(s => s.Kind != PenaltyKind))
             {
                 var row = index / floor.Cols;
                 layout.Slots.Add(new LotLayoutSlot
@@ -141,10 +146,99 @@ public static class LotTemplates
                 });
                 index++;
             }
+
+            var penalty = 0;
+            foreach (var slot in zone.Slots.Where(s => s.Kind == PenaltyKind))
+                layout.Slots.Add(PenaltyCell(slot.Id, floor, penalty++));
         }
 
         pmsContext.LotLayouts.Add(layout);
         await pmsContext.SaveChangesAsync();
+    }
+
+    private const string PenaltyKind = "Penalty";
+
+    /// <summary>"L2-X03": the level, X for penalty, and the number of the bay on that level.</summary>
+    private static Slot NewPenaltyBay(int vehicleTypeId, string floorName, int index) => new()
+    {
+        VehicleTypeId = vehicleTypeId,
+        Code = $"{floorName}-X{index + 1:D2}",
+        Status = "Available",
+        Kind = PenaltyKind,
+        IsActive = true,
+        RowVersion = Array.Empty<byte>()
+    };
+
+    /// <summary>
+    /// Penalty bays stand in their own block at the end of the level, one empty column after the last normal bay,
+    /// filling the rows top to bottom and then the next column, so they face the same aisles as the normal bays.
+    /// </summary>
+    private static LotLayoutSlot PenaltyCell(int slotId, LayoutFloorModel floor, int index)
+    {
+        var row = index % floor.Rows;
+        return new LotLayoutSlot
+        {
+            SlotId = slotId,
+            FloorNo = floor.FloorNo,
+            Row = row,
+            Col = floor.Cols + 1 + index / floor.Rows,
+            Rotation = row % 2 == 0 ? 0 : 180
+        };
+    }
+
+    /// <summary>
+    /// Once per lot, at startup: a lot built from a template before penalty bays existed gets them on every level, with
+    /// their place in its published layout. Lots that already have penalty bays, or no template, are left alone.
+    /// </summary>
+    public static async Task AddMissingPenaltyBaysAsync(PmsDbContext pmsContext)
+    {
+        var lots = await pmsContext.ParkingLots
+            .Where(l => l.LayoutTemplate != null
+                        && pmsContext.Zones.Any(z => z.ParkingLotId == l.Id)
+                        && !pmsContext.Slots.Any(s => s.Zone.ParkingLotId == l.Id && s.Kind == PenaltyKind))
+            .ToListAsync();
+        foreach (var lot in lots)
+        {
+            var template = Find(lot.LayoutTemplate);
+            var layout = await pmsContext.LotLayouts
+                .Where(l => l.ParkingLotId == lot.Id && l.Status == "Published")
+                .OrderByDescending(l => l.Version)
+                .FirstOrDefaultAsync();
+            if (template == null || template.PenaltySlotsPerFloor == 0 || layout == null)
+                continue;
+
+            var zones = await pmsContext.Zones
+                .Where(z => z.ParkingLotId == lot.Id)
+                .Select(z => new { Zone = z, VehicleTypeId = z.Slots.Select(s => (int?)s.VehicleTypeId).FirstOrDefault() })
+                .ToListAsync();
+            var added = new List<(LayoutFloorModel Floor, Slot Slot, int Index)>();
+            foreach (var floor in template.Floors)
+            {
+                var zone = zones.FirstOrDefault(z => z.Zone.FloorNo == floor.FloorNo && z.Zone.Code == floor.Name)
+                           ?? zones.FirstOrDefault(z => z.Zone.FloorNo == floor.FloorNo);
+                if (zone?.VehicleTypeId == null)
+                    continue;
+                for (var i = 0; i < template.PenaltySlotsPerFloor; i++)
+                {
+                    var bay = NewPenaltyBay(zone.VehicleTypeId.Value, floor.Name, i);
+                    zone.Zone.Slots.Add(bay);
+                    added.Add((floor, bay, i));
+                }
+            }
+            if (added.Count == 0)
+                continue;
+            await pmsContext.SaveChangesAsync();
+
+            foreach (var (floor, bay, index) in added)
+                pmsContext.LotLayoutSlots.Add(WithLayout(PenaltyCell(bay.Id, floor, index), layout.Id));
+            await pmsContext.SaveChangesAsync();
+        }
+    }
+
+    private static LotLayoutSlot WithLayout(LotLayoutSlot cell, int layoutId)
+    {
+        cell.LayoutId = layoutId;
+        return cell;
     }
 
     private static LotTemplateResponseModel ToModel(Definition d)
@@ -169,6 +263,7 @@ public static class LotTemplates
             Name = d.Name,
             Summary = d.Summary,
             SlotsPerFloor = d.SlotsPerFloor,
+            PenaltySlotsPerFloor = d.PenaltySlotsPerFloor,
             CarSlots = carFloors * d.SlotsPerFloor,
             MotorbikeSlots = bikeFloors * d.SlotsPerFloor,
             TotalSlots = d.Floors.Length * d.SlotsPerFloor,

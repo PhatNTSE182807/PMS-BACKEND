@@ -12,6 +12,9 @@ public class LotTemplateResponseModel
 
     public int SlotsPerFloor { get; set; }
 
+    /// <summary>Penalty bays on every level, for towed vehicles; not part of the slot counts below.</summary>
+    public int PenaltySlotsPerFloor { get; set; }
+
     public int CarSlots { get; set; }
 
     public int MotorbikeSlots { get; set; }

@@ -171,6 +171,14 @@ public class SessionResponseModel
     public string ZeroFeeReason { get; set; }
 
     public string OverrideNote { get; set; }
+
+    /// <summary>WrongBay or Overstay when Staff towed the vehicle out of a booked bay; null otherwise.</summary>
+    public string PenaltyReason { get; set; }
+
+    /// <summary>Penalty owed at check-out for the tow (0 when it never was towed).</summary>
+    public decimal PenaltyFee { get; set; }
+
+    public DateTime? RelocatedAt { get; set; }
 }
 
 /// <summary>Ask for the fee at a payment point (exit lane, counter or app): the session becomes "Chờ thanh toán".</summary>
@@ -208,6 +216,12 @@ public class CheckoutQuoteModel
     public decimal LostTicketFee { get; set; }
 
     public decimal ExitWindowLateFee { get; set; }
+
+    /// <summary>Penalty of a vehicle towed out of a booked bay (0 when it never was).</summary>
+    public decimal PenaltyFee { get; set; }
+
+    /// <summary>WrongBay or Overstay when the vehicle was towed; null otherwise.</summary>
+    public string PenaltyReason { get; set; }
 
     public decimal DepositApplied { get; set; }
 

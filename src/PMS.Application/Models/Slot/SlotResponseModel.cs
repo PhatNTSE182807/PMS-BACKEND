@@ -31,4 +31,7 @@ public class SlotResponseModel
     public string DedicatedNote { get; set; }
 
     public bool IsActive { get; set; }
+
+    /// <summary>Standard or Penalty (kept for towed vehicles, never booked).</summary>
+    public string Kind { get; set; }
 }

@@ -36,6 +36,8 @@ public static class NotificationTypes
     public const string BookingBayMoved = "BookingBayMoved";
     /// <summary>Manager bell: a Staff closed their cash drawer (when, counted vs expected, the difference).</summary>
     public const string CashDrawerClosed = "CashDrawerClosed";
+    /// <summary>Staff towed the vehicle out of a booked bay to a penalty bay: the booked customer keeps the bay, the towed vehicle's owner owes a penalty.</summary>
+    public const string VehicleTowed = "VehicleTowed";
     /// <summary>Staff and Manager bell: a zone of their lot reached 80 % of its bays.</summary>
     public const string LotAlmostFull = "LotAlmostFull";
     /// <summary>Staff and Manager bell: a zone of their lot has no free bay left (walk-ins are turned away).</summary>
@@ -47,7 +49,7 @@ public static class NotificationTypes
     [
         VehicleApproved, VehicleRejected, CheckIn, CheckOut, PriceChanged,
         BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid,
-        DepartureSoon, DepartureOverdue, BookingBayMoved, CashDrawerClosed,
+        DepartureSoon, DepartureOverdue, BookingBayMoved, CashDrawerClosed, VehicleTowed,
         LotAlmostFull, LotFull, LotSpaceAvailable
     ];
 }

@@ -236,10 +236,12 @@ public class NotificationJobs(
             return false;
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == bayCase.ParkingLotId);
-        var slotIds = new[] { bayCase.SlotId, bayCase.NewSlotId ?? 0 };
+        var slotIds = new[] { bayCase.SlotId, bayCase.NewSlotId ?? 0, bayCase.RelocatedToSlotId ?? 0 };
         var codes = await pmsContext.Slots.AsNoTracking().Where(s => slotIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Code);
         var bookedBay = codes.GetValueOrDefault(bayCase.SlotId) ?? "your bay";
-        var newBay = bayCase.NewSlotId is { } id ? codes.GetValueOrDefault(id) : null;
+        // A tow names the bay the vehicle went to; a moved booking names its new bay
+        var newBay = bayCase.NewSlotId is { } id ? codes.GetValueOrDefault(id)
+            : bayCase.RelocatedToSlotId is { } towedTo ? codes.GetValueOrDefault(towedTo) : null;
         var lotName = lot?.Name ?? "the parking lot";
         var arrival = LocalTime(reservation.StartTime, lot);
         static string Money(decimal value) => $"{value.ToString("N0", CultureInfo.InvariantCulture)} VND";
@@ -252,6 +254,8 @@ public class NotificationJobs(
                 $"Your booking {reservation.ReservationCode} at {lotName} now has bay {newBay ?? "a new bay"} instead of {bookedBay}. The first hour is free."),
             NotificationTypes.BookedBayFreed => ("Your booked bay is free again",
                 $"The vehicle in bay {bookedBay} at {lotName} has left. Your booking {reservation.ReservationCode} keeps that bay."),
+            NotificationTypes.VehicleTowed => ("Your booked bay is free again",
+                $"The lot towed the vehicle that was in bay {bookedBay} at {lotName}. Your booking {reservation.ReservationCode} keeps that bay."),
             NotificationTypes.BookingCancelledByLot => ("Your booking was cancelled by the lot",
                 $"Bay {bookedBay} you booked at {lotName} was taken and no other bay of your vehicle type was free, so the lot cancelled booking {reservation.ReservationCode}. Sorry for the trouble."),
             NotificationTypes.DepositRefunded when bayCase.DepositRefunded > 0 => ("Deposit refunded to your XXIV wallet",
@@ -264,6 +268,8 @@ public class NotificationJobs(
         var overstay = await pmsContext.ParkingSessions.AnyAsync(s => s.Id == bayCase.SessionId && s.ReservationId != null);
         var occupant = overstay ? "A vehicle that stayed past its booking is still in" : "A walk-in parked in";
         var toStaff = await StaffBookedBayAsync(bayCase, reservation, notificationType, lotName, bookedBay, newBay, arrival, occupant);
+        if (notificationType == NotificationTypes.VehicleTowed)
+            toStaff |= await TowedOwnerAsync(bayCase, lotName, bookedBay, newBay);
         toStaff |= await ManagerBookedBayAsync(bayCase, reservation, notificationType, lot, bookedBay, newBay, arrival, occupant, overstay);
         if (text == null || string.IsNullOrEmpty(reservation.UserId))
             return toStaff;
@@ -308,7 +314,7 @@ public class NotificationJobs(
         // The money notice goes out once: with the compensation, or with the deposit when no compensation was paid
         var moneyNotice = (notificationType == NotificationTypes.CompensationPaid && bayCase.CompensationPaid > 0)
                           || (notificationType == NotificationTypes.DepositRefunded && bayCase.CompensationPaid <= 0 && bayCase.DepositRefunded > 0);
-        if (notificationType is not (NotificationTypes.BookedBayTaken or NotificationTypes.BookedBayReassigned) && !moneyNotice)
+        if (notificationType is not (NotificationTypes.BookedBayTaken or NotificationTypes.BookedBayReassigned or NotificationTypes.VehicleTowed) && !moneyNotice)
             return false;
 
         var recipients = await pmsContext.Employees.AsNoTracking()
@@ -342,8 +348,10 @@ public class NotificationJobs(
             var resolver = userId == bayCase.ResolvedBy;
             (string Title, string Message) text = notificationType switch
             {
-                NotificationTypes.BookedBayTaken => ("Booked bay taken: move the booking",
-                    $"{occupant} bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}. Move the booking to another free bay in Exceptions & Alerts, or compensate the customer when none is left."),
+                NotificationTypes.BookedBayTaken => ("Booked bay taken: tow the vehicle",
+                    $"{occupant} bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}. Tow it to a penalty bay in Exceptions & Alerts, move the booking to another free bay, or compensate the customer when nothing is left."),
+                NotificationTypes.VehicleTowed => (resolver ? "You towed a vehicle out of a booked bay" : "A vehicle was towed out of a booked bay",
+                    $"The vehicle in bay {bookedBay} at {lotName} was towed to bay {newBay ?? "another bay"}; it owes a {Money(bayCase.PenaltyFee)} penalty at check-out. Booking {reservation.ReservationCode} keeps bay {bookedBay}."),
                 NotificationTypes.BookedBayReassigned => (resolver ? "You moved a booking to another bay" : "A booking moved to another bay",
                     $"Booking {reservation.ReservationCode} at {lotName} now has bay {newBay ?? "a new bay"} instead of {bookedBay}. The customer was told; the first hour is free."),
                 _ => (resolver ? "You sent compensation to the customer" : "Compensation sent to a customer",
@@ -361,6 +369,40 @@ public class NotificationJobs(
             }, data);
         }
         return sent;
+    }
+
+    /// <summary>
+    /// The owner of a towed vehicle, when it came in on their own booking and stayed past it: where the vehicle is now and
+    /// the penalty owed at check-out. A walk-in has no account to tell.
+    /// </summary>
+    private async Task<bool> TowedOwnerAsync(BookedBayCase bayCase, string lotName, string bookedBay, string towedTo)
+    {
+        var ownerId = await pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => s.Id == bayCase.SessionId && s.ReservationId != null)
+            .Join(pmsContext.Reservations.AsNoTracking(), s => s.ReservationId, r => (long?)r.Id, (s, r) => r.UserId)
+            .FirstOrDefaultAsync();
+        if (string.IsNullOrEmpty(ownerId))
+            return false;
+
+        var penalty = $"{bayCase.PenaltyFee.ToString("N0", CultureInfo.InvariantCulture)} VND";
+        return await SaveAndPushAsync(new UserNotification
+        {
+            UserId = ownerId,
+            Type = NotificationTypes.VehicleTowed,
+            Title = "Your vehicle was moved to a penalty bay",
+            Message = $"Your vehicle stayed past its booking in bay {bookedBay} at {lotName}, which another customer booked, so the lot moved it to bay {towedTo ?? "a penalty bay"}. A {penalty} penalty is added to your fee at check-out.",
+            RefType = "BookedBayCase",
+            RefId = bayCase.Id.ToString(CultureInfo.InvariantCulture),
+            EventAt = bayCase.ResolvedAt ?? bayCase.CreatedAt
+        }, new Dictionary<string, string>
+        {
+            ["audience"] = "owner",
+            ["lotId"] = bayCase.ParkingLotId.ToString(CultureInfo.InvariantCulture),
+            ["lotName"] = lotName,
+            ["bayCode"] = bookedBay,
+            ["newBayCode"] = towedTo,
+            ["amount"] = bayCase.PenaltyFee.ToString(CultureInfo.InvariantCulture)
+        });
     }
 
     /// <summary>

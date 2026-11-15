@@ -61,7 +61,8 @@ public static class KeptBays
         var drawn = new HashSet<int>();
         foreach (var zone in plan.ZoneCounters ?? [])
         {
-            var inZone = cells.Where(c => c.Cell.ZoneId == zone.ZoneId).ToList();
+            // Penalty bays are outside the counter: walk-ins are never drawn there
+            var inZone = cells.Where(c => c.Cell.ZoneId == zone.ZoneId && c.Cell.Kind != SlotKind.Penalty).ToList();
             var shown = inZone.Count(c => c.Cell.Status != SlotStatus.Available);
             var missing = Math.Max(0, zone.Total - zone.Free - shown);
             var taken = inZone.Where(c => c.Cell.Status == SlotStatus.Available)

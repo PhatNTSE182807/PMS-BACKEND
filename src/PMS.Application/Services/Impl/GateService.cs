@@ -190,7 +190,7 @@ public class GateService(
             CustomerType = session.CustomerId != null ? "Member" : "Guest",
             CustomerName = customerName,
             ElapsedMinutes = Math.Max(0, (int)Math.Floor((Now - session.EntryTime).TotalMinutes)),
-            FeeSoFar = quote == null ? null : quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee,
+            FeeSoFar = quote == null ? null : quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee + quote.PenaltyFee,
             DepositApplied = quote?.DepositApplied ?? session.DepositApplied,
             AlreadyPaid = quote?.AlreadyPaid ?? session.PaidAmount,
             AmountDue = quote?.AmountDue
@@ -350,7 +350,7 @@ public class GateService(
             var occupiedSlotIds = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
             var free = await pmsContext.Slots
                 .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available
-                            && !occupiedSlotIds.Contains(s.Id))
+                            && s.Kind != SlotKind.Penalty && !occupiedSlotIds.Contains(s.Id))
                 .ToListAsync();
             // Never a bay another customer booked (now or later), one a waiting walk-in was sent to, or one where the
             // 3D model draws a walk-in without a bay: the move would only take the problem to someone else
@@ -1047,7 +1047,7 @@ public class GateService(
                 BookingMode = booking?.BookingMode,
                 PlannedDeparture = booking?.DepartureTime is { } departure ? Utc(departure) : null,
                 ElapsedMinutes = Math.Max(0, (int)Math.Floor((Now - session.EntryTime).TotalMinutes)),
-                FeeSoFar = quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee,
+                FeeSoFar = quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee + quote.PenaltyFee,
                 DepositApplied = quote.DepositApplied,
                 AlreadyPaid = quote.AlreadyPaid,
                 AmountDue = quote.AmountDue,
@@ -1163,11 +1163,11 @@ public class GateService(
         var settledPaid = session.Status == SessionStatus.Paid && !exitWindowMissed;
         var settlement = settledPaid
             ? new Settlement(session.OriginalFee, 0, 0, session.DepositApplied, session.PaidAmount, 0, depositForfeited ? 0 : Math.Max(0, deposit - session.DepositApplied))
-            : FeeCalculator.Settle(breakdown.Total, depositCredit, session.PaidAmount, exitWindowMissed, Rules.ExitWindowLateFee, lostFee);
+            : FeeCalculator.Settle(breakdown.Total, depositCredit, session.PaidAmount, exitWindowMissed, Rules.ExitWindowLateFee, lostFee, session.PenaltyFee);
 
         var zeroReason = settledPaid ? session.ZeroFeeReason
             : session.SessionType == SessionType.Whitelist ? "Whitelist"
-            : breakdown.WithinGrace && lostFee == 0 ? "GracePeriod"
+            : breakdown.WithinGrace && lostFee == 0 && session.PenaltyFee == 0 ? "GracePeriod"
             : settlement.AmountDue == 0 && session.PaidAmount == 0 && depositCredit > 0 ? "CoveredByDeposit"
             : null;
 
@@ -1186,7 +1186,7 @@ public class GateService(
 
             session.TotalDurationMinutes = breakdown.DurationMinutes;
             session.OriginalFee = breakdown.Total;
-            session.FinalFee = settlement.Fee + settlement.LostTicketFee + settlement.ExitWindowLateFee;
+            session.FinalFee = settlement.Fee + settlement.LostTicketFee + settlement.ExitWindowLateFee + settlement.PenaltyFee;
             session.DepositApplied = settlement.DepositApplied;
             session.ZeroFeeReason = zeroReason;
             session.PricingRuleId ??= tariff.RuleId;
@@ -1213,6 +1213,8 @@ public class GateService(
             Fee = settlement.Fee,
             LostTicketFee = settlement.LostTicketFee,
             ExitWindowLateFee = settlement.ExitWindowLateFee,
+            PenaltyFee = settlement.PenaltyFee,
+            PenaltyReason = session.PenaltyReason,
             DepositApplied = settlement.DepositApplied,
             AlreadyPaid = settlement.AlreadyPaid,
             AmountDue = settlement.AmountDue,
@@ -1509,7 +1511,10 @@ public class GateService(
             PlateMismatch = s.PlateMismatch,
             IsOverdue = SessionStatus.Inside.Contains(s.Status) && s.EntryTime < overdueBefore,
             ZeroFeeReason = s.ZeroFeeReason,
-            OverrideNote = s.OverrideNote
+            OverrideNote = s.OverrideNote,
+            PenaltyReason = s.PenaltyReason,
+            PenaltyFee = s.PenaltyFee,
+            RelocatedAt = s.RelocatedAt is { } towed ? Utc(towed) : null
         }).ToList();
     }
 }

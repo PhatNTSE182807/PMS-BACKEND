@@ -166,6 +166,7 @@ public class PricingRuleService(
             LostTicketFee = model.LostTicketFee,
             NoShowFee = model.NoShowFee,
             BookedBayCompensation = model.BookedBayCompensation,
+            PenaltyFee = model.PenaltyFee ?? PricingRule.DefaultPenaltyFor(vehicleType.Code),
             Currency = string.IsNullOrWhiteSpace(model.Currency) ? "VND" : model.Currency.ToUpperInvariant(),
             Priority = model.Priority,
             EffectiveFrom = model.EffectiveFrom ?? now,
@@ -248,6 +249,8 @@ public class PricingRuleService(
             proposed.ApplyTo(tracked);
             // Not a price: changing it alone never notifies customers of a price change
             tracked.BookedBayCompensation = model.BookedBayCompensation;
+            if (model.PenaltyFee is { } penalty)
+                tracked.PenaltyFee = penalty;
             tracked.VersionNo += 1;
             tracked.UpdatedAt = now;
 
@@ -509,6 +512,7 @@ public class PricingRuleService(
         LostTicketFee = r.LostTicketFee,
         NoShowFee = r.NoShowFee,
         BookedBayCompensation = r.BookedBayCompensation,
+        PenaltyFee = r.PenaltyFee,
         Currency = r.Currency ?? "VND",
         Priority = r.Priority,
         EffectiveFrom = DateTime.SpecifyKind(r.EffectiveFrom, DateTimeKind.Utc),

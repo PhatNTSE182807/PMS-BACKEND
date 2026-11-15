@@ -84,6 +84,9 @@ public class LayoutSlotModel
     public int Rotation { get; set; }
 
     public string ModelUrl { get; set; }
+
+    /// <summary>Standard or Penalty (a bay kept for towed vehicles, never booked).</summary>
+    public string Kind { get; set; } = "Standard";
 }
 
 /* ------------------------------------------------------------------ */
@@ -191,6 +194,11 @@ public class Layout2DFloorModel
 
     public int Free { get; set; }
 
+    /// <summary>Penalty bays on this level (not in Total / Free).</summary>
+    public int PenaltyTotal { get; set; }
+
+    public int PenaltyFree { get; set; }
+
     /// <summary>Filled when detail = slots.</summary>
     public List<Layout2DCellModel> Cells { get; set; } = [];
 
@@ -227,6 +235,9 @@ public class Layout2DCellModel
     /// booking first, as the entry lane and the simulation park them. Never who booked it.
     /// </summary>
     public bool BookedLater { get; set; }
+
+    /// <summary>Standard or Penalty (a bay kept for towed vehicles, never booked).</summary>
+    public string Kind { get; set; } = "Standard";
 }
 
 /// <summary>The cells a zone covers on one floor, as a bounding box of rows and columns.</summary>

@@ -42,7 +42,8 @@ Các hạng mục ngoài phạm vi nằm ở mục 2.5.
 | Exit Window | Khoảng thời gian được phép ra sau khi trả trước ở quầy hoặc qua app (15 phút) |
 | Exit Pass | Mã QR có chữ ký (HMAC) cấp cho mỗi xe đã check-in; làn ra quét để mở barie sau khi đã trả phí |
 | Yêu cầu cổng (Gate Request) | Yêu cầu check-in hoặc check-out do khách gửi từ app, hoặc do hệ thống xếp cho xe đã trả phí; Staff xử lý tại làn |
-| Hồ sơ slot đặt bị chiếm (Booked Bay Case) | Hồ sơ mở khi slot đặt chỗ của khách bị xe khác chiếm; kết thúc bằng đổi slot hoặc bồi thường |
+| Hồ sơ slot đặt bị chiếm (Booked Bay Case) | Hồ sơ mở khi slot đặt chỗ của khách bị xe khác chiếm; kết thúc bằng dời xe vi phạm, đổi slot hoặc bồi thường |
+| Slot phạt (Penalty Bay) | Slot dành riêng cho xe vi phạm bị dời ra khỏi slot đặt (xe vãng lai đỗ nhầm, xe đặt chỗ quá giờ); mỗi tầng 5–10 slot tùy mẫu, không đặt được, không tính vào sức chứa và Zone Counter |
 | Ví XXIV | Ví nội bộ của User: nạp qua VNPay/MoMo, trả cọc và phí, nhận hoàn tiền và bồi thường, rút ra ngân hàng/MoMo |
 | Ngăn kéo tiền mặt (Cash Drawer) | Tiền mặt một Staff giữ tại một bãi, theo dõi bằng một số tổng (quỹ đầu + tiền mặt đã thu + tiền bổ sung đã duyệt); không đếm theo mệnh giá |
 | Quỹ chuẩn | Quỹ đầu mặc định của ngăn kéo: 8.880.000đ |
@@ -106,6 +107,7 @@ Guest không phải một role trong cơ sở dữ liệu. Hệ thống có 4 ro
 | Xe máy | Không đặt trước; chạm slot trống trên 3D để nhận chỗ ngay, không cọc, gửi yêu cầu check-in tới làn vào (2026-10-30) |
 | Báo đầy bãi | Mỗi zone có mức Còn chỗ / Gần đầy (từ 80% chỗ đã dùng) / Hết chỗ (không còn chỗ trống). Staff và Manager của bãi nhận thông báo khi zone gần đầy, hết chỗ và khi có chỗ trở lại; khách thấy nhãn Gần đầy / Hết chỗ và banner khi bãi hết chỗ; vẫn đặt được cho giờ đến sau thời gian giữ (2026-11-15) |
 | Slot đặt bị chiếm | Hồ sơ slot đặt bị chiếm: hệ thống hoặc Staff đổi slot và miễn block đầu; không còn slot thì hủy đặt chỗ, hoàn 100% cọc và trả bồi thường vào ví (mặc định 100.000đ ô tô, 50.000đ xe máy) (2026-11-06, 11-07) |
+| Slot phạt | Mỗi tầng có slot phạt (Compact deck 5, Tower 6, Wide deck 10). Staff dời xe chiếm slot đặt (vãng lai đỗ nhầm hoặc xe đặt chỗ quá giờ) vào slot phạt; slot phạt đầy thì dời vào slot vãng lai trống (vẫn tính phạt); không dời được thì đổi slot cho khách; cuối cùng mới bồi thường. Xe bị dời trả phí phạt của bảng giá khi ra (mặc định 200.000đ ô tô, 50.000đ xe máy) (2026-11-15) |
 | Cổng | Bỏ bước cảm biến vòng từ: Staff mở barie vào là session có hiệu lực (2026-11-04). Barie ra chỉ mở ở tab Check-out; mọi xe đã trả phí được xếp vào hàng chờ check-out (2026-11-04). Xe không biển số phải có lý do (2026-10-28). Buộc check-out xe vãng lai từ mô hình 3D (2026-11-07) |
 | Yêu cầu cổng | Khách gửi yêu cầu check-in (đặt chỗ trong cửa sổ đến, xe máy) và check-out từ app; Staff duyệt hoặc từ chối có lý do (2026-10-21 → 11-04) |
 | Mất vé | Staff tải ảnh CCCD và cà vẹt, tự duyệt hoặc từ chối; Manager không còn duyệt mất vé; duyệt thì phạt cộng vào hóa đơn khi ra, từ chối thì xe ở lại tới khi có giấy tờ mới; không nhận báo mất vé cho xe đặt chỗ (2026-11-03, 11-04). Thay BR-13, BR-14 phần mất vé |
@@ -161,7 +163,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | ID | Mô tả yêu cầu | Actor | Ưu tiên |
 | --- | --- | --- | --- |
 | FR-LOT-01 | Admin tạo và sửa bãi: tên, mã, địa chỉ (quận, thành phố), SĐT, giờ hoạt động, vị trí bản đồ (chọn trên bản đồ, kéo ghim hoặc dán “lat, lng”). Sức chứa tính từ tổng slot | Admin | M |
-| FR-LOT-02 | Admin dựng bãi từ một trong ba mẫu tòa nhà: zone theo tầng và loại xe, slot (gồm slot đặt chỗ), zone đếm và mô hình 3D được sinh cùng lúc; chỉ dựng được cho bãi chưa có zone | Admin | M |
+| FR-LOT-02 | Admin dựng bãi từ một trong ba mẫu tòa nhà: zone theo tầng và loại xe, slot (gồm slot đặt chỗ và slot phạt), zone đếm và mô hình 3D được sinh cùng lúc; chỉ dựng được cho bãi chưa có zone. Bãi dựng trước khi có slot phạt được bổ sung slot phạt một lần khi hệ thống khởi động | Admin | M |
 | FR-LOT-03 | Slot đặt chỗ có 4 trạng thái: Trống, Giữ chỗ, Đang đỗ, Bảo trì (4.3.1). Zone Counter của zone đếm cập nhật khi xe vào/ra | Hệ thống | M |
 | FR-LOT-04 | Chuyển trạng thái vận hành của bãi: Hoạt động, Bảo trì (kèm thông báo bảo trì), Tạm đóng (kèm lý do và giờ mở lại; tới giờ thì bãi tự mở lại). Khi Tạm đóng: chặn xe vào và đặt chỗ mới, xe trong bãi vẫn ra được, đặt chỗ tương lai bị hủy phía bãi và hoàn 100% cọc | Admin, Manager | M |
 | FR-LOT-05 | Danh sách bãi công khai với địa chỉ, vị trí, giá, số chỗ trống/tổng theo thời gian thực | Guest, User | M |
@@ -178,7 +180,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | ID | Mô tả yêu cầu | Actor | Ưu tiên |
 | --- | --- | --- | --- |
 | FR-3D-01 | Hiển thị bãi 3D (tầng, zone, slot) dựng từ mẫu tòa nhà của bãi | Tất cả actor | M |
-| FR-3D-02 | Slot đặt chỗ tô màu theo trạng thái; xe vãng lai được vẽ vào slot trống của zone theo thứ tự cố định (hoặc đúng slot Staff đã chọn); tự cập nhật qua SignalR | Tất cả actor | M |
+| FR-3D-02 | Slot đặt chỗ tô màu theo trạng thái; xe vãng lai được vẽ vào slot trống của zone theo thứ tự cố định (hoặc đúng slot Staff đã chọn); slot phạt nằm thành một khối riêng ở cuối mỗi tầng, có màu riêng, không chọn để đặt được và không bao giờ được vẽ xe vãng lai đếm theo counter; tự cập nhật qua SignalR | Tất cả actor | M |
 | FR-3D-03 | Tương tác: xoay, zoom, pan, chuyển tầng; rê chuột hiện mã slot; chọn slot để xem loại xe, trạng thái, giá | Tất cả actor | M |
 | FR-3D-04 | User chọn slot đặt chỗ Trống đúng loại xe để đặt (ô tô) hoặc chạm slot xe máy trống để nhận chỗ ngay | User | M |
 | FR-3D-05 | Layout Editor (bỏ ở v1.5; thay bằng mẫu tòa nhà FR-LOT-02) | – | – |
@@ -209,7 +211,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | FR-OPS-16 | Xe đỗ quá 24 giờ được đánh dấu quá hạn, quá 7 ngày là xe bỏ quên (BR-20) | Hệ thống, Staff | S |
 | FR-OPS-17 | Hàng chờ xung đột đồng bộ Edge | Manager | C |
 | FR-OPS-18 | Chế độ khẩn cấp (mở toàn bộ barie, trạng thái Ra khẩn cấp) | Manager, Staff | C |
-| FR-OPS-19 | Hồ sơ slot đặt bị chiếm: mở khi slot đặt chỗ của một đặt chỗ Đã xác nhận bị xe khác chiếm, khách được báo. Hệ thống tự đổi sang slot trống cùng loại nếu có; nếu không, Staff đổi slot (khách được miễn block đầu) hoặc bồi thường: hủy đặt chỗ, hoàn 100% cọc và trả khoản bồi thường của bảng giá vào ví. Xe chiếm rời đi thì hồ sơ đóng. Hệ thống không xếp xe vãng lai vào slot đặt chỗ hay slot đang được giữ | Staff, Hệ thống | M |
+| FR-OPS-19 | Hồ sơ slot đặt bị chiếm: mở khi slot đặt chỗ của một đặt chỗ Đã xác nhận bị xe khác chiếm (xe vãng lai đỗ nhầm, hoặc xe đặt chỗ quá giờ khi tới giờ đến của lượt sau), khách được báo. Staff xử lý theo thứ tự: (1) dời xe vi phạm vào slot phạt trống cùng loại xe; (2) slot phạt đầy thì dời vào slot vãng lai trống, xe vẫn bị gắn cờ và tính phạt; (3) không dời được thì đổi slot cho khách (miễn block đầu); (4) không còn slot nào thì bồi thường: hủy đặt chỗ, hoàn 100% cọc và trả khoản bồi thường của bảng giá vào ví. Bồi thường bị từ chối khi còn chỗ để dời xe hoặc đổi slot. Dời xe: slot đặt trở lại Giữ chỗ (nếu đã tới giờ giữ) hoặc Trống, chỗ của xe trong Zone Counter được trả lại khi vào slot phạt, xe vi phạm nhận phí phạt; khách đặt chỗ, Staff và chủ xe quá giờ (nếu có tài khoản) được báo. Xe chiếm rời đi thì hồ sơ đóng. Hệ thống không xếp xe vãng lai vào slot đặt chỗ, slot đang được giữ hay slot phạt | Staff, Hệ thống | M |
 | FR-OPS-20 | Yêu cầu cổng: User gửi yêu cầu check-in (đặt chỗ trong cửa sổ đến, nhận chỗ xe máy) hoặc check-out (xe trên tài khoản) từ app; mọi xe đã trả phí (ở POS, app hoặc 0đ, kể cả xe vãng lai) được tự xếp yêu cầu check-out. Staff thấy yêu cầu ở tab tương ứng, duyệt (chạy đủ kiểm tra cổng rồi mở barie) hoặc từ chối kèm lý do hiển thị cho khách; User hủy được yêu cầu đang chờ | User, Staff | M |
 | FR-OPS-21 | Buộc check-out xe vãng lai từ mô hình 3D: thu phí bằng tiền mặt vào ngăn kéo của Staff và xếp xe vào hàng chờ check-out | Staff | S |
 | FR-OPS-22 | Camera làn trên màn hình cổng: mỗi tab Check-in/Check-out có bốn camera làn 3D; xe của làn dừng ở barie đóng và chỉ chạy qua khi Staff mở; camera theo một xe qua cả bốn góc và phát lại lúc vào khi xe ra | Staff | S |
@@ -222,7 +224,7 @@ Mức ưu tiên: M = Must, S = Should, C = Could. Mã FR giữ ổn định so v
 | --- | --- | --- | --- |
 | FR-PRC-01 | Mỗi bãi có một bảng giá cho mỗi loại xe, do Manager cấu hình; khách xem bảng giá công khai của bãi | Manager, Guest, User | M |
 | FR-PRC-02 | Mô hình tính phí: Block (block đầu và block sau có thời lượng, giá riêng; “Theo giờ” là block 60 phút), Theo lượt (một lần mỗi ngày lịch), Ngày/Đêm (block tính theo giá của giờ bắt đầu block); trần mỗi ngày lịch | Manager | M |
-| FR-PRC-03 | Bảng giá có phí phạt mất vé và khoản bồi thường slot đặt bị chiếm (mặc định 100.000đ ô tô, 50.000đ xe máy). Không có thời gian miễn phí. Phụ phí qua đêm và quá hạn được lưu nhưng chưa áp dụng khi tính phí | Manager | M |
+| FR-PRC-03 | Bảng giá có phí phạt mất vé, khoản bồi thường slot đặt bị chiếm (mặc định 100.000đ ô tô, 50.000đ xe máy) và phí phạt xe bị dời vào slot phạt (mặc định 200.000đ ô tô, 50.000đ xe máy; cộng vào phí khi check-out). Không có thời gian miễn phí. Phụ phí qua đêm và quá hạn được lưu nhưng chưa áp dụng khi tính phí | Manager | M |
 | FR-PRC-04 | Lưu bảng giá sẽ sửa tại chỗ, tăng số phiên bản và chép giá cũ vào lịch sử; giá mới có hiệu lực ngay; xe đang trong bãi giữ giá lúc vào, xe vào sau trả giá mới (kể cả đặt chỗ trước khi đổi giá); mọi khách đang hoạt động nhận thông báo đổi giá | Manager | M |
 | FR-PRC-05 | Giá theo giờ cao điểm/ngày lễ và mã giảm giá | Manager | C |
 | FR-PRC-06 | Mô phỏng tính phí theo bảng giá đang hiệu lực (API) | Manager | C |
@@ -352,7 +354,7 @@ Staff
 - Tab Check-in: xử lý xe tại làn và yêu cầu check-in từ app; xác nhận/sửa biển số; chọn slot cho xe vãng lai; xử lý cảnh báo (Blacklist, biển số trùng, hết chỗ, QR không khớp); xe không biển số phải ghi lý do; mở barie.
 - Tab Check-out: xử lý hàng chờ check-out (yêu cầu từ app và xe đã trả phí), tra session, thu phí tại làn, mở barie.
 - POS (Checkout): thu phí tại quầy bằng tiền mặt (chạm tờ, gợi ý thối) hoặc QR động; xem lịch sử thanh toán; xin bổ sung tiền mặt khi thiếu tờ.
-- Exceptions & Alerts: mất vé (tải giấy tờ, duyệt/từ chối), hồ sơ slot đặt bị chiếm (đổi slot hoặc bồi thường).
+- Exceptions & Alerts: mất vé (tải giấy tờ, duyệt/từ chối), hồ sơ slot đặt bị chiếm (dời xe vào slot phạt, đổi slot hoặc bồi thường).
 - Mô hình 3D: xem xe theo slot, buộc check-out xe vãng lai.
 - Nếu có quyền “Xác minh phương tiện”: duyệt hàng chờ hồ sơ xe toàn chuỗi.
 - Nộp ngăn kéo với số tổng hệ thống giữ (không đếm); ngăn kéo tiếp theo mở ngay với quỹ chuẩn.
@@ -389,7 +391,7 @@ Admin
 | Đặt chỗ: không quét được QR | Staff tra đặt chỗ theo mã hoặc biển số |
 | Đặt chỗ: đến sớm hơn cửa sổ đến | Không check-in theo đặt chỗ; chờ hoặc vào như vãng lai (đặt chỗ vẫn giữ) |
 | Đặt chỗ: đến sau khi No-show | Vào như xe vãng lai nếu còn chỗ |
-| Đặt chỗ: slot bị xe khác chiếm | Hồ sơ slot đặt bị chiếm (FR-OPS-19): đổi slot và miễn block đầu, hoặc vào khu vãng lai, hoàn 100% cọc, bồi thường vào ví |
+| Đặt chỗ: slot bị xe khác chiếm | Hồ sơ slot đặt bị chiếm (FR-OPS-19): dời xe vi phạm vào slot phạt (đầy thì slot vãng lai trống) và tính phí phạt; không dời được thì đổi slot và miễn block đầu; không còn slot thì vào khu vãng lai, hoàn 100% cọc, bồi thường vào ví |
 | Yêu cầu check-in từ app ngoài cửa sổ đến | Không gửi được; khách chờ tới giờ hoặc vào như vãng lai |
 | Bãi Bảo trì hoặc Tạm đóng | Không cho xe vào, không nhận đặt chỗ |
 
@@ -432,7 +434,7 @@ Edge Service và vận hành offline chưa được xây dựng ở v1.5 (FR-OPS
 | Đổi giờ đến / giờ rời / chế độ / slot | Cho phép tới 30 phút trước giờ đến; ghi lịch sử thay đổi |
 | Đặt theo lịch: xe còn đỗ quá giờ rời | Mất toàn bộ cọc và trả đủ phí theo thời gian đỗ thật (BR-05); nhắc 15 phút trước giờ rời, quá 5 phút thì báo khách và Staff (FR-RSV-10) |
 | Slot đặt ngừng phục vụ khi bắt đầu giữ chỗ (2 giờ trước giờ đến) | Hệ thống chuyển đặt chỗ sang slot trống cùng loại và báo khách |
-| Slot đặt còn xe của lượt trước | Slot chờ xe cũ rời đi; tới giờ đến mà xe vẫn còn thì mở hồ sơ slot đặt bị chiếm cho Staff (BR-08) |
+| Slot đặt còn xe của lượt trước | Slot chờ xe cũ rời đi; tới giờ đến mà xe vẫn còn thì mở hồ sơ slot đặt bị chiếm cho Staff, Staff dời xe quá giờ vào slot phạt (BR-08) |
 | Bãi Tạm đóng hoặc Manager hủy | Hủy phía bãi, hoàn 100% cọc, thông báo |
 | Vượt số đặt chỗ tối đa | Từ chối đặt mới |
 | Xe chưa có trên tài khoản hoặc đang chờ duyệt | Từ chối đặt |
@@ -491,6 +493,8 @@ stateDiagram-v2
 ```
 
 Slot vãng lai không có máy trạng thái riêng; số chỗ được tính qua Zone Counter, vị trí xe chỉ dùng để hiển thị.
+
+Slot phạt chỉ có hai trạng thái: Trống và Đang đỗ (xe bị Staff dời vào). Slot phạt không có đặt chỗ, không nằm trong Zone Counter; xe trong slot phạt ra khỏi bãi thì slot về Trống mà counter không đổi.
 
 #### 4.3.2 Session
 
@@ -605,7 +609,7 @@ Giá trị mặc định cấu hình được trong mục `Parking` của cấu 
 | BR-05 | No-show: giữ toàn bộ cọc. Đặt chỗ theo lịch còn trong bãi sau giờ rời (tính lúc tính phí): giữ toàn bộ cọc và thu đủ phí (quy tắc nhóm 2026-11-09). Giữa giờ rời của một đặt chỗ theo lịch và giờ đến của đặt chỗ kế tiếp cùng slot có khoảng đệm | 100% cọc; đệm 30 phút |
 | BR-06 | Cọc tùy chọn; mức cọc cố định theo loại xe; thời hạn thanh toán cọc tính từ lúc đặt | 30.000đ; 10 phút |
 | BR-07 | Số đặt chỗ hiệu lực tối đa mỗi tài khoản và mỗi xe; mỗi xe một session mở | 2 / tài khoản, 1 / xe |
-| BR-08 | Slot đặt bị chiếm khi khách tới: đổi slot cùng loại và miễn block đầu; không còn slot thì vào khu vãng lai, hủy đặt chỗ, hoàn 100% cọc và trả bồi thường của bảng giá vào ví | Bồi thường 100.000đ ô tô, 50.000đ xe máy |
+| BR-08 | Slot đặt bị chiếm: dời xe vi phạm vào slot phạt (slot phạt đầy thì slot vãng lai trống) và xe đó trả phí phạt khi ra; không dời được thì đổi slot cùng loại và miễn block đầu; không còn slot thì vào khu vãng lai, hủy đặt chỗ, hoàn 100% cọc và trả bồi thường của bảng giá vào ví | Phí phạt 200.000đ ô tô, 50.000đ xe máy; bồi thường 100.000đ ô tô, 50.000đ xe máy |
 | BR-09 | Phí bằng 0đ chỉ khi Whitelist, miễn phí hoặc xe quay đầu (session hủy); không tạo giao dịch thanh toán | – |
 | BR-10 | Quá Exit Window: tính lại phí từ giờ vào tới thời điểm ra mới, trừ số đã trả, cộng phí quá Exit Window | 15 phút; 10.000đ |
 | BR-11 | Thời gian chờ callback QR động trước khi Staff được chuyển phương án | 60 giây |
