@@ -51,8 +51,8 @@ public class SlotsEndpointTests
 
         listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var slots = (await ResponseHelper.GetApiResultAsync<IEnumerable<SlotResponseModel>>(listResponse)).Result.ToList();
-        slots.Should().HaveCount(25); // 20 bays plus 5 penalty bays
-        slots.Count(s => s.Kind == "Penalty").Should().Be(5);
+        slots.Should().HaveCount(26); // 20 bays plus 6 penalty bays
+        slots.Count(s => s.Kind == "Penalty").Should().Be(6);
         slots.Should().OnlyContain(s => s.Status == "Available" && s.Code.StartsWith("L1-"));
     }
 
