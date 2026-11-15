@@ -16,5 +16,14 @@ public partial class ZoneCounter
 
     public DateTime LastUpdatedAt { get; set; }
 
+    /// <summary>
+    /// Fill alert last sent for the zone (Available, AlmostFull, Full; see ZoneFillLevel). Saved so a restart or a
+    /// second API instance never sends the same alert twice.
+    /// </summary>
+    public string AlertLevel { get; set; } = "Available";
+
+    /// <summary>When <see cref="AlertLevel"/> last changed (UTC); null until the first alert.</summary>
+    public DateTime? AlertChangedAt { get; set; }
+
     public virtual Zone Zone { get; set; }
 }

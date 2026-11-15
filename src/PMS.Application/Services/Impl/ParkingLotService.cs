@@ -334,8 +334,13 @@ public class ParkingLotService(
             var zoneDtos = zoneDetails.Select(zd =>
             {
                 var usable = Math.Max(0, zd.Total - zd.Maintenance);
-                var rate = usable > 0 ? (double)zd.Occupied * 100 / usable : 0;
-                var zStatus = rate > 90 ? "FULL" : rate >= 70 ? "WARNING" : "AVAILABLE";
+                // Same thresholds as the customer labels and the Staff / Manager fill alerts
+                var zStatus = ZoneFillLevel.Live(usable, usable - zd.Occupied) switch
+                {
+                    ZoneFillLevel.Full => "FULL",
+                    ZoneFillLevel.AlmostFull => "WARNING",
+                    _ => "AVAILABLE"
+                };
 
                 return new ZoneCapacityDetailModel
                 {

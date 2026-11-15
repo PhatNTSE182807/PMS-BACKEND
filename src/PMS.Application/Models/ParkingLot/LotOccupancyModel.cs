@@ -13,6 +13,9 @@ public class LotOccupancyModel
 
     public int FreeBays { get; set; }
 
+    /// <summary>Available, AlmostFull (80 % of the bays taken) or Full (no free bay), from the live counts above.</summary>
+    public string Availability => PMS.Application.Helpers.Parking.ZoneFillLevel.Live(TotalBays, FreeBays);
+
     /// <summary>Occupied bays over total bays, 0-100, one decimal.</summary>
     public decimal OccupancyRate { get; set; }
 
@@ -37,4 +40,7 @@ public class LotZoneOccupancyModel
     public int OccupiedBays { get; set; }
 
     public int FreeBays { get; set; }
+
+    /// <summary>Available, AlmostFull (80 % of the bays taken) or Full (no free bay), from the live counts above.</summary>
+    public string Availability => PMS.Application.Helpers.Parking.ZoneFillLevel.Live(TotalBays, FreeBays);
 }
