@@ -53,6 +53,9 @@ public class PublicParkingLotResponseModel
     /// <summary>Bays free right now, from the same zone counters (live).</summary>
     public int FreeBays { get; set; }
 
+    /// <summary>Available, AlmostFull (80 % of the bays taken) or Full (no free bay), from the live counts above.</summary>
+    public string Availability => PMS.Application.Helpers.Parking.ZoneFillLevel.Live(TotalBays, FreeBays);
+
     /// <summary>Free and total bays per vehicle family (CAR, MOTORBIKE). Counts only, never plates.</summary>
     public List<PublicLotBaysModel> BaysByVehicle { get; set; } = [];
 }
@@ -66,4 +69,7 @@ public class PublicLotBaysModel
     public int TotalBays { get; set; }
 
     public int FreeBays { get; set; }
+
+    /// <summary>Available, AlmostFull (80 % of the bays taken) or Full (no free bay), from the live counts above.</summary>
+    public string Availability => PMS.Application.Helpers.Parking.ZoneFillLevel.Live(TotalBays, FreeBays);
 }

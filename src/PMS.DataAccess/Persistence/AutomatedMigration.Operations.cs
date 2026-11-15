@@ -33,6 +33,10 @@ public static partial class AutomatedMigration
         ("Reservations", "DepartureTime", "[datetime2](3) NULL"),
         ("Reservations", "SlotHeldAt", "[datetime2](3) NULL"),
 
+        // Zone fill alerts (almost full / full / space again) sent to the lot's Staff and Manager
+        ("ZoneCounters", "AlertLevel", "[varchar](20) NOT NULL DEFAULT 'Available'"),
+        ("ZoneCounters", "AlertChangedAt", "[datetime2](3) NULL"),
+
         ("ParkingSessions", "SessionType", "[varchar](20) NULL"),
         ("ParkingSessions", "VehicleTypeId", "[int] NULL"),
         ("ParkingSessions", "HasPlate", "[bit] NOT NULL DEFAULT 1"),

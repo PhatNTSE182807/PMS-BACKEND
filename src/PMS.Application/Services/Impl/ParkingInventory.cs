@@ -13,7 +13,11 @@ namespace PMS.Application.Services.Impl;
 /// the context and the matching pushes are queued; call <see cref="FlushAsync"/> after SaveChanges.
 /// Counter rule: a held (Reserved) or parked bay is not available; Occupied counts vehicles inside.
 /// </summary>
-public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotNotifier = null, IParkingRealtimeNotifier notifier = null)
+public class ParkingInventory(
+    PmsDbContext pmsContext,
+    ILotRealtimeNotifier lotNotifier = null,
+    IParkingRealtimeNotifier notifier = null,
+    IUserNotificationPublisher fillAlerts = null)
 {
     /// <summary>One gate per slot id: holds of the same slot never interleave inside this API process.</summary>
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> SlotGates = new();
@@ -187,6 +191,33 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
         var (a, o, t) = (counter.AvailableSpaces, counter.OccupiedSpaces, counter.TotalCapacity);
         if (notifier != null)
             _pushes.Add(() => notifier.ZoneCounterChangedAsync(lotId, zoneId, a, o, t));
+
+        TrackFillLevel(counter);
+    }
+
+    /// <summary>
+    /// Moves the zone's saved fill alert level along with its counter and, when the zone just became almost full,
+    /// full, or has space again, queues the Staff / Manager notice (sent after SaveChanges, by <see cref="FlushAsync"/>).
+    /// The level is saved with the counter, so the same alert is never sent twice.
+    /// </summary>
+    private void TrackFillLevel(ZoneCounter counter)
+    {
+        var previous = ZoneFillLevel.Normalize(counter.AlertLevel);
+        var next = ZoneFillLevel.NextAlertLevel(previous, counter.TotalCapacity, counter.AvailableSpaces);
+        if (next == previous) return;
+
+        var changedAt = DateTime.UtcNow;
+        counter.AlertLevel = next;
+        counter.AlertChangedAt = changedAt;
+
+        var notice = ZoneFillLevel.NoticeFor(previous, next);
+        var zoneId = counter.ZoneId;
+        if (notice != null && fillAlerts != null)
+            _pushes.Add(() =>
+            {
+                fillAlerts.ZoneFillChanged(zoneId, notice, changedAt);
+                return Task.CompletedTask;
+            });
     }
 
     /// <summary>Zones of the lot with their counter and the vehicle type of their bays.</summary>

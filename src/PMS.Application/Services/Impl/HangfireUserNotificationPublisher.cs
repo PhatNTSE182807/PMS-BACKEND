@@ -31,4 +31,7 @@ public class HangfireUserNotificationPublisher(IBackgroundJobClient jobs) : IUse
 
     public void CashDrawerClosed(long drawerId) =>
         jobs.Enqueue<NotificationJobs>(j => j.CashDrawerClosedAsync(drawerId));
+
+    public void ZoneFillChanged(int zoneId, string notificationType, DateTime changedAt) =>
+        jobs.Enqueue<NotificationJobs>(j => j.ZoneFillChangedAsync(zoneId, notificationType, changedAt));
 }

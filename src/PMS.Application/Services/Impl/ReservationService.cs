@@ -508,7 +508,20 @@ public class ReservationService(
         if (slot.Kind == SlotKind.Penalty)
             throw new BadRequestException("This is a penalty bay and cannot be booked. Pick another bay.");
         if (mustBeFreeNow && slot.Status != SlotStatus.Available)
-            throw new ConflictException("This slot is no longer available.");
+        {
+            // An arrival inside the hold window needs a free bay now. When the whole lot is full for this vehicle
+            // type, say so: a later arrival can still be booked (the bay only needs to be free by then).
+            var types = await new ParkingInventory(pmsContext).VehicleTypesAsync();
+            var anyFree = (await pmsContext.Slots.AsNoTracking()
+                    .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available)
+                    .Select(s => s.VehicleTypeId)
+                    .Distinct()
+                    .ToListAsync())
+                .Any(typeId => ParkingInventory.Compatible(types, typeId, slot.VehicleTypeId));
+            throw new ConflictException(anyFree
+                ? "This slot is no longer available."
+                : $"This parking lot is full for this vehicle type right now. Pick an arrival more than {(Rules.HoldAheadMinutes >= 60 ? $"{Rules.HoldAheadMinutes / 60.0:0.#} hours" : $"{Rules.HoldAheadMinutes} minutes")} from now, or another lot.");
+        }
         return slot;
     }
 

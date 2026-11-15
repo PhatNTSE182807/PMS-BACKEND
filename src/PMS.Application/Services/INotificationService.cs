@@ -60,6 +60,12 @@ public interface IUserNotificationPublisher
 
     /// <summary>A Staff closed their cash drawer: tells the lot's Manager when, and how the count compares.</summary>
     void CashDrawerClosed(long drawerId);
+
+    /// <summary>
+    /// A zone's fill alert level changed at <paramref name="changedAt"/> (UTC): <paramref name="notificationType"/> is
+    /// LotAlmostFull, LotFull or LotSpaceAvailable. Tells the lot's Staff and its Manager.
+    /// </summary>
+    void ZoneFillChanged(int zoneId, string notificationType, DateTime changedAt);
 }
 
 /// <summary>Who hears about something that concerns every customer.</summary>
