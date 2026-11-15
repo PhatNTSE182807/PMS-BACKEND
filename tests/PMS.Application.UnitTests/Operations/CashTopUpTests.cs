@@ -11,7 +11,7 @@ using Xunit;
 
 namespace PMS.Application.UnitTests.Operations;
 
-/// <summary>A Staff drawer short of banknotes: the Staff asks, the lot's Manager approves, the notes join the drawer.</summary>
+/// <summary>A Staff drawer short of cash: the Staff asks for an amount, the lot's Manager approves, it joins the drawer total.</summary>
 public class CashTopUpTests
 {
     private static async Task<(OperationsTestContext T, CashDrawerService Drawers)> CreateAsync()
@@ -20,20 +20,20 @@ public class CashTopUpTests
         return (t, new CashDrawerService(t.Db, new LotScopeService(t.Db, t.Claims), t.Options, t.Clock));
     }
 
-    private static RequestCashTopUpModel Ask(Dictionary<int, int> notes, string reason = null) => new() { Notes = notes, Reason = reason };
+    private static RequestCashTopUpModel Ask(decimal amount, string reason = null) => new() { Amount = amount, Reason = reason };
 
     private static void AsStaff(OperationsTestContext t) => t.ActAs(t.StaffUserId, "Staff");
 
     private static void AsManager(OperationsTestContext t) => t.ActAs(t.ManagerUserId, "Manager");
 
     [Fact]
-    public async Task Approved_Request_Should_Add_The_Notes_To_The_Drawer()
+    public async Task Approved_Request_Should_Add_The_Cash_To_The_Drawer()
     {
         var (t, drawers) = await CreateAsync();
         AsStaff(t);
-        await drawers.OpenAsync(t.Lot.Id, new OpenCashDrawerModel { Float = new() { [50_000] = 2 } });
+        await drawers.OpenAsync(t.Lot.Id, new OpenCashDrawerModel { Float = 100_000 });
 
-        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [10_000] = 10, [5_000] = 4 }, "Out of small notes for change"));
+        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(120_000, "Out of small notes for change"));
         request.Status.Should().Be(CashTopUpStatus.Pending);
         request.Total.Should().Be(120_000);
         request.StaffName.Should().Be("Staff");
@@ -41,7 +41,7 @@ public class CashTopUpTests
 
         // Waiting: nothing is counted yet, but the Staff sees the request on the drawer
         var waiting = await drawers.GetCurrentAsync(t.Lot.Id);
-        waiting.ExpectedTotal.Should().Be(100_000);
+        waiting.CashTotal.Should().Be(100_000);
         waiting.TopUps.Should().ContainSingle(r => r.Id == request.Id && r.Status == CashTopUpStatus.Pending);
 
         AsManager(t);
@@ -54,12 +54,12 @@ public class CashTopUpTests
         AsStaff(t);
         var drawer = await drawers.GetCurrentAsync(t.Lot.Id);
         drawer.TopUpTotal.Should().Be(120_000);
-        drawer.ExpectedTotal.Should().Be(220_000);
-        drawer.ExpectedNotes.Should().BeEquivalentTo(new Dictionary<int, int> { [50_000] = 2, [10_000] = 10, [5_000] = 4 });
+        drawer.CashTotal.Should().Be(220_000);
 
-        // Counting exactly what is now in the drawer balances it
-        var closed = await drawers.CloseAsync(t.Lot.Id, new CloseCashDrawerModel { Counted = new() { [50_000] = 2, [10_000] = 10, [5_000] = 4 } });
-        closed.Difference.Should().Be(0);
+        // Handing the drawer in keeps that total; nothing is counted
+        var closed = await drawers.CloseAsync(t.Lot.Id);
+        closed.CashTotal.Should().Be(220_000);
+        closed.Difference.Should().BeNull();
         closed.Status.Should().Be(CashCloseStatus.Closed);
     }
 
@@ -69,7 +69,7 @@ public class CashTopUpTests
         var (t, drawers) = await CreateAsync();
         AsStaff(t);
 
-        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [20_000] = 5 }));
+        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(100_000));
 
         var drawer = await drawers.GetCurrentAsync(t.Lot.Id);
         drawer.Status.Should().Be(CashCloseStatus.Open);
@@ -77,15 +77,15 @@ public class CashTopUpTests
     }
 
     [Fact]
-    public async Task Request_Should_Need_Known_Banknotes()
+    public async Task Request_Should_Need_A_Valid_Amount()
     {
         var (t, drawers) = await CreateAsync();
         AsStaff(t);
 
-        await FluentActions.Invoking(() => drawers.RequestTopUpAsync(t.Lot.Id, Ask(new())))
-            .Should().ThrowAsync<BadRequestException>().WithMessage("List the banknotes*");
-        await FluentActions.Invoking(() => drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [3_000] = 1 })))
-            .Should().ThrowAsync<BadRequestException>().WithMessage("*not a banknote*");
+        await FluentActions.Invoking(() => drawers.RequestTopUpAsync(t.Lot.Id, Ask(0)))
+            .Should().ThrowAsync<BadRequestException>().WithMessage("Enter the amount*");
+        await FluentActions.Invoking(() => drawers.RequestTopUpAsync(t.Lot.Id, Ask(1_500.5m)))
+            .Should().ThrowAsync<BadRequestException>().WithMessage("*whole number*");
     }
 
     [Fact]
@@ -93,13 +93,13 @@ public class CashTopUpTests
     {
         var (t, drawers) = await CreateAsync();
         AsStaff(t);
-        var first = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [10_000] = 10 }));
+        var first = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(100_000));
 
-        await FluentActions.Invoking(() => drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [5_000] = 10 })))
+        await FluentActions.Invoking(() => drawers.RequestTopUpAsync(t.Lot.Id, Ask(50_000)))
             .Should().ThrowAsync<BadRequestException>().WithMessage("*already have a request waiting*");
 
         (await drawers.CancelTopUpAsync(t.Lot.Id, first.Id)).Status.Should().Be(CashTopUpStatus.Cancelled);
-        (await drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [5_000] = 10 }))).Status.Should().Be(CashTopUpStatus.Pending);
+        (await drawers.RequestTopUpAsync(t.Lot.Id, Ask(50_000))).Status.Should().Be(CashTopUpStatus.Pending);
 
         AsManager(t);
         await FluentActions.Invoking(() => drawers.ApproveTopUpAsync(first.Id, new DecideCashTopUpModel()))
@@ -111,8 +111,8 @@ public class CashTopUpTests
     {
         var (t, drawers) = await CreateAsync();
         AsStaff(t);
-        await drawers.OpenAsync(t.Lot.Id, new OpenCashDrawerModel { Float = new() { [50_000] = 2 } });
-        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [10_000] = 10 }));
+        await drawers.OpenAsync(t.Lot.Id, new OpenCashDrawerModel { Float = 100_000 });
+        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(100_000));
 
         AsManager(t);
         await FluentActions.Invoking(() => drawers.RejectTopUpAsync(request.Id, new DecideCashTopUpModel { Note = " " }))
@@ -124,7 +124,7 @@ public class CashTopUpTests
         AsStaff(t);
         var drawer = await drawers.GetCurrentAsync(t.Lot.Id);
         drawer.TopUpTotal.Should().Be(0);
-        drawer.ExpectedTotal.Should().Be(100_000);
+        drawer.CashTotal.Should().Be(100_000);
         await FluentActions.Invoking(() => drawers.CancelTopUpAsync(t.Lot.Id, request.Id))
             .Should().ThrowAsync<BadRequestException>().WithMessage("The Manager already decided*");
     }
@@ -134,9 +134,8 @@ public class CashTopUpTests
     {
         var (t, drawers) = await CreateAsync();
         AsStaff(t);
-        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [10_000] = 10 }));
-        // The drawer opened with the standard float, so an empty count is off and needs a reason
-        await drawers.CloseAsync(t.Lot.Id, new CloseCashDrawerModel { Counted = new(), Reason = "Handed in early." });
+        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(100_000));
+        await drawers.CloseAsync(t.Lot.Id);
 
         AsManager(t);
         await FluentActions.Invoking(() => drawers.ApproveTopUpAsync(request.Id, new DecideCashTopUpModel()))
@@ -148,7 +147,7 @@ public class CashTopUpTests
     {
         var (t, drawers) = await CreateAsync();
         AsStaff(t);
-        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(new() { [10_000] = 10 }));
+        var request = await drawers.RequestTopUpAsync(t.Lot.Id, Ask(100_000));
 
         // The Staff cannot approve their own request
         await FluentActions.Invoking(() => drawers.ApproveTopUpAsync(request.Id, new DecideCashTopUpModel()))

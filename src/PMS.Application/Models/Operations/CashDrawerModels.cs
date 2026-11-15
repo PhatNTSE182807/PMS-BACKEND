@@ -1,28 +1,19 @@
 namespace PMS.Application.Models.Operations;
 
-/// <summary>Opens the Staff's cash drawer for the day with the banknotes counted in (the float).</summary>
+/// <summary>Opens the Staff's cash drawer with the cash they start with (the float).</summary>
 public class OpenCashDrawerModel
 {
-    /// <summary>Banknote value → how many, e.g. {"50000": 10, "10000": 20}.</summary>
-    public Dictionary<int, int> Float { get; set; } = [];
-}
-
-/// <summary>Closes the drawer with the banknotes the Staff counted (blind: the expected cash is not shown first).</summary>
-public class CloseCashDrawerModel
-{
-    public Dictionary<int, int> Counted { get; set; } = [];
-
-    /// <summary>Required when the count is more than the threshold off the expected cash.</summary>
-    public string Reason { get; set; }
+    /// <summary>The float in VND; the standard float (8,880,000 VND) when left out.</summary>
+    public decimal? Float { get; set; }
 }
 
 public class ConfirmCashCloseModel
 {
-    /// <summary>Required when the close has a difference over the threshold.</summary>
+    /// <summary>Optional; required only for an older close that was counted with a difference.</summary>
     public string Note { get; set; }
 }
 
-/// <summary>A Staff cash drawer of one business day: float, cash taken, expected and counted banknotes.</summary>
+/// <summary>A Staff cash drawer: the float, the cash taken and the running cash total.</summary>
 public class CashDrawerModel
 {
     /// <summary>Null when no drawer is open yet today (Status NotOpened).</summary>
@@ -38,34 +29,25 @@ public class CashDrawerModel
 
     public int CloseNo { get; set; }
 
-    /// <summary>NotOpened, Open, Closed, HasDifference or Confirmed.</summary>
+    /// <summary>NotOpened, Open, Closed or Confirmed (HasDifference only on drawers closed with a count, before 2026-11-15).</summary>
     public string Status { get; set; }
 
     public DateTime? OpenedAt { get; set; }
 
-    public Dictionary<int, int> Float { get; set; } = [];
-
     public decimal FloatTotal { get; set; }
 
-    /// <summary>Cash fees this Staff recorded while the drawer was open.</summary>
+    /// <summary>Cash fees this Staff recorded while the drawer was open (the change given back is not kept).</summary>
     public decimal CashCollected { get; set; }
 
     public int CashPayments { get; set; }
 
-    /// <summary>Banknotes that should be in the drawer: float + notes received − change given (payments entered note by note).</summary>
-    public Dictionary<int, int> ExpectedNotes { get; set; } = [];
+    /// <summary>Cash in the drawer: float + cash collected + approved top-ups. Live while open, frozen at the close.</summary>
+    public decimal CashTotal { get; set; }
 
-    /// <summary>Float + cash collected.</summary>
-    public decimal ExpectedTotal { get; set; }
-
-    /// <summary>Cash recorded as an amount only (not note by note); ExpectedNotes counts it as the fewest notes that make it.</summary>
-    public decimal UntrackedCash { get; set; }
-
-    public Dictionary<int, int> Counted { get; set; }
-
+    /// <summary>Only on drawers closed with a banknote count (before 2026-11-15).</summary>
     public decimal? CountedTotal { get; set; }
 
-    /// <summary>Counted − expected; negative when cash is missing.</summary>
+    /// <summary>Counted − expected on those older drawers; negative when cash was missing.</summary>
     public decimal? Difference { get; set; }
 
     public string DifferenceReason { get; set; }
@@ -80,29 +62,23 @@ public class CashDrawerModel
 
     public string ConfirmNote { get; set; }
 
-    /// <summary>A difference larger than this needs a reason and a Manager's confirmation (BR-12).</summary>
-    public decimal DifferenceThreshold { get; set; }
+    /// <summary>The standard float a drawer opened by the system starts with, in VND.</summary>
+    public decimal DefaultFloat { get; set; }
 
-    /// <summary>Banknote values the drawer counts, largest first.</summary>
-    public IReadOnlyList<int> Denominations { get; set; } = [];
-
-    /// <summary>The standard float a drawer opened by the system starts with (banknote value to count).</summary>
-    public IReadOnlyDictionary<int, int> DefaultFloat { get; set; } = new Dictionary<int, int>();
-
-    /// <summary>Cash the Manager approved into this drawer (already in ExpectedTotal and ExpectedNotes).</summary>
+    /// <summary>Cash the Manager approved into this drawer (already in CashTotal).</summary>
     public decimal TopUpTotal { get; set; }
 
-    /// <summary>Every request for more banknotes made for this drawer, newest first.</summary>
+    /// <summary>Every request for more cash made for this drawer, newest first.</summary>
     public List<CashTopUpModel> TopUps { get; set; } = [];
 }
 
-/// <summary>The Staff asks the Manager for banknotes to add to their open drawer.</summary>
+/// <summary>The Staff asks the Manager for cash to add to their open drawer.</summary>
 public class RequestCashTopUpModel
 {
-    /// <summary>Banknote value → how many, e.g. {"10000": 20, "5000": 20}.</summary>
-    public Dictionary<int, int> Notes { get; set; } = [];
+    /// <summary>The amount in VND.</summary>
+    public decimal Amount { get; set; }
 
-    /// <summary>Optional, e.g. "Out of small notes for change".</summary>
+    /// <summary>Optional, e.g. "Small notes for change: 10,000 and 20,000".</summary>
     public string Reason { get; set; }
 }
 
@@ -112,7 +88,7 @@ public class DecideCashTopUpModel
     public string Note { get; set; }
 }
 
-/// <summary>A request for more banknotes in a Staff cash drawer.</summary>
+/// <summary>A request for more cash in a Staff cash drawer.</summary>
 public class CashTopUpModel
 {
     public long Id { get; set; }
@@ -126,8 +102,6 @@ public class CashTopUpModel
     public string StaffUserId { get; set; }
 
     public string StaffName { get; set; }
-
-    public Dictionary<int, int> Notes { get; set; } = [];
 
     public decimal Total { get; set; }
 
@@ -146,6 +120,6 @@ public class CashTopUpModel
 
     public string DecisionNote { get; set; }
 
-    /// <summary>The drawer is still open, so the notes can still go into it.</summary>
+    /// <summary>The drawer is still open, so the cash can still go into it.</summary>
     public bool DrawerOpen { get; set; }
 }
