@@ -96,5 +96,5 @@ public static partial class AutomatedMigration
             );
             CREATE UNIQUE INDEX IX_DutyRosterChangeLogs_DutyRosterId_Revision ON dbo.DutyRosterChangeLogs(DutyRosterId, Revision);
         END;
-        """;
+        """ + SqlWorkRotation + SqlWorkRequests + SqlAttendancePeriods + SqlPayroll;
 }

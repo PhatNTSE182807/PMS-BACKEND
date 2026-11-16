@@ -10,6 +10,13 @@ namespace PMS.API.Controllers;
 [Authorize(Roles = "Manager,Staff")]
 public class WorkAttendanceController(WorkSchedulingService schedules) : ApiController
 {
+    [HttpPost("review"), Authorize(Roles = "Manager")]
+    public async Task<IActionResult> Review(int assignmentId, AttendanceMutationInput input) =>
+        Ok(ApiResult<AttendanceDetailModel>.Success(await schedules.ReviewAssignmentAsync(assignmentId, input)));
+
+    [HttpPost("overtime"), Authorize(Roles = "Manager")]
+    public async Task<IActionResult> Overtime(int assignmentId, OvertimeDecisionInput input) =>
+        Ok(ApiResult<AttendanceDetailModel>.Success(await schedules.DecideOvertimeAsync(assignmentId, input)));
     [HttpGet]
     public async Task<IActionResult> Detail(int assignmentId) => Ok(ApiResult<AttendanceDetailModel>.Success(await schedules.AttendanceDetailAsync(assignmentId)));
 

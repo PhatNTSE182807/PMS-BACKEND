@@ -19,15 +19,19 @@ public partial class WorkSchedulingService
     private AttendanceModel DescribeAttendance(DutyAssignment a, DutyRosterShift s, DutyRoster roster,
         bool available, DutyAttendance record, DateTime now)
     {
-        var opens = s.StartsAt.AddMinutes(-attendanceRules.EarlyStartMinutes);
-        var late = s.StartsAt.AddMinutes(attendanceRules.LateAfterMinutes);
-        var absent = s.StartsAt.AddMinutes(attendanceRules.AbsentAfterMinutes);
+        var replacementStart = a.Source == "Replacement" && a.AttendanceTrackingFrom > s.StartsAt;
+        var startReference = replacementStart ? a.AttendanceTrackingFrom : s.StartsAt;
+        var opens = replacementStart ? startReference : s.StartsAt.AddMinutes(-attendanceRules.EarlyStartMinutes);
+        var late = startReference.AddMinutes(attendanceRules.LateAfterMinutes);
+        var absent = startReference.AddMinutes(attendanceRules.AbsentAfterMinutes);
         var grace = s.EndsAt.AddMinutes(attendanceRules.EndGraceMinutes);
         var checkIn = record?.CheckInAt;
         var checkOut = record?.CheckOutAt;
         var autoEnded = record?.AutoEnded ?? false;
         string status;
-        if (roster.Status != "Published") status = "NotPublished";
+        if (a.IsCancelled && a.CancellationKind == "ApprovedLeave") status = "ApprovedLeave";
+        else if (a.IsCancelled) status = "Reassigned";
+        else if (roster.Status != "Published") status = "NotPublished";
         else if (checkOut.HasValue) status = "Completed";
         else if (checkIn.HasValue)
         {
@@ -53,14 +57,14 @@ public partial class WorkSchedulingService
             Utc(opens), Utc(late), Utc(absent), Utc(grace), Utc(now));
     }
 
-    private async Task<AttendanceContext> LoadAttendanceContextAsync(int assignmentId)
+    private async Task<AttendanceContext> LoadAttendanceContextAsync(int assignmentId, bool historical = false)
     {
         var row = await (from a in db.DutyAssignments
             join s in db.DutyRosterShifts on a.DutyRosterShiftId equals s.Id
             join r in db.DutyRosters on s.DutyRosterId equals r.Id
             join e in db.Employees on a.EmployeeId equals e.Id
             join l in db.ParkingLots on r.ParkingLotId equals l.Id
-            where a.Id == assignmentId && !a.IsCancelled && !s.IsCancelled && !l.IsDeleted
+            where a.Id == assignmentId && (!a.IsCancelled || (historical && a.CancellationKind != null)) && !s.IsCancelled && !l.IsDeleted
             select new { Assignment = a, Shift = s, Roster = r, Employee = e }).SingleOrDefaultAsync()
             ?? throw new NotFoundException("Assignment not found.");
         var available = row.Employee.Status == "Active" && row.Employee.ParkingLotId == row.Roster.ParkingLotId
@@ -77,7 +81,7 @@ public partial class WorkSchedulingService
 
     public async Task<AttendanceDetailModel> AttendanceDetailAsync(int assignmentId)
     {
-        var c = await LoadAttendanceContextAsync(assignmentId);
+        var c = await LoadAttendanceContextAsync(assignmentId, true);
         await EnsureAttendanceAccessAsync(c);
         return await AttendanceDetailAsync(c);
     }
@@ -89,13 +93,16 @@ public partial class WorkSchedulingService
             .OrderByDescending(e => e.Revision).ToListAsync();
         var actors = history.Select(e => e.ActorId).Distinct().ToList();
         var names = await db.Employees.AsNoTracking().Where(e => actors.Contains(e.UserId)).Select(e => new { e.UserId, e.FullName }).ToListAsync();
+        var pay = await PayReviewAsync(c, record);
+        var state = DescribeAttendance(c.Assignment, c.Shift, c.Roster, c.StaffAvailable, record, Now);
+        if (pay.Locked) state = state with { CanStart = false, CanEnd = false, CanReopen = false };
         return new AttendanceDetailModel(c.Assignment.Id, c.Employee.Id, c.Employee.FullName, c.Shift.Name, c.Assignment.Position,
             c.Roster.ParkingLotId, c.Roster.Id, c.Roster.Name, c.Roster.Status, c.Roster.Revision,
             Utc(c.Shift.StartsAt), Utc(c.Shift.EndsAt), c.Shift.TimeZoneId,
-            DescribeAttendance(c.Assignment, c.Shift, c.Roster, c.StaffAvailable, record, Now),
+            state,
             history.Select(e => new AttendanceEventModel(e.Id, e.Revision, e.Action,
                 e.ActorId == "System" ? "System" : names.FirstOrDefault(n => n.UserId == e.ActorId)?.FullName ?? "Manager",
-                e.Reason, Utc(e.CreatedAt), e.BeforeJson, e.AfterJson)).ToList());
+                e.Reason, Utc(e.CreatedAt), e.BeforeJson, e.AfterJson)).ToList()) { PayReview = pay };
     }
 
     public async Task<IReadOnlyList<AttendanceDetailModel>> CurrentAssignmentsAsync()
@@ -147,6 +154,8 @@ public partial class WorkSchedulingService
         ChangeAttendanceAsync(id, input, "Reopened", true, async (c, record, state) =>
         {
             if (!state.CanReopen) throw new BadRequestException("Only an Absent shift that has not ended can be reopened. Use a time correction for a past shift.");
+            if (await db.WorkOpenShifts.AnyAsync(o => o.OriginalAssignmentId == id && o.Status == "Filled"))
+                throw new BadRequestException("This absence already has confirmed replacement coverage; resolve that coverage before reopening.");
             await EnsureNoOtherWorkingAsync(c.Employee.UserId, id);
             record.IsAbsent = false;
             record.CheckInAt = Now;
@@ -189,6 +198,7 @@ public partial class WorkSchedulingService
                 throw new BadRequestException("A reason of at most 500 characters is required for Manager attendance changes.");
             var before = DescribeAttendance(c.Assignment, c.Shift, c.Roster, c.StaffAvailable, record, Now);
             await change(c, record, before);
+            if (action == "Reopened") notices.AddRange(await StopOffersForReopenAsync(id, reason));
             notices.AddRange(await SaveAttendanceEventAsync(c, record, before, action, scope.UserId, reason));
             return c.Roster.ParkingLotId;
         });
@@ -230,7 +240,7 @@ public partial class WorkSchedulingService
                 ["assignmentId"] = c.Assignment.Id.ToString(CultureInfo.InvariantCulture),
                 ["lotId"] = c.Roster.ParkingLotId.ToString(CultureInfo.InvariantCulture) }) }).ToList();
         db.UserNotifications.AddRange(notices);
-        await db.SaveChangesAsync();
+        await SaveWorkChangesAsync();
         return notices.Select(n => n.Id).ToList();
     }
 
@@ -258,25 +268,34 @@ public partial class WorkSchedulingService
                 join l in db.ParkingLots on r.ParkingLotId equals l.Id
                 join at in db.DutyAttendances on a.Id equals at.DutyAssignmentId into records
                 from at in records.DefaultIfEmpty()
+                let startReference = a.Source == "Replacement" && a.AttendanceTrackingFrom > s.StartsAt ? a.AttendanceTrackingFrom : s.StartsAt
                 where !a.IsCancelled && !s.IsCancelled && !l.IsDeleted && r.Status == "Published"
                     && e.Status == "Active" && e.ParkingLotId == r.ParkingLotId && activeUsers.Contains(e.UserId)
                     && (at == null || (!at.IsAbsent && at.CheckOutAt == null))
-                    && (((at == null || at.CheckInAt == null) && s.StartsAt < absentCutoff
-                        && a.AttendanceTrackingFrom <= s.StartsAt.AddMinutes(attendanceRules.AbsentAfterMinutes)
-                        && r.PublishedAt != null && r.PublishedAt <= s.StartsAt.AddMinutes(attendanceRules.AbsentAfterMinutes))
+                    && (((at == null || at.CheckInAt == null) && startReference < absentCutoff
+                        && a.AttendanceTrackingFrom <= startReference.AddMinutes(attendanceRules.AbsentAfterMinutes)
+                        && r.PublishedAt != null && r.PublishedAt <= startReference.AddMinutes(attendanceRules.AbsentAfterMinutes))
                         || (at != null && at.CheckInAt != null && s.EndsAt < endCutoff))
                 orderby s.StartsAt select a.Id).Take(200).ToListAsync();
             foreach (var id in ids)
             {
                 var c = await LoadAttendanceContextAsync(id);
+                if (await IsAttendanceLockedAsync(c.Roster.ParkingLotId, c.Shift.StartsAt, c.Shift.EndsAt)) continue;
                 var record = await db.DutyAttendances.SingleOrDefaultAsync(x => x.DutyAssignmentId == id)
                     ?? new DutyAttendance { DutyAssignmentId = id };
+                if (record.CheckInAt.HasValue) {
+                    var zone = RotationZone(c.Shift.TimeZoneId);
+                    var last = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(Utc(c.Shift.EndsAt.AddTicks(-1)), zone));
+                    if (await IsAttendanceLockedAsync(c.Roster.ParkingLotId, c.Shift.StartsAt, DayBounds(WeekStart(last).AddDays(6), zone).End)) continue;
+                }
                 var before = DescribeAttendance(c.Assignment, c.Shift, c.Roster, c.StaffAvailable, record, now);
                 var action = record.CheckInAt.HasValue ? "AutoEnded" : "Absent";
                 if (action == "Absent") record.IsAbsent = true;
                 else { record.CheckOutAt = record.CheckInAt > c.Shift.EndsAt ? record.CheckInAt : c.Shift.EndsAt; record.AutoEnded = true; }
                 var notices = await SaveAttendanceEventAsync(c, record, before, action, "System",
                     action == "Absent" ? "Start deadline passed without a check-in." : "End grace period elapsed; scheduled end used for review.");
+                if (action == "Absent" && now < c.Shift.EndsAt)
+                    await NewOpenShiftAsync(c.Shift, c.Assignment.Position, "Uncovered absence after the start deadline.", c.Assignment.Id, null, null, notices);
                 if (!pending.TryGetValue(c.Roster.ParkingLotId, out var list)) pending[c.Roster.ParkingLotId] = list = [];
                 list.AddRange(notices);
             }
@@ -288,7 +307,10 @@ public partial class WorkSchedulingService
 
     private async Task EnsureAttendanceScheduleEditableAsync(int assignmentId)
     {
+        await EnsureNoPendingRequestAsync(assignmentId);
         var c = await LoadAttendanceContextAsync(assignmentId);
+        if (await db.WorkOpenShifts.AnyAsync(o => o.ReplacementAssignmentId == assignmentId && o.Status == "Filled"))
+            throw new BadRequestException("This is a confirmed replacement. Use its leave/swap workflow to preserve replacement history.");
         var exists = await db.DutyAttendances.AnyAsync(x => x.DutyAssignmentId == assignmentId);
         if (exists || (c.Roster.Status == "Published" && c.Roster.PublishedAt.HasValue && c.Roster.PublishedAt <= c.Shift.StartsAt.AddMinutes(attendanceRules.AbsentAfterMinutes)
             && c.Assignment.AttendanceTrackingFrom <= c.Shift.StartsAt.AddMinutes(attendanceRules.AbsentAfterMinutes)

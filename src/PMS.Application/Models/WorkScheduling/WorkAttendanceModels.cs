@@ -38,4 +38,7 @@ public record AttendanceEventModel(long Id, int Revision, string Action, string 
 public record AttendanceDetailModel(int AssignmentId, int EmployeeId, string StaffName, string ShiftName, string Position,
     int ParkingLotId, int RosterId, string RosterName, string RosterStatus, int RosterRevision,
     DateTime PlannedStart, DateTime PlannedEnd, string TimeZoneId, AttendanceModel Attendance,
-    IReadOnlyList<AttendanceEventModel> History);
+    IReadOnlyList<AttendanceEventModel> History)
+{
+    public AttendancePayReview PayReview { get; set; }
+}

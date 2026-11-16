@@ -51,6 +51,12 @@ public record RosterChangeModel(long Id, int DutyRosterId, int Revision, string 
     string ChangedByName, DateTime ChangedAt, string Reason, string BeforeJson, string AfterJson);
 public record AssignmentModel(int Id, int EmployeeId, string StaffName, string Position, string Notes = null)
 {
+    public string Source { get; init; } = "Manual";
+    public bool IsManuallyEdited { get; init; }
+    public int? OriginalAssignmentId { get; init; }
+    public string ReplacementReason { get; init; }
+    public string RequestState { get; init; }
+    public bool AllowWeeklyOvertime { get; init; }
     public string Status => "Assigned";
     public AttendanceModel Attendance { get; init; }
 }
@@ -59,10 +65,20 @@ public record RosterShiftModel(int Id, int WorkShiftTemplateId, DateOnly WorkDat
     string TimeZoneId, TimeOnly StartTime, TimeOnly EndTime, DateTime StartsAt, DateTime EndsAt,
     int MinimumEntryStaff, int MinimumExitStaff, int MinimumCounterStaff, IReadOnlyList<AssignmentModel> Assignments)
 {
+    public bool AttendanceLocked { get; init; }
     // Captured before filtering personal schedules: own assignments must not be mistaken for the whole shift.
     public int EntryAssigned { get; init; }
     public int ExitAssigned { get; init; }
     public int CounterAssigned { get; init; }
+    public IReadOnlyList<AssignmentTrailModel> Trail { get; init; } = [];
+    public IReadOnlyList<OpenShiftModel> OpenShifts { get; init; } = [];
+    public IReadOnlyList<CoverageModel> ManagerCoverage { get; init; } = [];
 }
 public record DutyRosterModel(int Id, int ParkingLotId, string Name, DateOnly FromDate, DateOnly ToDate,
-    string Status, int Revision, DateTime? PublishedAt, IReadOnlyList<RosterShiftModel> Shifts, IReadOnlyList<ShortageModel> Shortages);
+    string Status, int Revision, DateTime? PublishedAt, IReadOnlyList<RosterShiftModel> Shifts, IReadOnlyList<ShortageModel> Shortages)
+{
+    public IReadOnlyList<DateOnly> AttendanceLockedDates { get; init; } = [];
+    public IReadOnlyList<StandbyModel> Standbys { get; init; } = [];
+    public IReadOnlyList<RotationIssue> RotationIssues { get; init; } = [];
+    public string RotationConfigurationJson { get; init; }
+}

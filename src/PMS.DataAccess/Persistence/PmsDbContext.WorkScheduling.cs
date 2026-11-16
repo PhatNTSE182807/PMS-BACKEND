@@ -15,6 +15,10 @@ public partial class PmsDbContext
 
     private static void ConfigureWorkScheduling(ModelBuilder b)
     {
+        ConfigureWorkRotation(b);
+        ConfigureWorkRequests(b);
+        ConfigureAttendancePeriods(b);
+        ConfigurePayroll(b);
         b.Entity<WorkShiftTemplate>(e =>
         {
             e.ToTable("WorkShiftTemplates");
@@ -55,6 +59,8 @@ public partial class PmsDbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Position).IsRequired().HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.Notes).HasMaxLength(1000);
+            e.Property(x => x.Source).IsRequired().HasMaxLength(20);
+            e.Property(x => x.GenerationKey).HasMaxLength(100);
             e.Property(x => x.AttendanceTrackingFrom).HasPrecision(3).HasDefaultValueSql("sysutcdatetime()");
             e.HasIndex(x => new { x.EmployeeId, x.IsCancelled });
             e.HasOne<DutyRosterShift>().WithMany().HasForeignKey(x => x.DutyRosterShiftId).OnDelete(DeleteBehavior.Restrict);

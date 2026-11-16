@@ -96,5 +96,41 @@ public class WorkAttendanceEndpointTests
         (await other.PutAsJsonAsync(url, new { revision = 2, rosterRevision = r.Revision, reason = "Wrong lot" })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         using var otherStaff = await factory.CreateClientWithRoleAsync("Staff");
         (await otherStaff.GetAsync(url)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        factory.Clock.Now = new DateTimeOffset(2026, 11, 18, 0, 0, 0, TimeSpan.Zero);
+        using var admin = await factory.CreateClientWithRoleAsync("Admin");
+        const string periodsUrl = "/api/work-scheduling/attendance-periods";
+        (await staffClient.GetAsync($"{periodsUrl}?lotId={lot.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await managerClient.PostAsJsonAsync(periodsUrl, new { name = "Forbidden", fromDate = "2026-11-16", toDate = "2026-11-16", lotIds = new[] { lot.Id } })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var period = (await ResponseHelper.GetApiResultAsync<PeriodModel>(await admin.PostAsJsonAsync(periodsUrl,
+            new { name = "Explicit attendance day", fromDate = "2026-11-16", toDate = "2026-11-16", lotIds = new[] { lot.Id } }))).Result;
+        var reviewUrl = $"{periodsUrl}/{period.Id}/lots/{lot.Id}";
+        (await admin.PutAsJsonAsync($"{periodsUrl}/manager-days/lots/{lot.Id}", new { managerUserId = manager.Id, workDate = "2026-11-16", kind = "Work", reason = "Admin verified Manager day" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await other.GetAsync(reviewUrl)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var overtime = await managerClient.PostAsJsonAsync($"{url}/overtime", new { revision = 2, rosterRevision = r.Revision, approved = false, reason = "Early time not approved" });
+        overtime.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await managerClient.PostAsJsonAsync($"{url}/overtime", new { revision = 2, rosterRevision = r.Revision, approved = true, reason = "Stale decision request" })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var review = (await ResponseHelper.GetApiResultAsync<AttendancePeriodReview>(await managerClient.GetAsync(reviewUrl))).Result;
+        review.Warnings.Should().BeEmpty(); review.Lot.Status.Should().Be("Open");
+        (await admin.PostAsJsonAsync($"{reviewUrl}/confirm", new { revision = review.Lot.Revision, reason = "Wrong role" })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await managerClient.PostAsJsonAsync($"{reviewUrl}/confirm", new { revision = review.Lot.Revision, reason = "Verified all staff" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        var existing = r.Shifts.Single().Assignments.Single();
+        (await managerClient.PutAsJsonAsync($"{root}/rosters/{r.Id}/shifts/{r.Shifts.Single().Id}/assignments/{id}",
+            new { revision = r.Revision, employeeId = existing.EmployeeId, position = "Entry", notes = "Changed after confirmation", reason = "Handover correction" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        review = (await ResponseHelper.GetApiResultAsync<AttendancePeriodReview>(await managerClient.GetAsync(reviewUrl))).Result;
+        review.Lot.Status.Should().Be("Open");
+        (await managerClient.PostAsJsonAsync($"{reviewUrl}/confirm", new { revision = review.Lot.Revision, reason = "Verified again" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await managerClient.PostAsJsonAsync($"{periodsUrl}/{period.Id}/lock", new { revision = 1, reason = "Wrong role" })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await admin.PostAsJsonAsync($"{periodsUrl}/{period.Id}/lock", new { revision = 1, reason = "Final audit completed" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        var lockedReviewResponse = await admin.GetAsync(reviewUrl);
+        (await lockedReviewResponse.Content.ReadAsStringAsync()).Should().Contain("\"managerName\"");
+        review = (await ResponseHelper.GetApiResultAsync<AttendancePeriodReview>(lockedReviewResponse)).Result;
+        review.ManagerDays.Should().ContainSingle(d => d.Kind == "Work");
+        (await managerClient.PutAsJsonAsync(url, new { revision = 2, rosterRevision = r.Revision + 1, checkInAt = "2026-11-16T01:00:00Z", checkOutAt = "2026-11-16T01:25:00Z", reason = "Locked edit" })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await admin.PutAsJsonAsync($"{periodsUrl}/manager-days/lots/{lot.Id}", new { managerUserId = manager.Id, workDate = "2026-11-16", kind = "Work", reason = "Locked day" })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        detail = (await ResponseHelper.GetApiResultAsync<AttendanceDetailModel>(await staffClient.GetAsync(url))).Result;
+        detail.PayReview.Locked.Should().BeTrue(); detail.Attendance.CanEnd.Should().BeFalse();
+        grid = (await ResponseHelper.GetApiResultAsync<DutyRosterModel[]>(await managerClient.GetAsync($"{root}/rosters"))).Result;
+        grid.Single().Shifts.Single().AttendanceLocked.Should().BeTrue();
     }
 }

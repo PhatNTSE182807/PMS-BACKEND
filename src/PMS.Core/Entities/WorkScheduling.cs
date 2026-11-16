@@ -17,6 +17,8 @@ public class WorkShiftTemplate
 
 public class DutyRoster
 {
+    public bool HasRotation { get; set; }
+    public string RotationConfigurationJson { get; set; }
     public int Id { get; set; }
     public int ParkingLotId { get; set; }
     public string Name { get; set; }
@@ -50,6 +52,14 @@ public class DutyRosterShift
 
 public class DutyAssignment
 {
+    public int? OriginalAssignmentId { get; set; }
+    public string ReplacementReason { get; set; }
+    public bool AllowWeeklyOvertime { get; set; }
+    public string CancellationKind { get; set; }
+    public string Source { get; set; } = "Manual";
+    public bool IsManuallyEdited { get; set; }
+    public int? RotationGroupId { get; set; }
+    public string GenerationKey { get; set; }
     public int Id { get; set; }
     public int DutyRosterShiftId { get; set; }
     public int EmployeeId { get; set; }
@@ -61,6 +71,7 @@ public class DutyAssignment
 
 public class DutyAttendance
 {
+    public int? ReviewedRevision { get; set; }
     public int Id { get; set; }
     public int DutyAssignmentId { get; set; }
     public DateTime? CheckInAt { get; set; }

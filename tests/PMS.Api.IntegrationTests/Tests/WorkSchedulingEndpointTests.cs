@@ -116,5 +116,33 @@ public class WorkSchedulingEndpointTests
         using var other = await factory.CreateClientWithRoleAsync("Manager");
         (await other.GetAsync($"{root}/rosters")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await staffClient.GetAsync($"{root}/rosters/{r.Id}/history")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var groupResponse = await managerClient.PostAsJsonAsync($"{root}/rotation-groups", new { name = "HTTP A", offsetDays = 0, members = new[] { new { employeeId = employee.Id, position = "Entry" } } });
+        groupResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var group = (await ResponseHelper.GetApiResultAsync<RotationGroupModel>(groupResponse)).Result;
+        var cycleResponse = await managerClient.PostAsJsonAsync($"{root}/rotation-cycles", new { name = "HTTP cycle", steps = new[] { new { templateId = template.Id, days = 1 } } });
+        cycleResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var cycle = (await ResponseHelper.GetApiResultAsync<RotationCycleModel>(cycleResponse)).Result;
+        var generated = await Post($"{root}/rosters", new { name = "Generated week", fromDate = "2026-11-23", toDate = "2026-11-25" });
+        var generation = new RotationGenerationInput { Revision = generated.Revision, FromDate = generated.FromDate, ToDate = generated.ToDate, CycleStartDate = generated.FromDate, GroupIds = [group.Id], CycleId = cycle.Id };
+        var previewUrl = $"{root}/rosters/{generated.Id}/rotation-preview";
+        (await staffClient.PostAsJsonAsync(previewUrl, generation)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await other.PostAsJsonAsync(previewUrl, generation)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var previewResponse = await managerClient.PostAsJsonAsync(previewUrl, generation);
+        previewResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var preview = (await ResponseHelper.GetApiResultAsync<RotationPreviewModel>(previewResponse)).Result;
+        preview.ProposedAssignments.Should().Be(3); preview.MinimumRestHours.Should().Be(1); preview.MaximumWeeklyHours.Should().Be(48);
+        preview.LeaveSourceAvailable.Should().BeTrue();
+        generation.PreviewToken = preview.Token;
+        generated = await Post($"{root}/rosters/{generated.Id}/rotation-apply", generation);
+        generated.Shifts.SelectMany(s => s.Assignments).Should().HaveCount(3);
+        (await managerClient.PostAsJsonAsync($"{root}/rosters/{generated.Id}/rotation-apply", generation)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var staffRange = "/api/staff/work-schedule?from=2026-11-23&to=2026-11-25";
+        (await ResponseHelper.GetApiResultAsync<List<DutyRosterModel>>(await staffClient.GetAsync(staffRange))).Result.Should().BeEmpty();
+        generated = await Post($"{root}/rosters/{generated.Id}/publish", new { revision = generated.Revision });
+        var personal = (await ResponseHelper.GetApiResultAsync<List<DutyRosterModel>>(await staffClient.GetAsync(staffRange))).Result;
+        personal.Should().ContainSingle(); personal.Single().RotationConfigurationJson.Should().BeNull();
+        generation.Revision = generated.Revision;
+        (await managerClient.PostAsJsonAsync(previewUrl, generation)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 }
