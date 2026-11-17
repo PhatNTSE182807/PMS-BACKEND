@@ -20,7 +20,7 @@ namespace PMS.API.Controllers;
 [Authorize(Roles = "Manager,Admin")]
 [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status401Unauthorized)]
 [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status403Forbidden)]
-public class ManagerPricingController(IPricingRuleService pricingRuleService) : ApiController
+public class ManagerPricingController(IPricingRuleService pricingRuleService, IPricingRuleDraftService draftService) : ApiController
 {
     /// <summary>Retrieves all pricing rules for a lot, optionally filtered by status.</summary>
     /// <param name="lotId">The parking lot.</param>
@@ -90,6 +90,64 @@ public class ManagerPricingController(IPricingRuleService pricingRuleService) : 
     public async Task<IActionResult> DeletePricingRuleAsync(int lotId, int id)
     {
         await pricingRuleService.DeletePricingRuleAsync(lotId, id);
+        return Ok(ApiResult<bool>.Success(true));
+    }
+
+    /// <summary>The lot's open price drafts: price changes saved for later, not charged by the gates.</summary>
+    /// <remarks>
+    /// Drafts of archived rules are left out. <c>currentVersionNo</c> newer than <c>baseVersionNo</c> means the
+    /// rule's prices changed after the draft was saved.
+    /// </remarks>
+    [HttpGet("drafts")]
+    [ProducesResponseType(typeof(ApiResult<IReadOnlyList<PricingRuleDraftModel>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetDraftsAsync(int lotId) =>
+        Ok(ApiResult<IReadOnlyList<PricingRuleDraftModel>>.Success(await draftService.GetDraftsAsync(lotId)));
+
+    /// <summary>Saves a price change of a rule as a draft. Nothing changes at the gates until it is applied.</summary>
+    /// <param name="lotId">The parking lot the rule belongs to.</param>
+    /// <param name="id">The pricing rule.</param>
+    /// <param name="model">The proposed rule values (same shape as an update) and an optional note.</param>
+    [HttpPost("{id:int}/drafts")]
+    [ProducesResponseType(typeof(ApiResult<PricingRuleDraftModel>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> CreateDraftAsync(int lotId, int id, [FromBody] SavePricingRuleDraftModel model) =>
+        Ok(ApiResult<PricingRuleDraftModel>.Success(await draftService.CreateDraftAsync(lotId, id, model)));
+
+    /// <summary>Replaces the values and note of an open draft; it is then based on the rule's current version.</summary>
+    [HttpPut("{id:int}/drafts/{draftId:int}")]
+    [ProducesResponseType(typeof(ApiResult<PricingRuleDraftModel>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateDraftAsync(int lotId, int id, int draftId, [FromBody] SavePricingRuleDraftModel model) =>
+        Ok(ApiResult<PricingRuleDraftModel>.Success(await draftService.UpdateDraftAsync(lotId, id, draftId, model)));
+
+    /// <summary>
+    /// Applies an open draft: its prices go live at once, exactly like saving them on the rule, and the draft closes.
+    /// </summary>
+    /// <remarks>
+    /// Only the prices and the rule name come from the draft; the rule keeps its current status and validity.
+    /// The response is the rule after the update, with <c>priceUpdateStatus</c> as for an update.
+    /// </remarks>
+    /// <response code="400">The draft was already applied or discarded, or the rule is archived.</response>
+    /// <response code="409">The lot kept changing while saving; retry the request.</response>
+    [HttpPost("{id:int}/drafts/{draftId:int}/apply")]
+    [ProducesResponseType(typeof(ApiResult<PricingRuleModel>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ApplyDraftAsync(int lotId, int id, int draftId) =>
+        Ok(ApiResult<PricingRuleModel>.Success(await draftService.ApplyDraftAsync(lotId, id, draftId)));
+
+    /// <summary>Discards an open draft. The draft is kept as a record but no longer listed.</summary>
+    [HttpDelete("{id:int}/drafts/{draftId:int}")]
+    [ProducesResponseType(typeof(ApiResult<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResult<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DiscardDraftAsync(int lotId, int id, int draftId)
+    {
+        await draftService.DiscardDraftAsync(lotId, id, draftId);
         return Ok(ApiResult<bool>.Success(true));
     }
 
