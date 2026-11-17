@@ -996,8 +996,11 @@ public class GateService(
         var result = new List<CurrentSessionModel>();
         foreach (var (session, model) in sessions.Zip(models))
         {
-            // A read-only quote: looking at the fee never changes the session
-            var quote = await QuoteAsync(session, null, null, mutate: false);
+            // A read-only quote: looking at the fee never changes the session. A lost-ticket case waiting for a
+            // Manager has no fee yet (the lane cannot charge it either), so the vehicle is listed without one instead
+            // of failing the whole list
+            var lostTicketPending = session.Status == SessionStatus.LostTicketPending;
+            var quote = lostTicketPending ? new CheckoutQuoteModel() : await QuoteAsync(session, null, null, mutate: false);
             var tariff = await TariffOfAsync(session);
             var lot = lots.GetValueOrDefault(session.ParkingLotId);
             var vehicle = session.VehicleId != null ? vehicles.GetValueOrDefault(session.VehicleId.Value) : null;
@@ -1017,6 +1020,7 @@ public class GateService(
                 BookingMode = booking?.BookingMode,
                 PlannedDeparture = booking?.DepartureTime is { } departure ? Utc(departure) : null,
                 ElapsedMinutes = Math.Max(0, (int)Math.Floor((Now - session.EntryTime).TotalMinutes)),
+                LostTicketPending = lostTicketPending,
                 FeeSoFar = quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee + quote.PenaltyFee,
                 DepositApplied = quote.DepositApplied,
                 AlreadyPaid = quote.AlreadyPaid,
