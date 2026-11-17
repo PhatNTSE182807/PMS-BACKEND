@@ -8,6 +8,9 @@ public interface IReservationService
     /// <summary>Holds the slot at once (first holder wins) and starts the deposit deadline.</summary>
     Task<ReservationResponseModel> CreateAsync(string userId, CreateReservationModel model);
 
+    /// <summary>Expected state of every bay of the lot during the window to book (arrival, and departure when Scheduled).</summary>
+    Task<IReadOnlyList<BayForecastModel>> GetBayForecastAsync(int lotId, DateTimeOffset arrival, DateTimeOffset? departure);
+
     Task<IReadOnlyList<ReservationResponseModel>> GetMineAsync(string userId, bool activeOnly);
 
     Task<ReservationResponseModel> GetAsync(string userId, long id);

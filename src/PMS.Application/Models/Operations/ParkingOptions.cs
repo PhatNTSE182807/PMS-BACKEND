@@ -49,6 +49,9 @@ public class ParkingOptions
     /// <summary>Gap between two bookings of one bay (always in real minutes).</summary>
     public TimeSpan TurnoverTime => TimeSpan.FromMinutes(Math.Max(0, Reservations.TurnoverMinutes));
 
+    /// <summary>A vehicle still parked this long after its booking's departure is towed (always in real minutes, like the turnover).</summary>
+    public TimeSpan OverstayTowTime => TimeSpan.FromMinutes(Math.Max(0, Reservations.OverstayTowMinutes));
+
     /// <summary>Full refund and changes allowed until this long before arrival.</summary>
     public TimeSpan CancelRefundTime => Pick(s => s.CancelRefundSeconds, Reservations.CancelRefundMinutes);
 
@@ -135,6 +138,13 @@ public class ReservationRules
     /// and the lot's Staff are told. There is no extra fee; the fee keeps running by the price list.
     /// </summary>
     public int OverstayGraceMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// Team rule (2026-11-17): this long after the planned departure, a vehicle still parked on its scheduled booking is
+    /// towed to a penalty bay and owes the penalty at check-out. Keep it at most TurnoverMinutes minus EarlyArrivalMinutes
+    /// (30 - 15), so the bay is empty before the next booking may check in.
+    /// </summary>
+    public int OverstayTowMinutes { get; set; } = 15;
 
     /// <summary>Fixed deposit per vehicle type code; types not listed use <see cref="DefaultDeposit"/>.</summary>
     public Dictionary<string, decimal> DepositByVehicleType { get; set; } = new();
