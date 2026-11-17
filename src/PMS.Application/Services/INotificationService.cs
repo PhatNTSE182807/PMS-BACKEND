@@ -66,13 +66,28 @@ public interface IUserNotificationPublisher
     /// LotAlmostFull, LotFull or LotSpaceAvailable. Tells the lot's Staff and its Manager.
     /// </summary>
     void ZoneFillChanged(int zoneId, string notificationType, DateTime changedAt);
+
+    /// <summary>A customer asked for their account to be deleted: tells every active Admin.</summary>
+    void AccountDeletionRequested(long requestId);
+
+    /// <summary>
+    /// A pricing rule's prices changed (the <see cref="PMS.DataAccess.Persistence.Entities.PricingRuleHistory"/> row
+    /// <paramref name="historyId"/>): tells every active Admin except the person who made the change.
+    /// </summary>
+    void LotPricingChanged(long historyId, string oldPrices, string newPrices);
 }
 
-/// <summary>Who hears about something that concerns every customer.</summary>
+/// <summary>Who hears about something that concerns every customer, or every Admin.</summary>
 public interface ICustomerAudience
 {
     /// <summary>The user ids of all active customer accounts.</summary>
     Task<IReadOnlyList<string>> ActiveCustomerIdsAsync();
+
+    /// <summary>The user ids of all active Admin accounts.</summary>
+    Task<IReadOnlyList<string>> ActiveAdminIdsAsync();
+
+    /// <summary>The user name and email of an account (both null when it does not exist).</summary>
+    Task<(string UserName, string Email)> AccountAsync(string userId);
 }
 
 /// <summary>Real-time push of a new notification to its owner (SignalR in PMS.API).</summary>

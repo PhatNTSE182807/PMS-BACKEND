@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using PMS.Application.Helpers.Parking;
 using PMS.Application.Models.Notifications;
 using PMS.Application.Models.Operations;
+using PMS.Application.Models.User;
 using PMS.Application.Models.VehicleDocuments;
 using PMS.Application.Services;
 using PMS.Application.Services.Impl;
@@ -725,6 +726,121 @@ public class NotificationJobs(
 
         return sent;
     }
+
+    /// <summary>
+    /// A customer asked for their account to be deleted: every active Admin's bell says who, why, and what still ties
+    /// the account to the system (open sessions, upcoming bookings, wallet balance) so the Admin can decide before
+    /// locking it from the customer list. One notice per Admin and request, so a retry never repeats it.
+    /// </summary>
+    public async Task<int> AccountDeletionRequestedAsync(long requestId)
+    {
+        var request = await pmsContext.AccountDeletionRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == requestId);
+        if (request == null || request.Status != AccountDeletionRequestStatuses.Pending || audience == null)
+            return 0;
+
+        var customer = await pmsContext.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.UserId == request.UserId);
+        var account = await audience.AccountAsync(request.UserId);
+        var name = FirstFilled(customer?.FullName, account.UserName, account.Email, "A customer");
+        var email = FirstFilled(account.Email, customer?.Email);
+
+        var openSessions = customer == null ? 0
+            : await pmsContext.ParkingSessions.CountAsync(s => s.CustomerId == customer.Id && SessionStatus.Open.Contains(s.Status));
+        var upcoming = await pmsContext.Reservations.CountAsync(r => r.UserId == request.UserId && ReservationStatus.Upcoming.Contains(r.Status));
+        var balance = customer == null ? 0m
+            : await pmsContext.Wallets.Where(w => w.CustomerId == customer.Id).Select(w => (decimal?)w.Balance).FirstOrDefaultAsync() ?? 0m;
+
+        var ties = new List<string>();
+        if (openSessions > 0) ties.Add(openSessions == 1 ? "1 vehicle still parked" : $"{openSessions} vehicles still parked");
+        if (upcoming > 0) ties.Add(upcoming == 1 ? "1 upcoming booking" : $"{upcoming} upcoming bookings");
+        if (balance > 0) ties.Add($"{balance.ToString("N0", CultureInfo.InvariantCulture)} VND left in the wallet");
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? "" : $" Reason: \"{request.Reason.Trim()}\".";
+        var status = ties.Count == 0 ? " Nothing is open on the account." : $" Still open: {string.Join(", ", ties)}.";
+
+        var sent = 0;
+        foreach (var adminId in await audience.ActiveAdminIdsAsync())
+        {
+            if (await SaveAndPushAsync(new UserNotification
+                {
+                    UserId = adminId,
+                    Type = NotificationTypes.AccountDeletionRequested,
+                    Title = $"{name} asked to delete their account",
+                    Message = $"{name}{(string.IsNullOrEmpty(email) ? "" : $" ({email})")} asked for their account to be deleted.{reason}{status} " +
+                              "Lock the account from User Accounts once it can be closed.",
+                    RefType = "AccountDeletionRequest",
+                    RefId = request.Id.ToString(CultureInfo.InvariantCulture),
+                    EventAt = request.RequestedAt
+                }, new Dictionary<string, string>
+                {
+                    ["audience"] = "admin",
+                    ["requestId"] = request.Id.ToString(CultureInfo.InvariantCulture),
+                    ["userId"] = request.UserId,
+                    ["customerName"] = name,
+                    ["email"] = email,
+                    ["reason"] = request.Reason,
+                    ["openSessions"] = openSessions.ToString(CultureInfo.InvariantCulture),
+                    ["upcomingBookings"] = upcoming.ToString(CultureInfo.InvariantCulture),
+                    ["walletBalance"] = balance.ToString(CultureInfo.InvariantCulture)
+                }))
+                sent++;
+        }
+        return sent;
+    }
+
+    /// <summary>
+    /// A pricing rule's prices changed: every active Admin (except whoever made the change) hears which lot and vehicle
+    /// type, who changed it, and the old and new prices. Keyed by the history row, so a retry never repeats it.
+    /// </summary>
+    public async Task<int> LotPricingChangedAsync(long historyId, string oldPrices, string newPrices)
+    {
+        if (audience == null)
+            return 0;
+        var history = await pmsContext.PricingRuleHistories.AsNoTracking().FirstOrDefaultAsync(h => h.Id == historyId);
+        if (history == null)
+            return 0;
+        var rule = await pmsContext.PricingRules.AsNoTracking().FirstOrDefaultAsync(r => r.Id == history.PricingRuleId);
+        if (rule?.ParkingLotId == null)
+            return 0;
+        var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == rule.ParkingLotId);
+        var vehicleType = await pmsContext.VehicleTypes.AsNoTracking().Where(v => v.Id == rule.VehicleTypeId).Select(v => v.Name).FirstOrDefaultAsync();
+
+        var who = (string.IsNullOrEmpty(history.ChangedBy) ? null
+                      : await pmsContext.Employees.AsNoTracking().Where(e => e.UserId == history.ChangedBy).Select(e => e.FullName).FirstOrDefaultAsync())
+                  ?? "A Manager";
+        var lotName = lot?.Name ?? "a parking lot";
+        var typeLabel = string.IsNullOrWhiteSpace(vehicleType) ? rule.Name : vehicleType;
+
+        var sent = 0;
+        foreach (var adminId in (await audience.ActiveAdminIdsAsync()).Where(id => id != history.ChangedBy))
+        {
+            if (await SaveAndPushAsync(new UserNotification
+                {
+                    UserId = adminId,
+                    Type = NotificationTypes.LotPricingChanged,
+                    Title = $"{who} changed the {typeLabel} price at {lotName}",
+                    Message = $"{who} changed the {typeLabel} price ({rule.Name}) at {lotName} at {LocalTime(history.ChangedAt, lot)}" +
+                              $"{(rule.Status == "Active" ? "" : $" (the rule is {rule.Status}, so nobody pays it yet)")}. " +
+                              $"Before: {oldPrices}. Now: {newPrices}.",
+                    RefType = "PricingRuleHistory",
+                    RefId = history.Id.ToString(CultureInfo.InvariantCulture),
+                    EventAt = history.ChangedAt
+                }, new Dictionary<string, string>
+                {
+                    ["audience"] = "admin",
+                    ["historyId"] = history.Id.ToString(CultureInfo.InvariantCulture),
+                    ["ruleId"] = rule.Id.ToString(CultureInfo.InvariantCulture),
+                    ["lotId"] = rule.ParkingLotId.Value.ToString(CultureInfo.InvariantCulture),
+                    ["lotName"] = lot?.Name,
+                    ["vehicleType"] = vehicleType,
+                    ["changedBy"] = who,
+                    ["oldPrices"] = oldPrices,
+                    ["newPrices"] = newPrices
+                }))
+                sent++;
+        }
+        return sent;
+    }
+
+    private static string FirstFilled(params string[] values) => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
     /// <summary>The active Manager of the lot (ParkingLots.ManagerUserId), or null.</summary>
     private Task<string> LotManagerAsync(int lotId) =>

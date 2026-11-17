@@ -225,9 +225,27 @@ public sealed partial class DemoDataSeed
     {
         var email = EmailOf(userName);
         var password = PasswordFor(role);
-        var user = await userManager.FindByNameAsync(userName) ?? await userManager.FindByEmailAsync(email);
+        var user = await userManager.FindByNameAsync(userName)
+                   ?? await userManager.FindByEmailAsync(email)
+                   ?? await userManager.FindByEmailAsync($"{userName}@{OldEmailDomain}");
         if (user != null)
         {
+            // Demo accounts seeded before the domain changed keep their data and move to the new address
+            if (string.Equals(user.Email, $"{userName}@{OldEmailDomain}", StringComparison.OrdinalIgnoreCase)
+                && await userManager.FindByEmailAsync(email) == null)
+            {
+                var moved = await userManager.SetEmailAsync(user, email);
+                if (moved.Succeeded)
+                {
+                    user.EmailConfirmed = true;
+                    await userManager.UpdateAsync(user);
+                    await SyncProfileEmailAsync(user.Id, email);
+                }
+                else
+                    logger?.LogWarning("Demo data: could not move '{UserName}' to {Email}: {Errors}",
+                        userName, email, string.Join("; ", moved.Errors.Select(e => e.Description)));
+            }
+
             // Managers and Staff created before they got their own passwords still use the customers' one
             if (password != Password && await userManager.CheckPasswordAsync(user, Password))
             {
@@ -254,6 +272,18 @@ public sealed partial class DemoDataSeed
             throw new InvalidOperationException(
                 $"Demo data: could not create '{userName}': {string.Join("; ", result.Errors.Select(e => e.Description))}");
         return user;
+    }
+
+    /// <summary>Keeps the email copied onto the account's Customer or Employee row in step with the account.</summary>
+    private async Task SyncProfileEmailAsync(string userId, string email)
+    {
+        var customer = await db.Customers.FirstOrDefaultAsync(c => c.UserId == userId);
+        if (customer != null)
+            customer.Email = email;
+        var employee = await db.Employees.FirstOrDefaultAsync(e => e.UserId == userId);
+        if (employee != null)
+            employee.Email = email;
+        await db.SaveChangesAsync();
     }
 
     /// <summary>

@@ -47,7 +47,10 @@ public sealed partial class DemoDataSeed
 
     public const string MarkerAction = "DemoDataSeeded";
 
-    private const string EmailDomain = "example.com";
+    private const string EmailDomain = "gmail.com";
+
+    /// <summary>The domain demo accounts used before 2026-11-17; existing ones are moved to <see cref="EmailDomain"/>.</summary>
+    private const string OldEmailDomain = "example.com";
 
     private const string Car4 = "CAR_4";
 
