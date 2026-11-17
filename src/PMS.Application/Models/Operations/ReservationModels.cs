@@ -171,3 +171,42 @@ public class ReservationQrModel
 
     public DateTime ValidUntil { get; set; }
 }
+
+/// <summary>
+/// What a bay of the lot is expected to be during the window a customer is about to book (team rule of 2026-11-17):
+/// the 3D model draws these instead of the live status, so a bay booked until 15:00 shows as bookable from 15:30.
+/// </summary>
+public class BayForecastModel
+{
+    public int SlotId { get; set; }
+
+    /// <summary>Free, FreeingUp, Booked, Occupied, OutOfService or Penalty (see BayForecastState).</summary>
+    public string State { get; set; }
+
+    /// <summary>True when the window can be booked in this bay.</summary>
+    public bool Bookable { get; set; }
+
+    /// <summary>FreeingUp: when the vehicle in the bay now is expected to be gone (UTC).</summary>
+    public DateTime? FreeFrom { get; set; }
+}
+
+/// <summary>Expected states of a bay for a booking window.</summary>
+public static class BayForecastState
+{
+    /// <summary>Nothing in the bay now and no booking overlaps the window.</summary>
+    public const string Free = "Free";
+
+    /// <summary>A vehicle is in the bay now but is expected to leave before the window starts.</summary>
+    public const string FreeingUp = "FreeingUp";
+
+    /// <summary>Another booking overlaps the window (turnover gap included).</summary>
+    public const string Booked = "Booked";
+
+    /// <summary>A vehicle with no planned exit, or one leaving too late, is in the bay.</summary>
+    public const string Occupied = "Occupied";
+
+    public const string OutOfService = "OutOfService";
+
+    /// <summary>Kept for towed vehicles; never booked.</summary>
+    public const string Penalty = "Penalty";
+}

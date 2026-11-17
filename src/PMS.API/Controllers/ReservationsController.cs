@@ -26,6 +26,17 @@ public class ReservationsController(
         return StatusCode(StatusCodes.Status201Created, ApiResult<ReservationResponseModel>.Success(created));
     }
 
+    /// <summary>
+    /// Expected state of every bay of a lot during the window the customer is about to book, for the 3D model: free,
+    /// freeing up (the vehicle in it now is expected to leave in time), booked, occupied, out of service or penalty.
+    /// departureTime is left out for pay-as-you-go.
+    /// </summary>
+    [HttpGet("forecast")]
+    public async Task<IActionResult> GetBayForecastAsync([FromQuery] int lotId, [FromQuery] DateTimeOffset arrivalTime,
+        [FromQuery] DateTimeOffset? departureTime = null) =>
+        Ok(ApiResult<IReadOnlyList<BayForecastModel>>.Success(
+            await reservationService.GetBayForecastAsync(lotId, arrivalTime, departureTime)));
+
     /// <summary>The customer's reservations, newest first; activeOnly=true hides finished and cancelled ones.</summary>
     [HttpGet("mine")]
     public async Task<IActionResult> GetMineAsync([FromQuery] bool activeOnly = false)

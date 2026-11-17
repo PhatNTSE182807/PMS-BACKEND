@@ -50,6 +50,8 @@ public class ParkingJobs(
             var expired = await ExpireUnpaidReservationsAsync();
             // Booked bays taken by a walk-in: settle the ones that need no Staff before any no-show is marked
             if (bookedBays != null) await bookedBays.SweepAsync();
+            // Vehicles that stayed past their booking are towed before the next booking may check in
+            if (bookedBays != null) await bookedBays.TowOverstaysAsync();
             var noShows = await MarkNoShowsAsync();
             // Bookings made ahead lock their bay shortly before arrival
             await reservations.ActivateDueHoldsAsync();
@@ -83,6 +85,7 @@ public class ParkingJobs(
         {
             var expired = await ExpireUnpaidReservationsAsync();
             if (bookedBays != null) await bookedBays.SweepAsync();
+            if (bookedBays != null) await bookedBays.TowOverstaysAsync();
             var noShows = await MarkNoShowsAsync();
             await reservations.ActivateDueHoldsAsync();
             if (walkIns != null) await walkIns.CheckOutDueAsync();
