@@ -33,6 +33,7 @@ public static class OperationsDependencyInjection
         services.AddScoped<LotOccupancy>();
         services.AddScoped<IPricingRuleService, PricingRuleService>();
         services.AddScoped<IPricingRuleDraftService, PricingRuleDraftService>();
+        services.AddScoped<IPricingHistoryService, PricingHistoryService>();
         services.AddScoped<PlateListService>();
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<IRevenueReportService, RevenueReportService>();

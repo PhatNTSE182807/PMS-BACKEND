@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using PMS.Application.Exceptions;
 using PMS.Application.Models.Pricing;
 using PMS.DataAccess.Persistence;
@@ -19,7 +20,8 @@ public class PricingRuleDraftService(
     PmsDbContext pmsContext,
     IPricingRuleService pricingRuleService,
     LotScopeService lotScopeService,
-    TimeProvider clock) : IPricingRuleDraftService
+    TimeProvider clock,
+    ILogger<PricingRuleDraftService> logger = null) : IPricingRuleDraftService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -58,6 +60,7 @@ public class PricingRuleDraftService(
         };
         pmsContext.PricingRuleDrafts.Add(draft);
         await pmsContext.SaveChangesAsync();
+        await RecordAsync(draft, PricingHistoryChangeTypes.DraftSaved, rule, model.Values, $"Saved price draft #{draft.Id}");
 
         return ToModel(draft, rule.VersionNo, await NamesAsync([draft.CreatedBy]));
     }
@@ -75,6 +78,7 @@ public class PricingRuleDraftService(
         draft.UpdatedBy = lotScopeService.UserId;
         draft.UpdatedAt = clock.GetUtcNow().UtcDateTime;
         await pmsContext.SaveChangesAsync();
+        await RecordAsync(draft, PricingHistoryChangeTypes.DraftUpdated, rule, model.Values, $"Edited price draft #{draft.Id}");
 
         return ToModel(draft, rule.VersionNo, await NamesAsync([draft.CreatedBy]));
     }
@@ -132,13 +136,42 @@ public class PricingRuleDraftService(
     public async Task DiscardDraftAsync(int lotId, int ruleId, int draftId)
     {
         // Same scope check as the other calls; discarding works on any rule the caller can see
-        await pricingRuleService.GetPricingRuleByIdAsync(lotId, ruleId);
+        var rule = await pricingRuleService.GetPricingRuleByIdAsync(lotId, ruleId);
         var draft = await OpenDraftAsync(lotId, ruleId, draftId);
 
         draft.Status = PricingRuleDraftStatuses.Discarded;
         draft.ClosedBy = lotScopeService.UserId;
         draft.ClosedAt = clock.GetUtcNow().UtcDateTime;
         await pmsContext.SaveChangesAsync();
+        await RecordAsync(draft, PricingHistoryChangeTypes.DraftDiscarded, rule, null, $"Discarded price draft #{draft.Id}");
+    }
+
+    /// <summary>
+    /// Writes a draft event into the rule's pricing history: the live rule as the old values and the draft's
+    /// values as the new ones, so the history shows what the draft proposes. A failed record never fails the call.
+    /// </summary>
+    private async Task RecordAsync(PricingRuleDraft draft, string changeType, PricingRuleModel rule, UpdatePricingRuleModel values, string reason)
+    {
+        try
+        {
+            pmsContext.PricingRuleHistories.Add(new PricingRuleHistory
+            {
+                PricingRuleId = draft.PricingRuleId,
+                ChangeType = changeType,
+                OldValuesJson = JsonSerializer.Serialize(rule),
+                NewValuesJson = values == null ? null : JsonSerializer.Serialize(values),
+                ChangedBy = lotScopeService.UserId,
+                ChangedAt = clock.GetUtcNow().UtcDateTime,
+                Reason = string.IsNullOrWhiteSpace(draft.Note) ? reason : $"{reason}: {draft.Note}"
+            });
+            await pmsContext.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Could not record the {ChangeType} history of price draft {DraftId}", changeType, draft.Id);
+            foreach (var entry in pmsContext.ChangeTracker.Entries<PricingRuleHistory>().ToList())
+                entry.State = EntityState.Detached;
+        }
     }
 
     /// <summary>The rule, after the lot and scope checks; drafts are only kept for rules the caller may change.</summary>
