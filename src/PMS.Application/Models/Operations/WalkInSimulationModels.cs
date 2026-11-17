@@ -58,13 +58,6 @@ public class DeployWalkInsResultModel
     public string StoppedReason { get; set; }
 }
 
-/// <summary>Report a lost ticket for a simulated vehicle, as the driver would at the exit lane.</summary>
-public class SimulateLostTicketModel
-{
-    /// <summary>True: Staff checked the photos and papers and approves on the spot; false: a Manager must decide.</summary>
-    public bool ConditionsMet { get; set; }
-}
-
 /// <summary>One simulated walk-in still inside a lot.</summary>
 public class SimulatedWalkInModel
 {

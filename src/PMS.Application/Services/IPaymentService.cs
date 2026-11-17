@@ -37,9 +37,6 @@ public interface IPaymentService
     /// <summary>Dev/test only: completes a pending VNPay / MoMo payment as if the gateway confirmed it.</summary>
     Task<PaymentCallbackResultModel> SimulateSuccessAsync(long paymentId);
 
-    /// <summary>A payment of the caller (customers see their own; Staff/Managers those of their lots).</summary>
-    Task<PaymentResponseModel> GetAsync(long paymentId);
-
     /// <summary>Open payment (Pending, not expired) of a reservation, if any.</summary>
     Task<PaymentResponseModel> GetPendingForReservationAsync(long reservationId);
 

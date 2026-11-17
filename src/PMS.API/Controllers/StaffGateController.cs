@@ -115,11 +115,6 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> ConfirmEntryAsync(long id) =>
         Ok(ApiResult<SessionResponseModel>.Success(await gateService.ConfirmEntryAsync(id)));
 
-    /// <summary>The vehicle turned around before the sensor.</summary>
-    [HttpPost("sessions/{id:long}/entry-cancel")]
-    public async Task<IActionResult> CancelEntryAsync(long id) =>
-        Ok(ApiResult<SessionResponseModel>.Success(await gateService.CancelEntryAsync(id)));
-
     /// <summary>Fee request at the exit lane or counter: deposit deducted, Exit Window checked.</summary>
     [HttpPost("sessions/{id:long}/quote")]
     public async Task<IActionResult> QuoteAsync(long id, [FromBody] CheckoutQuoteRequestModel model) =>
@@ -179,9 +174,4 @@ public class StaffGateController(IGateService gateService, IReservationService r
         Response.Headers.CacheControl = "no-store";
         return File(content, contentType);
     }
-
-    /// <summary>Lost ticket / card.</summary>
-    [HttpPost("sessions/{id:long}/lost-ticket")]
-    public async Task<IActionResult> LostTicketAsync(long id, [FromBody] LostTicketModel model) =>
-        Ok(ApiResult<SessionResponseModel>.Success(await gateService.ReportLostTicketAsync(id, model)));
 }

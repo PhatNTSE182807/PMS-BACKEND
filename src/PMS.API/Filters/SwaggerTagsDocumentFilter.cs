@@ -14,7 +14,6 @@ public class SwaggerTagsDocumentFilter : IDocumentFilter
     [
         (SwaggerTags.Authentication, "Register and sign in (password or one-time email code)."),
         (SwaggerTags.Profile, "The signed-in user's profile, vehicles and password."),
-        (SwaggerTags.Management, "Look up user accounts."),
     ];
 
     public void Apply(OpenApiDocument swaggerDoc, DocumentFilterContext context)

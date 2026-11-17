@@ -20,11 +20,6 @@ public class NotificationsController(INotificationService notifications, IClaimS
     public async Task<IActionResult> GetMineAsync([FromQuery] bool unreadOnly = false, [FromQuery] int take = 30) =>
         Ok(ApiResult<NotificationListModel>.Success(await notifications.GetMineAsync(claimService.GetUserId(), unreadOnly, take)));
 
-    /// <summary>How many notifications the user has not read yet (for the badge).</summary>
-    [HttpGet("~/api/notifications/unread-count")]
-    public async Task<IActionResult> GetUnreadCountAsync() =>
-        Ok(ApiResult<int>.Success(await notifications.GetUnreadCountAsync(claimService.GetUserId())));
-
     /// <summary>Marks a single notification as read.</summary>
     [HttpPost("~/api/notifications/{id:long}/read")]
     public async Task<IActionResult> MarkReadAsync(long id) =>

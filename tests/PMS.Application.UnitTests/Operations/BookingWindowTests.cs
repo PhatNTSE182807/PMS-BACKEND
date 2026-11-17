@@ -232,8 +232,7 @@ public class BookingWindowTests
         var found = await t.Gates.LookupAsync(t.Lot.Id, null, current.ExitPass.Token, null);
         found.Id.Should().Be(entry.Session.Id);
 
-        // Looking at the fee does not change the session
-        (await t.Gates.GetMyExitPassAsync(t.CustomerUserId, entry.Session.Id)).SessionCode.Should().Be(entry.Session.Code);
+        // Looking up the pass does not change the session
         t.Db.ParkingSessions.Single(s => s.Id == entry.Session.Id).Status.Should().Be(SessionStatus.Active);
     }
 }

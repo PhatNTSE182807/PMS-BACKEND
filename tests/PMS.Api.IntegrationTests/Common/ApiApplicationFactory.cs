@@ -77,7 +77,6 @@ public class ApiApplicationFactory<TProgram> : WebApplicationFactory<TProgram> w
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<IEmailService, EmailTestService>();
-            services.AddScoped<ITemplateService, TemplateTestService>();
             services.AddScoped<IGoogleTokenValidator, GoogleTokenTestValidator>();
 
             // Vehicle papers go to a private temp folder per factory

@@ -29,11 +29,6 @@ public class AdminSimulationController(
     public async Task<IActionResult> DeployWalkInsAsync([FromBody] DeployWalkInsModel model) =>
         Ok(ApiResult<DeployWalkInsResultModel>.Success(await walkIns.DeployAsync(model)));
 
-    /// <summary>One simulated vehicle pays cash at the exit lane and leaves now.</summary>
-    [HttpPost("walk-ins/{sessionId:long}/check-out")]
-    public async Task<IActionResult> CheckOutWalkInAsync(long sessionId) =>
-        Ok(ApiResult<SimulatedWalkInModel>.Success(await walkIns.CheckOutNowAsync(sessionId)));
-
     /// <summary>Every simulated vehicle (of one lot, or of all) pays and leaves now.</summary>
     [HttpPost("walk-ins/check-out-all")]
     public async Task<IActionResult> CheckOutAllWalkInsAsync([FromQuery] int? lotId = null) =>
@@ -48,11 +43,6 @@ public class AdminSimulationController(
     [HttpPost("walk-ins/bay")]
     public async Task<IActionResult> DeployWalkInToBayAsync([FromBody] DeployWalkInToBayModel model) =>
         Ok(ApiResult<GateRequestModel>.Success(await walkIns.DeployToBayAsync(model)));
-
-    /// <summary>The driver of a simulated vehicle reports a lost ticket (approved on the spot, or sent to the lot's Manager).</summary>
-    [HttpPost("walk-ins/{sessionId:long}/lost-ticket")]
-    public async Task<IActionResult> ReportLostTicketAsync(long sessionId, [FromBody] SimulateLostTicketModel model) =>
-        Ok(ApiResult<SimulatedWalkInModel>.Success(await walkIns.ReportLostTicketAsync(sessionId, model)));
 
     /// <summary>Current simulation settings (seconds used instead of real minutes) and the normal values they replace.</summary>
     [HttpGet]

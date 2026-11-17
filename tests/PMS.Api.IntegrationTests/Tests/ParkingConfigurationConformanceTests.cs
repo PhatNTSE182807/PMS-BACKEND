@@ -265,15 +265,4 @@ public class ParkingConfigurationConformanceTests
         result.Succeeded.Should().BeTrue();
         result.Result.Code.Should().StartWith("LOT-");
     }
-
-    [Fact]
-    public async Task ParkingLot_Route_Alias_Should_Support_Api_ParkingLots()
-    {
-        var adminClient = await _factory.CreateDefaultClientAsync();
-        var response = await adminClient.GetAsync("/api/parking-lots");
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var publicResponse = await _factory.CreateUnauthorizedClient().GetAsync("/api/public/parking-lots");
-        publicResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
 }

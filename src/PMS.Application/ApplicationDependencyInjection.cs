@@ -57,7 +57,6 @@ public static class ApplicationDependencyInjection
         services.AddScoped<IZoneService, ZoneService>();
         services.AddScoped<ISlotService, SlotService>();
         services.AddScoped<IClaimService, ClaimService>();
-        services.AddScoped<ITemplateService, TemplateService>();
         services.AddScoped<IGoogleTokenValidator, GoogleTokenValidator>();
         services.AddScoped<LotJobs>();
 

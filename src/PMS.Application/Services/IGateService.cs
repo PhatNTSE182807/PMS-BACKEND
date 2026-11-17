@@ -43,9 +43,6 @@ public interface IGateService
     /// <summary>The loop sensor saw the vehicle pass: the session becomes valid, slots and counters move.</summary>
     Task<SessionResponseModel> ConfirmEntryAsync(long sessionId);
 
-    /// <summary>The vehicle turned around before the sensor: cancelled, counters unchanged.</summary>
-    Task<SessionResponseModel> CancelEntryAsync(long sessionId);
-
     /// <summary>Fee request at a payment point: the session becomes "Chờ thanh toán" (or Paid when 0 VND).</summary>
     Task<CheckoutQuoteModel> RequestPaymentAsync(long sessionId, CheckoutQuoteRequestModel model);
 
@@ -75,18 +72,9 @@ public interface IGateService
     /// <summary>Manager only: close a ghost session; its fee is waived.</summary>
     Task<SessionResponseModel> CloseAbnormallyAsync(long sessionId, string reason);
 
-    /// <summary>The signed-in customer's sessions, open ones first.</summary>
-    Task<IReadOnlyList<SessionResponseModel>> GetMySessionsAsync(string userId);
-
-    /// <summary>Fee of the customer's own session, as at a kiosk (prepay through the app).</summary>
-    Task<CheckoutQuoteModel> QuoteMySessionAsync(string userId, long sessionId);
-
     /// <summary>Prepay through the app: an Exit Window starts once paid.</summary>
     Task<PaymentResponseModel> PayMySessionAsync(string userId, long sessionId, CreatePaymentModel model, PaymentRequestContext context);
 
     /// <summary>The customer's vehicles inside a lot now, newest entry first, with the running fee and the exit pass.</summary>
     Task<IReadOnlyList<CurrentSessionModel>> GetMyCurrentSessionsAsync(string userId);
-
-    /// <summary>Exit pass of one of the customer's parked vehicles (every checked-in session has one).</summary>
-    Task<ExitPassModel> GetMyExitPassAsync(string userId, long sessionId);
 }

@@ -204,14 +204,6 @@ public class WalkInSimulationService(
         };
     }
 
-    /// <summary>Drives one simulated vehicle out now: pays what is due in cash at the exit lane, then leaves.</summary>
-    public async Task<SimulatedWalkInModel> CheckOutNowAsync(long sessionId)
-    {
-        var session = await SimulatedSessionAsync(sessionId);
-        await LeaveAsync(session.Id, session.HasPlate ? session.EntryPlateNumber : null);
-        return (await GetOverviewAsync(session.ParkingLotId)).Inside.FirstOrDefault(s => s.SessionId == sessionId);
-    }
-
     /// <summary>Drives every simulated vehicle of the lot (or of every lot) out now.</summary>
     public async Task<WalkInCheckOutResultModel> CheckOutAllAsync(int? lotId)
     {
@@ -237,18 +229,6 @@ public class WalkInSimulationService(
             .Take(200)
             .ToListAsync();
         return await LeaveEachAsync(due.Select(s => (s.Id, s.HasPlate ? s.EntryPlateNumber : null, s.SimulatedBy)));
-    }
-
-    /// <summary>The driver of a simulated vehicle says the ticket is lost; Staff approves on the spot or a Manager decides.</summary>
-    public async Task<SimulatedWalkInModel> ReportLostTicketAsync(long sessionId, SimulateLostTicketModel model)
-    {
-        var session = await SimulatedSessionAsync(sessionId);
-        await gates.ReportLostTicketAsync(session.Id, new LostTicketModel
-        {
-            Reason = "Simulated: the driver lost the paper ticket.",
-            ConditionsMet = model?.ConditionsMet == true
-        });
-        return (await GetOverviewAsync(session.ParkingLotId)).Inside.FirstOrDefault(s => s.SessionId == sessionId);
     }
 
     /// <summary>
@@ -404,10 +384,6 @@ public class WalkInSimulationService(
             await gates.PayCashAsync(sessionId, new CashPaymentModel { Amount = quote.AmountDue });
         await gates.CheckoutAsync(sessionId, new CheckoutModel { PlateNumber = plate, PhotoChecked = true });
     }
-
-    private async Task<ParkingSession> SimulatedSessionAsync(long sessionId) =>
-        await pmsContext.ParkingSessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == sessionId && s.IsSimulated)
-        ?? throw new NotFoundException("No simulated vehicle with this session.");
 
     /// <summary>
     /// A random plate in the real format that is not parked now, not a registered vehicle (it would be linked

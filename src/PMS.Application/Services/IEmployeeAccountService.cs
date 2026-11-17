@@ -16,8 +16,6 @@ public interface IEmployeeAccountService
 
     Task<EmployeeAccountResponseModel> UpdateManagerAsync(string managerId, UpdateEmployeeAccountModel model);
 
-    Task<EmployeeAccountResponseModel> SetManagerStatusAsync(string managerId, bool isActive);
-
     /// <summary>
     /// Replaces the Manager's lots. A lot has one Manager: a lot run by another active Manager is refused;
     /// a lot whose Manager is deactivated is handed over.
@@ -25,8 +23,6 @@ public interface IEmployeeAccountService
     Task<EmployeeAccountResponseModel> AssignManagerLotsAsync(string managerId, AssignParkingLotsModel model);
 
     /* Manager -> Staff (always scoped to the lots the calling Manager manages) */
-
-    Task<IEnumerable<AssignedParkingLotModel>> GetManagedLotsAsync(string managerId);
 
     /// <summary>The lot the signed-in Staff works at (Employees.ParkingLotId, set by their Manager); empty when unassigned.</summary>
     Task<IEnumerable<AssignedParkingLotModel>> GetStaffLotsAsync(string staffId);

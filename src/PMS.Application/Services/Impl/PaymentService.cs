@@ -274,15 +274,6 @@ public class PaymentService(
         return await QueryAndApplyAsync(payment, clientIp);
     }
 
-    public async Task<PaymentResponseModel> GetAsync(long paymentId)
-    {
-        var payment = await pmsContext.Payments.AsNoTracking().FirstOrDefaultAsync(p => p.Id == paymentId)
-                      ?? throw new NotFoundException("Payment not found.");
-        await EnsureCanSeeAsync(payment);
-        var session = payment.SessionId == null ? null : await pmsContext.ParkingSessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == payment.SessionId);
-        return ToModel(payment, session);
-    }
-
     public async Task<PaymentResponseModel> GetPendingForReservationAsync(long reservationId)
     {
         var payment = await pmsContext.Payments.AsNoTracking()
