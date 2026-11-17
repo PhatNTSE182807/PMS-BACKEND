@@ -6,7 +6,6 @@ public class WorkLeaveRequest
     public int ParkingLotId { get; set; }
     public int DutyAssignmentId { get; set; }
     public int EmployeeId { get; set; }
-    public int? ProposedEmployeeId { get; set; }
     public string Kind { get; set; }
     public string Reason { get; set; }
     public string Status { get; set; } = "Pending";
@@ -56,12 +55,10 @@ public class WorkOpenShift
     public int DutyRosterShiftId { get; set; }
     public int? OriginalAssignmentId { get; set; }
     public int? LeaveRequestId { get; set; }
-    public int? ProposedEmployeeId { get; set; }
-    public int? TargetEmployeeId { get; set; }
     public string Reason { get; set; }
     public string Status { get; set; } = "Open";
-    public string Stage { get; set; } = "Proposed";
-    public DateTime? DeadlineAt { get; set; }
+    /// <summary>The single deadline: the shift start, or the shift end for a vacancy opened after the start.</summary>
+    public DateTime? ExpiresAt { get; set; }
     public int Revision { get; set; } = 1;
     public int? ReplacementAssignmentId { get; set; }
     public DateTime CreatedAt { get; set; }

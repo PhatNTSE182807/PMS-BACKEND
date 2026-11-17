@@ -52,10 +52,6 @@ public partial class WorkSchedulingService
                         break;
                     case DutyRoster x when entry.State == EntityState.Modified && entry.Property("Status").IsModified:
                         rosterIds.Add(x.Id); break;
-                    case DutyStandbyAssignment x:
-                        var sr = await db.DutyRosters.FindAsync(x.DutyRosterId);
-                        if (sr != null) await Day(sr.ParkingLotId, x.WorkDate);
-                        break;
                     case WorkLeaveRequest x: assignmentIds.Add(x.DutyAssignmentId); break;
                     case WorkSwapRequest x: assignmentIds.Add(x.AssignmentId); assignmentIds.Add(x.OtherAssignmentId); break;
                     case WorkOpenShift x: shiftIds.Add(x.DutyRosterShiftId); break;

@@ -56,7 +56,7 @@ public class WorkSchedulingSqlTests
             await db.SaveChangesAsync();
             // Model-generated initial schema represents the existing tables; remove ONLY the empty new module tables
             // so the additive migration itself, rather than EnsureCreated, must create the module under test.
-            await db.Database.ExecuteSqlRawAsync("DROP TABLE dbo.PayrollLines, dbo.PayrollComplaints, dbo.PayrollAdjustments, dbo.PayrollAudits, dbo.PayrollSlips, dbo.PayrollAttendanceSources, dbo.PayrollProfiles, dbo.AttendanceCarryAdjustments, dbo.AttendancePeriodEvents, dbo.AttendanceOvertimeDecisions, dbo.ManagerWorkDays, dbo.AttendancePeriodLots, dbo.AttendancePeriods, dbo.WorkManagerCoverages, dbo.WorkOpenShiftClaims, dbo.WorkOpenShifts, dbo.WorkLeaveDays, dbo.WorkLeaveBalances, dbo.WorkLeaveRequests, dbo.WorkSwapRequests, dbo.WorkScheduleWorkflowEvents, dbo.DutyStandbyAssignments, dbo.WorkRotationMembers, dbo.WorkRotationGroups, dbo.WorkRotationCycles, dbo.DutyAttendanceEvents, dbo.DutyAttendances, dbo.DutyRosterChangeLogs, dbo.DutyAssignments, dbo.DutyRosterShifts, dbo.DutyRosters, dbo.WorkShiftTemplates");
+            await db.Database.ExecuteSqlRawAsync("DROP TABLE dbo.PayrollLines, dbo.PayrollComplaints, dbo.PayrollAdjustments, dbo.PayrollAudits, dbo.PayrollSlips, dbo.PayrollAttendanceSources, dbo.PayrollProfiles, dbo.AttendanceCarryAdjustments, dbo.AttendancePeriodEvents, dbo.AttendanceOvertimeDecisions, dbo.ManagerWorkDays, dbo.AttendancePeriodLots, dbo.AttendancePeriods, dbo.WorkManagerCoverages, dbo.WorkOpenShiftClaims, dbo.WorkOpenShifts, dbo.WorkLeaveDays, dbo.WorkLeaveBalances, dbo.WorkLeaveRequests, dbo.WorkSwapRequests, dbo.WorkScheduleWorkflowEvents, dbo.WorkRotationMembers, dbo.WorkRotationGroups, dbo.WorkRotationCycles, dbo.DutyAttendanceEvents, dbo.DutyAttendances, dbo.DutyRosterChangeLogs, dbo.DutyAssignments, dbo.DutyRosterShifts, dbo.DutyRosters, dbo.WorkShiftTemplates");
             await AutomatedMigration.EnsureWorkSchedulingTablesAsync(db);
             // Simulate upgrading the previous module version, which did not have assignment notes.
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE dbo.DutyAssignments DROP COLUMN Notes");
@@ -223,7 +223,7 @@ public class WorkSchedulingSqlTests
             foreach (var userId in new[] { "staff", "claim-a", "claim-b" })
                 await service.SavePayrollProfileAsync(null, new() { UserId = userId, Role = "Staff", EffectiveFrom = new(2026, 11, 1), HourlyRate = 100,
                     NightStart = new(22, 0), NightEnd = new(6, 0), NightFactor = 1.5m, HolidayFactor = 2, OvertimeFactor = 1.25m,
-                    StandbyDailyAllowance = 30, Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero", Reason = "Explicit SQL arithmetic fixture" });
+                    Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero", Reason = "Explicit SQL arithmetic fixture" });
             var payroll = await service.GeneratePayrollAsync(new() { ParkingLotId = lot.Id, PayMonth = new(2026, 11, 1), Role = "Staff", Reason = "SQL 2000 arithmetic check" });
             var staffSlip = payroll.Single(s => s.UserId == "staff"); staffSlip.Total.Should().Be(2000);
             var repeatedPayroll = await service.GeneratePayrollAsync(new() { ParkingLotId = lot.Id, PayMonth = new(2026, 11, 1), Role = "Staff", Reason = "Idempotent SQL retry" });

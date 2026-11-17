@@ -45,7 +45,8 @@ public partial class PmsDbContext
         b.Entity<WorkOpenShift>(e => {
             e.ToTable("WorkOpenShifts"); e.HasKey(x => x.Id); e.Property(x => x.Revision).IsConcurrencyToken();
             e.Property(x => x.Status).IsRequired().HasMaxLength(30);
-            e.Property(x => x.Stage).IsRequired().HasMaxLength(30); e.Property(x => x.Reason).IsRequired().HasMaxLength(1000);
+            e.Property(x => x.Reason).IsRequired().HasMaxLength(1000);
+            e.Property(x => x.ExpiresAt).HasColumnName("DeadlineAt");
             e.HasIndex(x => new { x.ParkingLotId, x.Status });
             e.HasOne<DutyRosterShift>().WithMany().HasForeignKey(x => x.DutyRosterShiftId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<DutyAssignment>().WithMany().HasForeignKey(x => x.OriginalAssignmentId).OnDelete(DeleteBehavior.Restrict);

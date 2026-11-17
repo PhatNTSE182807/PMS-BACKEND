@@ -19,7 +19,7 @@ The user separately confirmed:
 The agreed attendance limit remains 48 ordinary hours per local Monday–Sunday week. Payroll
 consumes the sealed ordinary/overtime intervals, not a recomputation from live rosters/templates.
 
-No numerical rate, factor, standby allowance, night window, Manager standard-day divisor,
+No numerical rate, factor, night window, Manager standard-day divisor,
 currency or monetary rounding default is supplied. Admin must enter these explicitly. All
 figures in the tests below are fixtures, not production defaults.
 
@@ -34,22 +34,22 @@ approved leave and retains monthly salary under SM-29. Missing day records never
 `PayrollAttendanceSources` is a versioned, hashed snapshot linked uniquely to an attendance-period
 lot. New attendance locking seals it atomically under the scheduling transaction/application lock:
 
-- Original assignment/roster IDs; dated shift name, hours, position and timezone.
+- Original assignment/roster IDs; dated shift name, hours and timezone.
 - Corrected attendance, revision, original attendance events and overtime decision history.
 - Exact ordinary and approved overtime intervals, clipped to the locked attendance period.
 - Approved leave linked to its original assignment/request and paid/unpaid classification.
-- Standby, including an employee called into a direct shift; Manager days/identity.
+- Manager days/identity.
 - Holiday dates/names, employee identities, signed hours carries and period UTC bounds.
 
-`WasCalled` is additive standby metadata. Being called preserves allowance evidence after the
-active standby row is released. Standby does not become worked attendance. Cancelled standby
-without earned allowance is excluded.
+There is no standby duty or standby allowance. Sources sealed before standby was removed may
+still contain a standby list; payroll ignores it. Payroll lines already calculated for standby keep
+their rows, and `PayrollLines.StandbyId` / `PayrollProfiles.StandbyDailyAllowance` remain only as
+unused nullable columns.
 
 Legacy locked periods need explicit Admin sealing. The operation verifies stored attendance
 revisions/times and approved totals against the locked review, then appends the detailed source;
-it never unlocks or replaces the original snapshot. Unknown cancelled standby requires explicit
-earned/not-earned classification with a reason. The historical Manager is required if no stored
-confirmation/day record identifies one. A mismatch blocks sealing; no times or allowances are guessed.
+it never unlocks or replaces the original snapshot. The historical Manager is required if no stored
+confirmation/day record identifies one. A mismatch blocks sealing; no times are guessed.
 
 `PayrollProfiles` stores salary versions with effective dates. Admin may edit an uncommitted
 version using its revision or add a later effective version. A change affecting Approved/Paid
@@ -81,8 +81,7 @@ never enter the calculation.
 
 Staff intervals split at midnight, configured night boundaries, holidays and effective salary dates.
 Cross-month overnight work remains attached to the original assignment. Absent/unpaid leave have
-zero-pay explanations, without extra fines. Paid leave keeps its source request. Standby is a
-separate daily allowance, independent of direct worked hours.
+zero-pay explanations, without extra fines. Paid leave keeps its source request.
 
 Manager base is the configured monthly rate. Explicit locked Absent days deduct effective monthly
 rate / configured standard days. Approved paid leave retains the base. Unpaid-leave treatment is
@@ -139,7 +138,7 @@ Base `/api/payroll`; all routes enforce role/lot/owner access on the backend.
 
 ## Hand-checkable validation
 
-Explicit fixtures only: hourly 100, night 1.5, holiday 2, overtime 1.25, standby 30,
+Explicit fixtures only: hourly 100, night 1.5, holiday 2, overtime 1.25,
 monthly base 2600, standard days 26.
 
 | Case | Hand calculation | Result |
@@ -150,7 +149,6 @@ monthly base 2600, standard days 26.
 | Holiday 22:00–24:00, next ordinary night 00:00–06:00 | 2 × 100 × 2 + 6 × 100 × 1.5 | 1300 |
 | Hourly rate doubles at midnight in night shift | 2 × 100 × 1.5 + 6 × 200 × 1.5 | 2100 |
 | Paid leave on holiday night shift, 8h | 8 × 100 | 800 |
-| Standby not called | 1 × 30, no worked hours | 30 |
 | Manager 1 Absent day + bonus 50 | 2600 − 2600/26 + 50 | 2550 |
 | Oct31 22:00–Nov1 06:00, October part | 2 × 100 × 1.5 | 300 |
 | SQL month assembled from several locked periods | 8 night hours × 100 × 1.5 + 8 paid leave hours × 100 | 2000 |

@@ -15,16 +15,15 @@ public record PayrollAssignmentEvidence(int AssignmentId, int EmployeeId, string
     public RosterShiftModel ShiftSnapshot { get; init; }
     public AttendanceModel Attendance { get; init; }
 }
-public record PayrollStandbyEvidence(int Id, int EmployeeId, string UserId, string StaffName, DateOnly WorkDate, bool WasCalled);
 public record PayrollHoliday(DateOnly Date, string Name);
 public record PayrollEvidence(int Version, int PeriodLotId, int LotId, string LotName, string TimeZoneId,
     DateOnly FromDate, DateOnly ToDate, DateTime StartsAt, DateTime EndsAt,
     IReadOnlyList<PayrollPerson> People, IReadOnlyList<PayrollAssignmentEvidence> Assignments,
-    IReadOnlyList<PayrollStandbyEvidence> Standbys, IReadOnlyList<ManagerWorkDayModel> ManagerDays,
+    IReadOnlyList<ManagerWorkDayModel> ManagerDays,
     IReadOnlyList<PayrollHoliday> Holidays, IReadOnlyList<AttendanceCarryAdjustment> CarryAdjustments);
 public class PayrollProfileInput : PayrollProfile { }
 public class PayrollGenerateInput { public DateOnly PayMonth { get; set; } public int ParkingLotId { get; set; } public string Role { get; set; } public string UserId { get; set; } public string Reason { get; set; } }
-public class SealPayrollSourceInput { public string Reason { get; set; } public string ManagerUserId { get; set; } public Dictionary<int, bool> LegacyStandbyDecisions { get; set; } = []; }
+public class SealPayrollSourceInput { public string Reason { get; set; } public string ManagerUserId { get; set; } }
 public class PayrollActionInput
 {
     public int Revision { get; set; }

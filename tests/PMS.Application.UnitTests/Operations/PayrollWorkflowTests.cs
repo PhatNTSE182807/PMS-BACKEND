@@ -40,7 +40,7 @@ public class PayrollWorkflowTests
             var p = PayrollCalculatorTests.StaffProfile(); p.UserId = t.StaffUserId;
             await s.SavePayrollProfileAsync(null, new() { UserId = p.UserId, Role = p.Role, EffectiveFrom = p.EffectiveFrom, HourlyRate = p.HourlyRate,
                 NightStart = p.NightStart, NightEnd = p.NightEnd, NightFactor = p.NightFactor, HolidayFactor = p.HolidayFactor, OvertimeFactor = p.OvertimeFactor,
-                StandbyDailyAllowance = p.StandbyDailyAllowance, Currency = p.Currency, MoneyDecimals = p.MoneyDecimals, RoundingMode = p.RoundingMode, Reason = "Arithmetic fixture, not a production default" });
+                Currency = p.Currency, MoneyDecimals = p.MoneyDecimals, RoundingMode = p.RoundingMode, Reason = "Arithmetic fixture, not a production default" });
             if (locked) await s.LockAttendancePeriodAsync(period.Id, new() { Revision = period.Revision, AcknowledgeUnconfirmed = true, Reason = "Verified fixture month" });
             return new() { T = t, Identity = identity, Service = s, Roster = r, Period = period, Template = template };
         }
@@ -134,18 +134,14 @@ public class PayrollWorkflowTests
         result.Single().Total.Should().Be(25);
         var detail = await w.Service.PayrollSlipAsync(result.Single().Id); detail.Lines.Should().ContainSingle(l => l.Kind == "Adjustment" && l.AssignmentId == null);
     }
-    [Fact] public async Task Legacy_Source_Requires_Explicit_Unknown_Standby_Classification_And_Does_Not_Edit_Locked_Review()
+    [Fact] public async Task Legacy_Source_Can_Be_Sealed_Without_Editing_Locked_Review()
     {
         using var w = await World.Create();
         var lot = w.T.Db.AttendancePeriodLots.Single(); var original = lot.SnapshotJson;
-        w.T.Db.PayrollAttendanceSources.RemoveRange(w.T.Db.PayrollAttendanceSources);
-        var standby = new DutyStandbyAssignment { DutyRosterId = w.Roster.Id, WorkDate = new(2026, 10, 30), EmployeeId = w.Roster.Shifts.Single().Assignments.Single().EmployeeId,
-            Source = "Manual", IsCancelled = true, WasCalled = false };
-        w.T.Db.DutyStandbyAssignments.Add(standby); await w.T.Db.SaveChangesAsync();
-        await FluentActions.Invoking(() => w.Service.SealPayrollSourceAsync(lot.Id, new() { Reason = "Verify legacy", ManagerUserId = w.T.ManagerUserId })).Should().ThrowAsync<BadRequestException>().WithMessage("*Legacy standby*");
-        await w.Service.SealPayrollSourceAsync(lot.Id, new() { Reason = "Admin verified earned standby from retained history", ManagerUserId = w.T.ManagerUserId, LegacyStandbyDecisions = new() { [standby.Id] = true } });
+        w.T.Db.PayrollAttendanceSources.RemoveRange(w.T.Db.PayrollAttendanceSources); await w.T.Db.SaveChangesAsync();
+        await w.Service.SealPayrollSourceAsync(lot.Id, new() { Reason = "Admin verified the older period", ManagerUserId = w.T.ManagerUserId });
         lot.SnapshotJson.Should().Be(original); w.T.Db.PayrollAttendanceSources.Should().ContainSingle();
-        (await w.Draft()).Total.Should().Be(830);
+        (await w.Draft()).Total.Should().Be(800);
     }
     [Fact] public async Task Manager_Can_Read_Own_Published_Monthly_Slip_But_Not_Another_Manager_Even_At_The_Same_Lot()
     {

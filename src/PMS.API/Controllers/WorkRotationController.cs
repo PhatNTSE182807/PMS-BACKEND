@@ -33,10 +33,4 @@ public class WorkRotationController(WorkSchedulingService schedules) : ApiContro
     /// <summary>Fills the roster with the assignments of a rotation.</summary>
     [HttpPost("rosters/{rosterId:int}/rotation-apply")]
     public async Task<IActionResult> Apply(int lotId, int rosterId, RotationGenerationInput input) => Ok(ApiResult<object>.Success(await schedules.ApplyRotationAsync(lotId, rosterId, input)));
-    /// <summary>Adds a standby (on-call) employee to the roster.</summary>
-    [HttpPost("rosters/{rosterId:int}/standby")]
-    public async Task<IActionResult> AddStandby(int lotId, int rosterId, StandbyMutationInput input) => Ok(ApiResult<object>.Success(await schedules.SaveStandbyAsync(lotId, rosterId, null, input)));
-    /// <summary>Updates a standby entry of the roster.</summary>
-    [HttpPut("rosters/{rosterId:int}/standby/{id:int}")]
-    public async Task<IActionResult> EditStandby(int lotId, int rosterId, int id, StandbyMutationInput input) => Ok(ApiResult<object>.Success(await schedules.SaveStandbyAsync(lotId, rosterId, id, input)));
 }

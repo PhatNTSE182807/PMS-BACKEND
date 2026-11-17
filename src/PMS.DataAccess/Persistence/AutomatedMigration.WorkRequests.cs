@@ -43,7 +43,7 @@ public static partial class AutomatedMigration
         BEGIN
             CREATE TABLE dbo.WorkOpenShifts (Id int IDENTITY PRIMARY KEY, ParkingLotId int NOT NULL,
                 DutyRosterShiftId int NOT NULL, OriginalAssignmentId int NULL, LeaveRequestId int NULL, ProposedEmployeeId int NULL, TargetEmployeeId int NULL,
-                Reason nvarchar(1000) NOT NULL, Status nvarchar(30) NOT NULL, Stage nvarchar(30) NOT NULL,
+                Reason nvarchar(1000) NOT NULL, Status nvarchar(30) NOT NULL,
                 DeadlineAt datetime2 NULL, Revision int NOT NULL, ReplacementAssignmentId int NULL, CreatedAt datetime2 NOT NULL,
                 FOREIGN KEY(DutyRosterShiftId) REFERENCES dbo.DutyRosterShifts(Id), FOREIGN KEY(OriginalAssignmentId) REFERENCES dbo.DutyAssignments(Id));
             CREATE INDEX IX_WorkOpenShifts_ParkingLotId_Status ON dbo.WorkOpenShifts(ParkingLotId,Status);

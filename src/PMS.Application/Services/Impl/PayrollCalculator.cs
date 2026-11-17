@@ -102,13 +102,6 @@ public static class PayrollCalculator
                         new { Assignment = a, SourceId = source.Id, SourceHash = source.Hash });
                 }
             }
-            if (person.Role == "Staff") foreach (var standby in evidence.Standbys.Where(s => s.UserId == person.UserId && s.WorkDate >= month && s.WorkDate < next).GroupBy(x => x.WorkDate).Select(g => g.First())) {
-                var p = Profile(standby.WorkDate);
-                Add(new PayrollLine { Kind = "Standby", Description = "Standby allowance, earned whether called or not", SourcePeriodLotId = evidence.PeriodLotId,
-                    StandbyId = standby.Id, WorkDate = standby.WorkDate, Unit = "Day", Quantity = 1,
-                    UnitRate = Need(p.StandbyDailyAllowance, "daily standby allowance (zero is allowed)", p), Factor = 1 }, p,
-                    new { Standby = standby, SourceId = source.Id, SourceHash = source.Hash });
-            }
         }
         if (person.Role == "Manager" && sources.Any(s => s.Evidence.People.Any(p => p.UserId == person.UserId && p.Role == "Manager"))) {
             var first = Profile(month);

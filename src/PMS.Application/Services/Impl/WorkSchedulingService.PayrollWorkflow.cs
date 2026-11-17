@@ -110,7 +110,7 @@ public partial class WorkSchedulingService
             || input.Quantity == 0 || input.UnitRate < 0 || input.UnitRate > 1000000000m || Math.Abs(input.Quantity) > 1000000m
             || decimal.Round(input.Quantity, 12) != input.Quantity || decimal.Round(input.UnitRate, 6) != input.UnitRate)
             throw new BadRequestException("Enter a non-zero explained adjustment, allowance or bonus with valid quantity and rate.");
-        if (input.Role == "Staff" && input.Kind is "Allowance" or "Bonus") throw new BadRequestException("Staff standby allowance is calculated from sealed standby records. Other corrections must use a traced adjustment.");
+        if (input.Role == "Staff" && input.Kind is "Allowance" or "Bonus") throw new BadRequestException("Staff pay comes from locked attendance. Use a traced adjustment for corrections.");
         if (await identity.Users.AnyAsync(u => u.Id == input.UserId && u.Role == "Admin")) throw new BadRequestException("Admin salary is not managed.");
         if (await db.PayrollSlips.AnyAsync(s => s.UserId == input.UserId && s.ParkingLotId == input.ParkingLotId && s.PayMonth == month && s.Status != "Draft"))
             throw new ConflictException("The target payroll month is approved/paid. Choose a later open month.");

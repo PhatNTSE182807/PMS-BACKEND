@@ -74,7 +74,6 @@ public record DutyRosterModel(int Id, int ParkingLotId, string Name, DateOnly Fr
     string Status, int Revision, DateTime? PublishedAt, IReadOnlyList<RosterShiftModel> Shifts, IReadOnlyList<ShortageModel> Shortages)
 {
     public IReadOnlyList<DateOnly> AttendanceLockedDates { get; init; } = [];
-    public IReadOnlyList<StandbyModel> Standbys { get; init; } = [];
     public IReadOnlyList<RotationIssue> RotationIssues { get; init; } = [];
     public string RotationConfigurationJson { get; init; }
 }

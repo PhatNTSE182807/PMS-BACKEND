@@ -295,7 +295,7 @@ public partial class WorkSchedulingService
                 var notices = await SaveAttendanceEventAsync(c, record, before, action, "System",
                     action == "Absent" ? "Start deadline passed without a check-in." : "End grace period elapsed; scheduled end used for review.");
                 if (action == "Absent" && now < c.Shift.EndsAt)
-                    await NewOpenShiftAsync(c.Shift, "Uncovered absence after the start deadline.", c.Assignment.Id, null, null, notices);
+                    await NewOpenShiftAsync(c.Shift, "Uncovered absence after the start deadline.", c.Assignment.Id, null, notices);
                 if (!pending.TryGetValue(c.Roster.ParkingLotId, out var list)) pending[c.Roster.ParkingLotId] = list = [];
                 list.AddRange(notices);
             }

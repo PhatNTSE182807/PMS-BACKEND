@@ -22,7 +22,7 @@ public partial class PmsDbContext
             e.Property(x => x.OvertimeCombination).HasMaxLength(40); e.Property(x => x.PaidLeaveMethod).HasMaxLength(30);
             e.Property(x => x.ManagerProration).HasMaxLength(30); e.Property(x => x.ManagerUnpaidLeavePolicy).HasMaxLength(30);
             e.Property(x => x.RoundingMode).HasMaxLength(30);
-            foreach (var name in new[] { "HourlyRate", "MonthlyRate", "StandbyDailyAllowance", "StandardWorkDays", "PaidLeaveHoursPerDay", "NightFactor", "HolidayFactor", "OvertimeFactor" })
+            foreach (var name in new[] { "HourlyRate", "MonthlyRate", "StandardWorkDays", "PaidLeaveHoursPerDay", "NightFactor", "HolidayFactor", "OvertimeFactor" })
                 e.Property<decimal?>(name).HasPrecision(18, 6);
         });
         b.Entity<PayrollAttendanceSource>(e => {
@@ -72,6 +72,5 @@ public partial class PmsDbContext
             e.Property(x => x.Action).HasMaxLength(50).IsRequired(); e.Property(x => x.Reason).HasMaxLength(1000);
             e.HasIndex(x => new { x.PayrollSlipId, x.Id });
         });
-        b.Entity<DutyStandbyAssignment>().Property(x => x.WasCalled).HasDefaultValue(false);
     }
 }

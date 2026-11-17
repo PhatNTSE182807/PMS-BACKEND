@@ -39,7 +39,7 @@ public class WorkRequestTests
         }
         public void Staff(int n = 0) => T.ActAs(T.Db.Employees.Single(e => e.Id == Employees[n]).UserId, "Staff");
         public void Manager() => T.ActAs(T.ManagerUserId, "Manager");
-        public async Task<WorkLeaveRequest> Leave(int? proposed = null, string kind = "Planned") { Staff(); return await S.CreateLeaveAsync(new CreateLeaveInput { AssignmentId = First, Kind = kind, Reason = "Personal leave", ProposedEmployeeId = proposed }); }
+        public async Task<WorkLeaveRequest> Leave(string kind = "Planned") { Staff(); return await S.CreateLeaveAsync(new CreateLeaveInput { AssignmentId = First, Kind = kind, Reason = "Personal leave" }); }
         public async Task Approve(WorkLeaveRequest leave) { Manager(); await S.DecideLeaveAsync(leave.Id, new WorkRequestCommand { Revision = leave.Revision, Action = "Approve", Reason = "Approved by lot Manager" }); }
         public void Dispose() { T.Db.Dispose(); Identity.Dispose(); }
     }
@@ -58,9 +58,9 @@ public class WorkRequestTests
     [Fact]
     public async Task Approval_Retains_Leave_Trail_And_Claim_Is_Not_Counting_As_Staffing()
     {
-        using var w = await World.Create(); var request = await w.Leave(w.Employees[1]); await w.Approve(request);
+        using var w = await World.Create(); var request = await w.Leave(); await w.Approve(request);
         var original = w.T.Db.DutyAssignments.Single(a => a.Id == w.First); original.IsCancelled.Should().BeTrue();
-        var slot = w.T.Db.WorkOpenShifts.Single(); slot.Stage.Should().Be("Proposed"); slot.TargetEmployeeId.Should().Be(w.Employees[1]);
+        var slot = w.T.Db.WorkOpenShifts.Single(); slot.Status.Should().Be("Open"); slot.ExpiresAt.Should().Be(w.R.Shifts[0].StartsAt);
         w.Staff(1); await w.S.ActOnOpenShiftAsync(slot.Id, new WorkRequestCommand { Revision = slot.Revision, Action = "Claim" });
         w.Manager(); var model = (await w.S.RostersAsync(w.T.Lot.Id)).Single();
         model.Shifts[0].Assigned.Should().Be(0); model.Shifts[0].Trail.Should().ContainSingle(t => t.Kind == "ApprovedLeave" && t.IsPaid);
@@ -82,12 +82,11 @@ public class WorkRequestTests
         w.Staff(); var balance = (await w.S.RequestsAsync(w.T.Lot.Id, 2026)).Balances.Single(); balance.PaidDaysUsed.Should().Be(0); balance.UnpaidDays.Should().Be(1);
     }
     [Fact]
-    public async Task Emergency_Proposal_Is_Disabled_And_Approving_Absence_Clears_It_With_History()
+    public async Task Approving_Emergency_Leave_Clears_The_Absence_With_History()
     {
         using var w = await World.Create(); var plannedStart = w.R.Shifts[0].StartsAt;
         w.T.Clock.Now = new DateTimeOffset(plannedStart.AddMinutes(31));
         await w.S.UpdateDueAttendanceAsync();
-        await FluentActions.Invoking(() => w.Leave(w.Employees[1], "Emergency")).Should().ThrowAsync<BadRequestException>();
         var leave = await w.Leave(kind: "Emergency"); await w.Approve(leave);
         w.T.Db.DutyAttendances.Single(a => a.DutyAssignmentId == w.First).IsAbsent.Should().BeFalse();
         w.T.Db.DutyAttendanceEvents.Should().Contain(e => e.Action == "LeaveApproved");
@@ -107,19 +106,18 @@ public class WorkRequestTests
         replacements.Single(a => a.OriginalAssignmentId == second).EmployeeId.Should().Be(w.Employees[0]);
     }
     [Fact]
-    public async Task Target_Timeout_Offers_Standby_Then_Manual_After_Cutoff_And_Reruns_Are_Idempotent()
+    public async Task Vacancy_Expires_At_Shift_Start_And_Reruns_Are_Idempotent()
     {
-        using var w = await World.Create(); w.Manager();
-        await w.S.SaveStandbyAsync(w.T.Lot.Id, w.R.Id, null, new StandbyMutationInput { Revision = w.R.Revision, Reason = "Daily standby", EmployeeId = w.Employees[2], WorkDate = w.Day });
-        var leave = await w.Leave(w.Employees[1]); await w.Approve(leave); var slot = w.T.Db.WorkOpenShifts.Single();
-        w.T.Clock.Now = new DateTimeOffset(slot.DeadlineAt.Value);
-        (await w.S.ProcessWorkRequestDeadlinesAsync()).Should().Be(1); slot.Stage.Should().Be("Standby"); slot.TargetEmployeeId.Should().Be(w.Employees[2]);
-        w.T.Clock.Now = new DateTimeOffset(w.R.Shifts[0].StartsAt.AddHours(-23));
-        await w.S.ProcessWorkRequestDeadlinesAsync(); slot.Stage.Should().Be("Manual");
+        using var w = await World.Create(); var leave = await w.Leave(); await w.Approve(leave); var slot = w.T.Db.WorkOpenShifts.Single();
+        w.Staff(1); await w.S.ActOnOpenShiftAsync(slot.Id, new WorkRequestCommand { Revision = slot.Revision, Action = "Claim" });
+        w.T.Clock.Now = new DateTimeOffset(w.R.Shifts[0].StartsAt.AddMinutes(-1));
+        (await w.S.ProcessWorkRequestDeadlinesAsync()).Should().Be(0); slot.Status.Should().Be("Open");
+        w.T.Clock.Now = new DateTimeOffset(w.R.Shifts[0].StartsAt);
+        (await w.S.ProcessWorkRequestDeadlinesAsync()).Should().Be(1); slot.Status.Should().Be("Expired");
+        w.T.Db.WorkOpenShiftClaims.Single().Status.Should().Be("Expired");
         (await w.S.ProcessWorkRequestDeadlinesAsync()).Should().Be(0);
-        w.Manager(); await w.S.ActOnOpenShiftAsync(slot.Id, new WorkRequestCommand { Revision = slot.Revision, Action = "ManagerCover", Reason = "Manager covers entry" });
-        w.T.Db.WorkManagerCoverages.Should().ContainSingle();
-        (await w.S.RostersAsync(w.T.Lot.Id)).Single().Shifts[0].Assigned.Should().Be(1);
+        w.Manager(); await FluentActions.Invoking(() => w.S.ActOnOpenShiftAsync(slot.Id, new WorkRequestCommand { Revision = slot.Revision, Action = "ManagerCover", Reason = "Too late" }))
+            .Should().ThrowAsync<ConflictException>();
     }
     [Theory]
     [InlineData("Admin", "admin")]
@@ -176,7 +174,7 @@ public class WorkRequestTests
     {
         using var w = await World.Create(); w.T.Clock.Now = new DateTimeOffset(w.R.Shifts[0].StartsAt.AddHours(1));
         await w.S.UpdateDueAttendanceAsync(); var leave = await w.Leave(kind: "Emergency"); await w.Approve(leave);
-        var slot = w.T.Db.WorkOpenShifts.Single(); slot.Stage.Should().Be("Manual");
+        var slot = w.T.Db.WorkOpenShifts.Single(); slot.ExpiresAt.Should().Be(w.R.Shifts[0].EndsAt);
         w.Manager(); await w.S.ActOnOpenShiftAsync(slot.Id, new WorkRequestCommand { Revision = slot.Revision, Action = "Assign", EmployeeId = w.Employees[1], Reason = "Urgent replacement" });
         var replacement = w.T.Db.DutyAssignments.Single(a => a.OriginalAssignmentId == w.First);
         w.Staff(1); var detail = await w.S.AttendanceDetailAsync(replacement.Id);
@@ -188,7 +186,7 @@ public class WorkRequestTests
     [Fact]
     public async Task Open_Offer_Cannot_Be_Bypassed_By_The_Manual_Calendar_Assignment_Route()
     {
-        using var w = await World.Create(); var leave = await w.Leave(w.Employees[1]); await w.Approve(leave); w.Manager();
+        using var w = await World.Create(); var leave = await w.Leave(); await w.Approve(leave); w.Manager();
         var roster = (await w.S.RostersAsync(w.T.Lot.Id)).Single();
         await FluentActions.Invoking(() => w.S.SaveAssignmentAsync(w.T.Lot.Id, roster.Id, roster.Shifts[0].Id, null,
             new DutyAssignmentInput { Revision = roster.Revision, EmployeeId = w.Employees[1], Reason = "Try bypass" })).Should().ThrowAsync<BadRequestException>();
@@ -196,12 +194,13 @@ public class WorkRequestTests
     }
 
     [Fact]
-    public async Task Manager_Can_Act_Exactly_At_Public_Deadline_Without_Waiting_For_The_Timer()
+    public async Task Manager_Can_Cover_Or_Assign_As_Soon_As_The_Vacancy_Opens()
     {
         using var w = await World.Create(); var leave = await w.Leave(); await w.Approve(leave); var slot = w.T.Db.WorkOpenShifts.Single();
-        slot.Stage.Should().Be("Public"); w.T.Clock.Now = new DateTimeOffset(slot.DeadlineAt.Value); w.Manager();
-        await w.S.ActOnOpenShiftAsync(slot.Id, new WorkRequestCommand { Revision = slot.Revision, Action = "ManagerCover", Reason = "Response deadline elapsed" });
-        slot.Status.Should().Be("Filled"); (await w.S.ProcessWorkRequestDeadlinesAsync()).Should().Be(0);
+        w.Manager(); await w.S.ActOnOpenShiftAsync(slot.Id, new WorkRequestCommand { Revision = slot.Revision, Action = "ManagerCover", Reason = "Manager covers the shift" });
+        slot.Status.Should().Be("Filled"); w.T.Db.WorkManagerCoverages.Should().ContainSingle();
+        (await w.S.RostersAsync(w.T.Lot.Id)).Single().Shifts[0].Assigned.Should().Be(1);
+        (await w.S.ProcessWorkRequestDeadlinesAsync()).Should().Be(0);
     }
 
     [Fact]

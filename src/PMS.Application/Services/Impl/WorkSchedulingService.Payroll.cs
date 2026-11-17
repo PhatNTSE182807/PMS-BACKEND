@@ -53,10 +53,10 @@ public partial class WorkSchedulingService
             if (input.Role != user.Role || input.EffectiveFrom.Year < 1900 || input.EffectiveFrom.Year >= 9999)
                 throw new BadRequestException("Select the employee's role and a valid effective date.");
             var reason = RequestReason(input.Reason);
-            if (new[] { input.HourlyRate, input.MonthlyRate, input.StandbyDailyAllowance, input.StandardWorkDays,
+            if (new[] { input.HourlyRate, input.MonthlyRate, input.StandardWorkDays,
                 input.NightFactor, input.HolidayFactor, input.OvertimeFactor }.Any(x => x.HasValue && decimal.Round(x.Value, 6) != x.Value))
                 throw new BadRequestException("Salary values support up to six decimal places; unsupported precision is not silently rounded.");
-            if (new[] { input.HourlyRate, input.MonthlyRate, input.StandbyDailyAllowance }.Any(x => x < 0 || x > 1000000000m)
+            if (new[] { input.HourlyRate, input.MonthlyRate }.Any(x => x < 0 || x > 1000000000m)
                 || new[] { input.NightFactor, input.HolidayFactor, input.OvertimeFactor }.Any(x => x.HasValue && (x < 1 || x > 1000))
                 || input.StandardWorkDays is <= 0 or > 31 || input.MoneyDecimals is < 0 or > 4
                 || (input.NightStart.HasValue && input.NightEnd.HasValue && input.NightStart == input.NightEnd)
@@ -81,7 +81,7 @@ public partial class WorkSchedulingService
             row.NightStart = input.NightStart; row.NightEnd = input.NightEnd; row.NightFactor = input.NightFactor;
             row.HolidayFactor = input.HolidayFactor; row.OvertimeFactor = input.OvertimeFactor;
             row.OvertimeCombination = "PremiumThenOvertime"; row.PaidLeaveMethod = "PlannedHours"; row.PaidLeaveHoursPerDay = null;
-            row.StandbyDailyAllowance = input.StandbyDailyAllowance; row.StandardWorkDays = input.StandardWorkDays;
+            row.StandardWorkDays = input.StandardWorkDays;
             row.ManagerProration = input.ManagerProration; row.ManagerUnpaidLeavePolicy = input.ManagerUnpaidLeavePolicy;
             row.Currency = input.Currency?.ToUpperInvariant(); row.MoneyDecimals = input.MoneyDecimals; row.RoundingMode = input.RoundingMode;
             row.Reason = reason; row.Revision = revision; row.CreatedAt = created; row.CreatedBy = scope.UserId;

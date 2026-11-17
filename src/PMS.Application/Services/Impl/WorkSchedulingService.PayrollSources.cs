@@ -59,19 +59,6 @@ public partial class WorkSchedulingService
                 });
             people[c.Employee.UserId] = new(c.Employee.UserId, c.Employee.Id, row.StaffName, "Staff");
         }
-        var standbyRows = await (from s in db.DutyStandbyAssignments.AsNoTracking() join r in db.DutyRosters.AsNoTracking() on s.DutyRosterId equals r.Id
-            join e in db.Employees.AsNoTracking() on s.EmployeeId equals e.Id
-            where r.ParkingLotId == lot.ParkingLotId && r.Status == "Published" && s.WorkDate >= review.Period.FromDate && s.WorkDate <= review.Period.ToDate
-            select new { s, e.UserId, e.FullName }).ToListAsync();
-        var standbys = new List<PayrollStandbyEvidence>();
-        foreach (var row in standbyRows) {
-            if (legacy && row.s.IsCancelled && !row.s.WasCalled && !(input?.LegacyStandbyDecisions.ContainsKey(row.s.Id) ?? false))
-                throw new BadRequestException($"Legacy standby #{row.s.Id} on {row.s.WorkDate}: Admin must classify whether its allowance was earned before sealing.");
-            var eligible = !row.s.IsCancelled || row.s.WasCalled || (legacy && input?.LegacyStandbyDecisions.GetValueOrDefault(row.s.Id) == true);
-            if (!eligible) continue;
-            standbys.Add(new(row.s.Id, row.s.EmployeeId, row.UserId, row.FullName, row.s.WorkDate, row.s.WasCalled));
-            people[row.UserId] = new(row.UserId, row.s.EmployeeId, row.FullName, "Staff");
-        }
         var managerIds = review.ManagerDays.Select(x => x.ManagerUserId).ToHashSet();
         foreach (var carry in review.Adjustments) {
             var employee = await db.Employees.AsNoTracking().SingleAsync(e => e.Id == carry.EmployeeId);
@@ -94,12 +81,12 @@ public partial class WorkSchedulingService
                 holidays.Add(new(date, h.Name));
         var evidence = new PayrollEvidence(1, lot.Id, lot.ParkingLotId, review.Lot.LotName, lot.TimeZoneId,
             review.Period.FromDate, review.Period.ToDate, Utc(lot.StartsAt), Utc(lot.EndsAt), people.Values.OrderBy(x => x.UserId).ToList(), assignments,
-            standbys, review.ManagerDays, holidays, review.Adjustments);
+            review.ManagerDays, holidays, review.Adjustments);
         var json = JsonSerializer.Serialize(evidence);
         var source = new PayrollAttendanceSource { AttendancePeriodLotId = lot.Id, SnapshotJson = json, SnapshotHash = PayrollHash(json),
             CreatedBy = scope.UserId, CreatedAt = Now };
         db.PayrollAttendanceSources.Add(source);
-        PayrollAuditEntry("AttendanceSourceSealed", lot.ParkingLotId, null, input?.Reason ?? "Sealed atomically with attendance lock.", null, new { lot.Id, source.SnapshotHash, Legacy = legacy, Decisions = input?.LegacyStandbyDecisions });
+        PayrollAuditEntry("AttendanceSourceSealed", lot.ParkingLotId, null, input?.Reason ?? "Sealed atomically with attendance lock.", null, new { lot.Id, source.SnapshotHash, Legacy = legacy });
         return source;
     }
 
@@ -109,12 +96,9 @@ public partial class WorkSchedulingService
         var periods = await (from l in db.AttendancePeriodLots join p in db.AttendancePeriods on l.AttendancePeriodId equals p.Id
             where l.ParkingLotId == lotId && l.Status == "Locked" select new { l.Id, p.Name, p.FromDate, p.ToDate, l.ConfirmedBy }).ToListAsync();
         var sources = await db.PayrollAttendanceSources.AsNoTracking().Where(s => periods.Select(p => p.Id).Contains(s.AttendancePeriodLotId)).ToListAsync();
-        var standby = await (from s in db.DutyStandbyAssignments join r in db.DutyRosters on s.DutyRosterId equals r.Id join e in db.Employees on s.EmployeeId equals e.Id
-            where r.ParkingLotId == lotId && r.Status == "Published" && s.IsCancelled && !s.WasCalled select new { s.Id, s.WorkDate, e.FullName }).ToListAsync();
         return periods.Select(p => new { PeriodLotId = p.Id, p.Name, p.FromDate, p.ToDate, Sealed = sources.Any(s => s.AttendancePeriodLotId == p.Id),
             Hash = sources.FirstOrDefault(s => s.AttendancePeriodLotId == p.Id)?.SnapshotHash, ManagerUserId = p.ConfirmedBy,
-            CarryAdjustments = sources.Where(s => s.AttendancePeriodLotId == p.Id).SelectMany(s => JsonSerializer.Deserialize<PayrollEvidence>(s.SnapshotJson).CarryAdjustments).ToList(),
-            LegacyStandbys = standby.Where(s => s.WorkDate >= p.FromDate && s.WorkDate <= p.ToDate).ToList() }).ToList();
+            CarryAdjustments = sources.Where(s => s.AttendancePeriodLotId == p.Id).SelectMany(s => JsonSerializer.Deserialize<PayrollEvidence>(s.SnapshotJson).CarryAdjustments).ToList() }).ToList();
     }
     public async Task<object> SealPayrollSourceAsync(int periodLotId, SealPayrollSourceInput input)
     {

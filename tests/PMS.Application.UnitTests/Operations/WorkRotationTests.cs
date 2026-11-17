@@ -159,15 +159,13 @@ public class WorkRotationTests
     }
 
     [Fact]
-    public async Task Offset_And_Standby_Are_Deterministic_And_Not_Direct_Staffing()
+    public async Task Offset_Is_Deterministic()
     {
         using var w = await World.Create(7);
         await w.S.SaveRotationGroupAsync(w.T.Lot.Id, w.Group.Id, new RotationGroupInput { Name = "A", OffsetDays = 2, Revision = w.Group.Revision, Members = w.Group.Members.ToList() });
-        var input = w.Input(); input.IncludeStandby = true; input.StandbyGroupIds = [w.Group.Id];
+        var input = w.Input();
         var preview = await w.Preview(input);
         preview.Roster.Shifts.Single(s => s.WorkDate == w.Day && s.Assignments.Count > 0).StartTime.Hour.Should().Be(14);
-        // A night shift carries into the nominal rest day, so this pool cannot provide standby that whole day.
-        preview.Issues.Should().Contain(x => x.Code == "StandbyShortage");
         preview.Roster.Shifts.SelectMany(s => s.Assignments).Should().HaveCount(preview.ProposedAssignments);
         (await w.Preview(input)).Token.Should().Be(preview.Token);
     }
@@ -181,30 +179,6 @@ public class WorkRotationTests
         using var w = await World.Create(7); w.T.ActAs(user, role);
         await FluentActions.Invoking(() => w.Preview()).Should().ThrowAsync<ForbiddenException>();
         await FluentActions.Invoking(() => w.S.RotationGroupsAsync(w.T.Lot.Id)).Should().ThrowAsync<ForbiddenException>();
-    }
-
-    [Fact]
-    public async Task Dedicated_Standby_Pool_Is_Saved_Separately_And_Visible_To_Its_Owner_After_Publish()
-    {
-        using var w = await World.Create(1, false);
-        w.Identity.Users.Add(new ApplicationUser { Id = "standby-staff", Role = "Staff", IsActive = true }); await w.Identity.SaveChangesAsync();
-        var employee = new Employee { UserId = "standby-staff", FullName = "Standby Staff", EmployeeCode = "SB", ParkingLotId = w.T.Lot.Id, Status = "Active", Position = "Staff" };
-        w.T.Db.Employees.Add(employee); await w.T.Db.SaveChangesAsync();
-        var pool = await w.S.SaveRotationGroupAsync(w.T.Lot.Id, null, new RotationGroupInput { Name = "Standby pool", Members = [new(employee.Id)] });
-        var input = w.Input(); input.IncludeStandby = true; input.StandbyGroupIds = [pool.Id];
-        await w.Save(input);
-        w.R.Standbys.Should().ContainSingle(s => s.EmployeeId == employee.Id);
-        w.R.Shifts.SelectMany(s => s.Assignments).Should().ContainSingle(a => a.EmployeeId == w.EmployeeId);
-        var savedStandbyId = w.R.Standbys.Single().Id;
-        w.R = await w.S.SaveStandbyAsync(w.T.Lot.Id, w.R.Id, savedStandbyId,
-            new StandbyMutationInput { Revision = w.R.Revision, WorkDate = w.Day, EmployeeId = employee.Id });
-        input = w.Input(true); input.IncludeStandby = true; input.StandbyGroupIds = [pool.Id]; await w.Save(input);
-        w.R.Standbys.Should().ContainSingle(s => s.Id == savedStandbyId && s.Source == "Manual");
-        w.R = await w.S.PublishAsync(w.T.Lot.Id, w.R.Id, new RosterMutationInput { Revision = w.R.Revision });
-        w.T.Db.UserNotifications.Should().Contain(n => n.UserId == "standby-staff" && n.Type == "RosterPublished");
-        w.T.ActAs("standby-staff", "Staff"); var own = await w.S.MyScheduleAsync(w.Day, w.Day);
-        own.Should().ContainSingle(); own.Single().Standbys.Should().ContainSingle(s => s.EmployeeId == employee.Id);
-        own.Single().Shifts.Should().BeEmpty(); own.Single().RotationConfigurationJson.Should().BeNull();
     }
 
     [Fact]

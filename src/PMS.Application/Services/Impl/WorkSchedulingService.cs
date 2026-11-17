@@ -297,10 +297,6 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
                                   && r.Status == "Published" && !l.IsDeleted && e.ParkingLotId == r.ParkingLotId
                                   && s.WorkDate >= earliestDate && s.WorkDate <= to
                                select r.Id).Distinct().ToListAsync();
-        rosterIds.AddRange(await (from s in db.DutyStandbyAssignments join r in db.DutyRosters on s.DutyRosterId equals r.Id
-            join e in db.Employees on s.EmployeeId equals e.Id join l in db.ParkingLots on r.ParkingLotId equals l.Id
-            where employeeIds.Contains(s.EmployeeId) && !s.IsCancelled && r.Status == "Published" && !l.IsDeleted
-                && e.ParkingLotId == r.ParkingLotId && s.WorkDate >= @from && s.WorkDate <= to select r.Id).Distinct().ToListAsync());
         rosterIds.AddRange(await (from a in db.DutyAssignments join s in db.DutyRosterShifts on a.DutyRosterShiftId equals s.Id
             join r in db.DutyRosters on s.DutyRosterId equals r.Id join e in db.Employees on a.EmployeeId equals e.Id
             where employeeIds.Contains(e.Id) && e.ParkingLotId == r.ParkingLotId && r.Status == "Published" && !s.IsCancelled
@@ -320,8 +316,7 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
                     Trail = s.Trail.Where(t => employeeIds.Contains(t.EmployeeId)).ToList(),
                     OpenShifts = s.OpenShifts.Where(o => visibleSlotIds.Contains(o.Id)).ToList(), ManagerCoverage = [] })
                 .Where(s => (s.Assignments.Count > 0 || s.Trail.Count > 0 || s.OpenShifts.Count > 0) && s.WorkDate >= from.AddDays(-1)).ToList();
-            var standbys = model.Standbys.Where(s => employeeIds.Contains(s.EmployeeId) && s.WorkDate >= from && s.WorkDate <= to).ToList();
-            if (shifts.Count > 0 || standbys.Count > 0) result.Add(model with { Shifts = shifts, Shortages = [], Standbys = standbys, RotationIssues = [], RotationConfigurationJson = null });
+            if (shifts.Count > 0) result.Add(model with { Shifts = shifts, Shortages = [], RotationIssues = [], RotationConfigurationJson = null });
         }
         return result.OrderBy(r => r.FromDate).ToList();
     }
@@ -436,7 +431,6 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
                     select new { p.FromDate, p.ToDate }).ToListAsync())
                     .SelectMany(p => Enumerable.Range(Math.Max(r.FromDate.DayNumber, p.FromDate.DayNumber),
                         Math.Min(r.ToDate.DayNumber, p.ToDate.DayNumber) - Math.Max(r.FromDate.DayNumber, p.FromDate.DayNumber) + 1).Select(DateOnly.FromDayNumber)).Distinct().OrderBy(x => x).ToList(),
-                Standbys = await StandbysAsync(r.Id),
                 RotationConfigurationJson = r.RotationConfigurationJson,
                 RotationIssues = r.HasRotation ? await ValidateRotationRosterAsync(r) : []
             };
@@ -450,7 +444,6 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
 
     private static Dictionary<int, string> StaffSignatures(DutyRosterModel r) => r.Shifts
         .SelectMany(s => s.Assignments.Select(a => new { a.EmployeeId, Signature = JsonSerializer.Serialize(new { s.Id, s.Name, s.StartsAt, s.EndsAt, a.Notes }) }))
-        .Concat(r.Standbys.Select(s => new { s.EmployeeId, Signature = $"Standby:{s.Id}:{s.WorkDate:yyyy-MM-dd}" }))
         .GroupBy(x => x.EmployeeId).ToDictionary(g => g.Key, g => string.Join(";", g.Select(x => x.Signature).OrderBy(x => x)));
 
     private async Task<T> WriteAsync<T>(Func<Task<T>> operation)
