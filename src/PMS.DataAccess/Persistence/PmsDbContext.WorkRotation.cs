@@ -17,7 +17,6 @@ public partial class PmsDbContext
         });
         b.Entity<WorkRotationMember>(e => {
             e.ToTable("WorkRotationMembers"); e.HasKey(x => new { x.WorkRotationGroupId, x.EmployeeId });
-            e.Property(x => x.Position).IsRequired().HasMaxLength(20).IsUnicode(false);
             e.HasOne<WorkRotationGroup>().WithMany().HasForeignKey(x => x.WorkRotationGroupId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
         });

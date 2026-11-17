@@ -49,7 +49,7 @@ public partial class WorkSchedulingService
                 Trail = shift.Trail.Where(a => a.AssignmentId == row.AssignmentId).ToList(), OpenShifts = [], ManagerCoverage = [] };
             var history = await db.DutyAttendanceEvents.AsNoTracking().Where(x => x.DutyAssignmentId == row.AssignmentId && x.Revision <= row.Attendance.Revision).OrderBy(x => x.Revision).ToListAsync();
             foreach (var h in history) h.CreatedAt = Utc(h.CreatedAt);
-            assignments.Add(new(row.AssignmentId, c.Employee.Id, c.Employee.UserId, row.StaffName, row.ShiftName, c.Assignment.Position,
+            assignments.Add(new(row.AssignmentId, c.Employee.Id, c.Employee.UserId, row.StaffName, row.ShiftName,
                 row.WorkDate, c.Shift.TimeZoneId, Utc(row.StartsAt), Utc(row.EndsAt), row.Attendance.Revision,
                 record?.CheckInAt is DateTime actualIn ? Utc(actualIn) : null, record?.CheckOutAt is DateTime actualOut ? Utc(actualOut) : null,
                 row.Attendance.IsLate, row.Attendance.AutoEnded, row.Attendance.Status, intervals, leave?.Id, leave?.IsPaid == true,

@@ -68,7 +68,7 @@ public class WorkAttendanceEndpointTests
         var r = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await managerClient.PostAsJsonAsync($"{root}/rosters",
             new { name = "Attendance roster", fromDate = "2026-11-16", toDate = "2026-11-17" }))).Result;
         r = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await managerClient.PostAsJsonAsync($"{root}/rosters/{r.Id}/calendar-assignments",
-            new { revision = r.Revision, workDate = "2026-11-16", workShiftTemplateId = template.Id, employeeId = employee.Id, position = "Entry" }))).Result;
+            new { revision = r.Revision, workDate = "2026-11-16", workShiftTemplateId = template.Id, employeeId = employee.Id }))).Result;
         r = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await managerClient.PostAsJsonAsync($"{root}/rosters/{r.Id}/publish", new { revision = r.Revision }))).Result;
         var id = r.Shifts.Single().Assignments.Single().Id;
         var url = $"/api/work-scheduling/assignments/{id}/attendance";
@@ -116,7 +116,7 @@ public class WorkAttendanceEndpointTests
         (await managerClient.PostAsJsonAsync($"{reviewUrl}/confirm", new { revision = review.Lot.Revision, reason = "Verified all staff" })).StatusCode.Should().Be(HttpStatusCode.OK);
         var existing = r.Shifts.Single().Assignments.Single();
         (await managerClient.PutAsJsonAsync($"{root}/rosters/{r.Id}/shifts/{r.Shifts.Single().Id}/assignments/{id}",
-            new { revision = r.Revision, employeeId = existing.EmployeeId, position = "Entry", notes = "Changed after confirmation", reason = "Handover correction" })).StatusCode.Should().Be(HttpStatusCode.OK);
+            new { revision = r.Revision, employeeId = existing.EmployeeId, notes = "Changed after confirmation", reason = "Handover correction" })).StatusCode.Should().Be(HttpStatusCode.OK);
         review = (await ResponseHelper.GetApiResultAsync<AttendancePeriodReview>(await managerClient.GetAsync(reviewUrl))).Result;
         review.Lot.Status.Should().Be("Open");
         (await managerClient.PostAsJsonAsync($"{reviewUrl}/confirm", new { revision = review.Lot.Revision, reason = "Verified again" })).StatusCode.Should().Be(HttpStatusCode.OK);

@@ -13,7 +13,6 @@ public class WorkRotationMember
 {
     public int WorkRotationGroupId { get; set; }
     public int EmployeeId { get; set; }
-    public string Position { get; set; }
 }
 public class WorkRotationCycle
 {

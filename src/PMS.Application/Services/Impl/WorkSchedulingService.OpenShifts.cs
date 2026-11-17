@@ -7,19 +7,17 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 public partial class WorkSchedulingService
 {
-    private async Task EnsureNoOpenSlotBypassAsync(DutyRoster roster, int shiftId, string position)
+    private async Task EnsureNoOpenSlotBypassAsync(DutyRoster roster, int shiftId)
     {
-        if (roster.Status == "Published" && await db.WorkOpenShifts.AnyAsync(o => o.DutyRosterShiftId == shiftId && o.Position == position && o.Status == "Open"))
-            throw new BadRequestException("Use the open-shift confirmation workflow for this position; pending offers cannot be bypassed by manual assignment.");
+        if (roster.Status == "Published" && await db.WorkOpenShifts.AnyAsync(o => o.DutyRosterShiftId == shiftId && o.Status == "Open"))
+            throw new BadRequestException("This shift has an open vacancy. Fill it through the vacancy instead of assigning directly.");
     }
-    private async Task<int> PositionShortageAsync(DutyRosterShift shift, string position)
+    private async Task<int> StaffShortageAsync(DutyRosterShift shift)
     {
-        if (!Positions.Contains(position)) throw new BadRequestException("Choose Entry, Exit or Counter.");
-        var required = position == "Entry" ? shift.MinimumEntryStaff : position == "Exit" ? shift.MinimumExitStaff : shift.MinimumCounterStaff;
         var absentIds = await db.DutyAttendances.Where(a => a.IsAbsent).Select(a => a.DutyAssignmentId).ToListAsync();
-        var count = await db.DutyAssignments.CountAsync(a => a.DutyRosterShiftId == shift.Id && !a.IsCancelled && a.Position == position && !absentIds.Contains(a.Id));
-        count += await db.WorkManagerCoverages.CountAsync(c => c.DutyRosterShiftId == shift.Id && c.Position == position);
-        return Math.Max(0, required - count);
+        var count = await db.DutyAssignments.CountAsync(a => a.DutyRosterShiftId == shift.Id && !a.IsCancelled && !absentIds.Contains(a.Id));
+        count += await db.WorkManagerCoverages.CountAsync(c => c.DutyRosterShiftId == shift.Id);
+        return Math.Max(0, shift.MinimumStaff - count);
     }
 
     private async Task<List<RotationIssue>> ReplacementIssuesAsync(int lotId, int employeeId, DutyRosterShift shift, IEnumerable<int> exclude = null, bool overtime = false)
@@ -53,16 +51,16 @@ public partial class WorkSchedulingService
         return rows.Where(s => DayBounds(s.WorkDate, zone).Start < shift.EndsAt && shift.StartsAt < DayBounds(s.WorkDate, zone).End).ToList();
     }
 
-    private async Task<WorkOpenShift> NewOpenShiftAsync(DutyRosterShift shift, string position, string reason, int? originalId,
+    private async Task<WorkOpenShift> NewOpenShiftAsync(DutyRosterShift shift, string reason, int? originalId,
         int? leaveId, int? proposedId, List<long> notices)
     {
         var roster = await db.DutyRosters.SingleAsync(r => r.Id == shift.DutyRosterId);
-        var needed = await PositionShortageAsync(shift, position);
-        var reserved = await db.WorkOpenShifts.CountAsync(s => s.DutyRosterShiftId == shift.Id && s.Position == position && s.Status == "Open");
+        var needed = await StaffShortageAsync(shift);
+        var reserved = await db.WorkOpenShifts.CountAsync(s => s.DutyRosterShiftId == shift.Id && s.Status == "Open");
         if (needed <= reserved) return null;
         var slot = new WorkOpenShift { ParkingLotId = roster.ParkingLotId, DutyRosterShiftId = shift.Id,
             OriginalAssignmentId = originalId, LeaveRequestId = leaveId, ProposedEmployeeId = proposedId,
-            Position = position, Reason = reason, Stage = "Initial", CreatedAt = Now };
+            Reason = reason, Stage = "Initial", CreatedAt = Now };
         db.WorkOpenShifts.Add(slot); await SaveWorkChangesAsync(); await AdvanceOpenShiftAsync(slot, notices);
         return slot;
     }
@@ -122,8 +120,8 @@ public partial class WorkSchedulingService
             var roster = await FindRosterAsync(lotId, shift.DutyRosterId);
             if (roster.Status != "Published" || Now >= shift.EndsAt) throw new BadRequestException("Choose a Published shift that has not ended.");
             var snapshots = await RequestSnapshotsAsync([roster.Id]);
-            var slot = await NewOpenShiftAsync(shift, input.Position, RequestReason(input.Reason), null, null, null, notices)
-                ?? throw new BadRequestException("This position is already covered or has enough open slots.");
+            var slot = await NewOpenShiftAsync(shift, RequestReason(input.Reason), null, null, null, notices)
+                ?? throw new BadRequestException("This shift already has enough staff or open vacancies.");
             await TouchRequestRostersAsync(snapshots, "OpenShiftCreated", input.Reason); return slot;
         });
     }
@@ -188,7 +186,7 @@ public partial class WorkSchedulingService
             if ((input.Action is "Assign" or "ManagerCover") && slot.Stage == "Public" && slot.DeadlineAt.HasValue && Now >= slot.DeadlineAt.Value)
                 await AdvanceOpenShiftAsync(slot, notices);
             if ((input.Action is "Assign" or "ManagerCover") && slot.Stage != "Manual") throw new BadRequestException("Direct assignment follows the proposal, standby and public response windows.");
-            if (await PositionShortageAsync(shift, slot.Position) == 0) throw new ConflictException("The position is already sufficiently staffed. Close the open slot.");
+            if (await StaffShortageAsync(shift) == 0) throw new ConflictException("This shift already has enough staff. Close the vacancy.");
             int? employeeId = input.EmployeeId;
             if (input.Action == "Confirm") employeeId = (await db.WorkOpenShiftClaims.SingleOrDefaultAsync(c => c.Id == input.ClaimId && c.WorkOpenShiftId == id && c.Status == "Claimed"))?.EmployeeId
                 ?? throw new BadRequestException("Choose a pending claim to confirm.");
@@ -203,10 +201,10 @@ public partial class WorkSchedulingService
             var users = new List<string> { await RequestManagerAsync(slot.ParkingLotId) };
             if (input.Action == "ManagerCover") {
                 db.WorkManagerCoverages.Add(new WorkManagerCoverage { WorkOpenShiftId = id, DutyRosterShiftId = shift.Id,
-                    ManagerUserId = scope.UserId, Position = slot.Position, Reason = reason, CreatedAt = Now });
+                    ManagerUserId = scope.UserId, Reason = reason, CreatedAt = Now });
             }
             else {
-                var assignment = new DutyAssignment { DutyRosterShiftId = shift.Id, EmployeeId = employeeId.Value, Position = slot.Position,
+                var assignment = new DutyAssignment { DutyRosterShiftId = shift.Id, EmployeeId = employeeId.Value,
                     Source = "Replacement", OriginalAssignmentId = slot.OriginalAssignmentId, ReplacementReason = reason,
                     AllowWeeklyOvertime = input.Action == "Assign" && input.AllowWeeklyOvertime, IsManuallyEdited = true, AttendanceTrackingFrom = Now };
                 db.DutyAssignments.Add(assignment); await SaveWorkChangesAsync(); slot.ReplacementAssignmentId = assignment.Id;

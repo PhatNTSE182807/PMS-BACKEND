@@ -4,7 +4,7 @@ namespace PMS.Application.Models.WorkScheduling;
 public record PayrollInterval(DateTime Start, DateTime End, string Kind);
 public record PayrollPerson(string UserId, int? EmployeeId, string Name, string Role);
 public record PayrollAssignmentEvidence(int AssignmentId, int EmployeeId, string UserId, string StaffName,
-    string ShiftName, string Position, DateOnly WorkDate, string TimeZoneId, DateTime PlannedStart, DateTime PlannedEnd,
+    string ShiftName, DateOnly WorkDate, string TimeZoneId, DateTime PlannedStart, DateTime PlannedEnd,
     int AttendanceRevision, DateTime? ActualStart, DateTime? ActualEnd, bool Late, bool AutoEnded,
     string AttendanceStatus, IReadOnlyList<PayrollInterval> Intervals, int? LeaveRequestId, bool IsPaidLeave,
     string AttendanceHistoryJson, string OvertimeHistoryJson)

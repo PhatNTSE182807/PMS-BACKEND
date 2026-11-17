@@ -62,9 +62,9 @@ public partial class WorkSchedulingService
                     foreach (var row in standby) { row.IsCancelled = true; row.Source = "Manual"; }
                     foreach (var row in new[] { a, b }) { row.Assignment.IsCancelled = true; row.Assignment.IsManuallyEdited = true; row.Assignment.CancellationKind = "Swapped"; }
                     db.DutyAssignments.AddRange(
-                        new DutyAssignment { DutyRosterShiftId = a.Shift.Id, EmployeeId = b.Employee.Id, Position = a.Assignment.Position, Source = "Swap",
+                        new DutyAssignment { DutyRosterShiftId = a.Shift.Id, EmployeeId = b.Employee.Id, Source = "Swap",
                             OriginalAssignmentId = a.Assignment.Id, ReplacementReason = reason, AttendanceTrackingFrom = Now, IsManuallyEdited = true },
-                        new DutyAssignment { DutyRosterShiftId = b.Shift.Id, EmployeeId = a.Employee.Id, Position = b.Assignment.Position, Source = "Swap",
+                        new DutyAssignment { DutyRosterShiftId = b.Shift.Id, EmployeeId = a.Employee.Id, Source = "Swap",
                             OriginalAssignmentId = b.Assignment.Id, ReplacementReason = reason, AttendanceTrackingFrom = Now, IsManuallyEdited = true });
                     swap.Status = "Approved"; swap.DecisionReason = reason; await TouchRequestRostersAsync(snapshots, "SwapApproved", reason);
                 }

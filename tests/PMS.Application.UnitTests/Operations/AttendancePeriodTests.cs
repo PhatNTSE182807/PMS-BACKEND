@@ -33,10 +33,10 @@ public class AttendancePeriodTests
             await identity.SaveChangesAsync();
             var s = new WorkSchedulingService(t.Db, identity, new LotScopeService(t.Db, t.Claims), t.Clock);
             t.ActAs(t.ManagerUserId, "Manager");
-            var template = await s.SaveTemplateAsync(t.Lot.Id, null, new WorkShiftTemplateInput { Name = "Night", StartTime = new TimeOnly(22, 0), EndTime = new TimeOnly(6, 0), MinimumEntryStaff = 1 });
+            var template = await s.SaveTemplateAsync(t.Lot.Id, null, new WorkShiftTemplateInput { Name = "Night", StartTime = new TimeOnly(22, 0), EndTime = new TimeOnly(6, 0), MinimumStaff = 1 });
             var day = new DateOnly(2026, 10, 31);
             var r = await s.CreateRosterAsync(t.Lot.Id, new CreateDutyRosterInput { Name = "Boundary", FromDate = day, ToDate = day.AddDays(1) });
-            r = await s.AssignFromCalendarAsync(t.Lot.Id, r.Id, new CalendarAssignmentInput { Revision = r.Revision, WorkDate = day, WorkShiftTemplateId = template.Id, EmployeeId = t.Db.Employees.Single(e => e.UserId == t.StaffUserId).Id, Position = "Entry" });
+            r = await s.AssignFromCalendarAsync(t.Lot.Id, r.Id, new CalendarAssignmentInput { Revision = r.Revision, WorkDate = day, WorkShiftTemplateId = template.Id, EmployeeId = t.Db.Employees.Single(e => e.UserId == t.StaffUserId).Id });
             r = await s.PublishAsync(t.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
             var w = new World { T = t, Identity = identity, Service = s, Roster = r };
             t.ActAs("admin", "Admin");
@@ -111,10 +111,10 @@ public class AttendancePeriodTests
     {
         using var w = await World.Create(); await w.Confirm(w.October);
         var shift = w.Roster.Shifts.Single(); var a = shift.Assignments.Single();
-        w.Roster = await w.Service.SaveAssignmentAsync(w.T.Lot.Id, w.Roster.Id, shift.Id, a.Id, new() { Revision = w.Roster.Revision, EmployeeId = a.EmployeeId, Position = a.Position, Notes = "Review change", Reason = "Explain update" });
+        w.Roster = await w.Service.SaveAssignmentAsync(w.T.Lot.Id, w.Roster.Id, shift.Id, a.Id, new() { Revision = w.Roster.Revision, EmployeeId = a.EmployeeId, Notes = "Review change", Reason = "Explain update" });
         (await w.Review(w.October)).Lot.Status.Should().Be("Open");
         await w.Confirm(w.October); await w.Lock(w.October); w.Manager();
-        await FluentActions.Invoking(() => w.Service.SaveAssignmentAsync(w.T.Lot.Id, w.Roster.Id, shift.Id, a.Id, new() { Revision = w.Roster.Revision, EmployeeId = a.EmployeeId, Position = a.Position, Notes = "Locked change", Reason = "Explain" })).Should().ThrowAsync<ConflictException>();
+        await FluentActions.Invoking(() => w.Service.SaveAssignmentAsync(w.T.Lot.Id, w.Roster.Id, shift.Id, a.Id, new() { Revision = w.Roster.Revision, EmployeeId = a.EmployeeId, Notes = "Locked change", Reason = "Explain" })).Should().ThrowAsync<ConflictException>();
     }
 
     [Fact]
@@ -198,7 +198,7 @@ public class AttendancePeriodTests
             var shift = new DutyRosterShift { DutyRosterId = earlier.Id, WorkShiftTemplateId = templateId, Name = "Day", TimeZoneId = w.Roster.Shifts.Single().TimeZoneId,
                 WorkDate = new DateOnly(2026, 10, 26).AddDays(i), StartTime = new(8, 0), EndTime = new(16, 0), StartsAt = start, EndsAt = start.AddHours(8) };
             w.T.Db.DutyRosterShifts.Add(shift); await w.T.Db.SaveChangesAsync();
-            var assignment = new DutyAssignment { DutyRosterShiftId = shift.Id, EmployeeId = employeeId, Position = "Entry", AttendanceTrackingFrom = start.AddDays(-10) };
+            var assignment = new DutyAssignment { DutyRosterShiftId = shift.Id, EmployeeId = employeeId, AttendanceTrackingFrom = start.AddDays(-10) };
             w.T.Db.DutyAssignments.Add(assignment); await w.T.Db.SaveChangesAsync();
             w.T.Db.DutyAttendances.Add(new DutyAttendance { DutyAssignmentId = assignment.Id, CheckInAt = start, CheckOutAt = start.AddHours(8), Revision = 2 });
             await w.T.Db.SaveChangesAsync(); if (i == 0) firstId = assignment.Id;

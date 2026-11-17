@@ -57,7 +57,6 @@ public partial class PmsDbContext
         {
             e.ToTable("DutyAssignments");
             e.HasKey(x => x.Id);
-            e.Property(x => x.Position).IsRequired().HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.Notes).HasMaxLength(1000);
             e.Property(x => x.Source).IsRequired().HasMaxLength(20);
             e.Property(x => x.GenerationKey).HasMaxLength(100);

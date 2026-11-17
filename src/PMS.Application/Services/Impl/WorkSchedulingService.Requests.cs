@@ -147,8 +147,8 @@ public partial class WorkSchedulingService
                     notices.AddRange(await SaveAttendanceEventAsync(context, attendance, priorAttendance, "LeaveApproved", scope.UserId, reason));
                 }
                 await SaveWorkChangesAsync();
-                if (Now < c.Shift.EndsAt && await PositionShortageAsync(c.Shift, c.Assignment.Position) > 0)
-                    await NewOpenShiftAsync(c.Shift, c.Assignment.Position, reason, c.Assignment.Id, id, leave.ProposedEmployeeId, notices);
+                if (Now < c.Shift.EndsAt && await StaffShortageAsync(c.Shift) > 0)
+                    await NewOpenShiftAsync(c.Shift, reason, c.Assignment.Id, id, leave.ProposedEmployeeId, notices);
                 await TouchRequestRostersAsync(snapshots, "LeaveApproved", reason);
             }
             else if (input.Action == "Reject") leave.Status = "Rejected";

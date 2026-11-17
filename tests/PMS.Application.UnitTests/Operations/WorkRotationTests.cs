@@ -43,9 +43,9 @@ public class WorkRotationTests
             var leave = new Leaves(); var s = new WorkSchedulingService(t.Db, identity, new LotScopeService(t.Db, t.Claims), t.Clock, approvedLeaveSource: leave);
             var templates = new List<WorkShiftTemplate>();
             foreach (var hour in new[] { 6, 14, 22 }) templates.Add(await s.SaveTemplateAsync(t.Lot.Id, null, new WorkShiftTemplateInput {
-                Name = $"Shift {hour}", StartTime = new TimeOnly(hour, 0), EndTime = new TimeOnly((hour + 8) % 24, 0), MinimumEntryStaff = 1 }));
+                Name = $"Shift {hour}", StartTime = new TimeOnly(hour, 0), EndTime = new TimeOnly((hour + 8) % 24, 0), MinimumStaff = 1 }));
             var employee = await t.Db.Employees.SingleAsync(e => e.UserId == t.StaffUserId);
-            var group = await s.SaveRotationGroupAsync(t.Lot.Id, null, new RotationGroupInput { Name = "A", Members = [new(employee.Id, "Entry")] });
+            var group = await s.SaveRotationGroupAsync(t.Lot.Id, null, new RotationGroupInput { Name = "A", Members = [new(employee.Id)] });
             var cycle = await s.SaveRotationCycleAsync(t.Lot.Id, null, new RotationCycleInput { Name = "Default", Steps = defaultCycle
                 ? [new(templates[0].Id, 2), new(templates[1].Id, 2), new(templates[2].Id, 2), new(null, 1)] : [new(templates[0].Id, 1)] });
             var day = new DateOnly(2026, 11, 16);
@@ -93,7 +93,7 @@ public class WorkRotationTests
     {
         using var w = await World.Create(7); await w.Save();
         var first = w.R.Shifts.First(s => s.Assignments.Count > 0); var a = first.Assignments.Single();
-        w.R = await w.S.SaveAssignmentAsync(w.T.Lot.Id, w.R.Id, first.Id, a.Id, new DutyAssignmentInput { Revision = w.R.Revision, EmployeeId = a.EmployeeId, Position = a.Position, Notes = "Keep this manual note" });
+        w.R = await w.S.SaveAssignmentAsync(w.T.Lot.Id, w.R.Id, first.Id, a.Id, new DutyAssignmentInput { Revision = w.R.Revision, EmployeeId = a.EmployeeId, Notes = "Keep this manual note" });
         var second = w.R.Shifts.First(s => s.WorkDate == w.Day.AddDays(1) && s.Assignments.Count > 0);
         w.R = await w.S.RemoveAssignmentAsync(w.T.Lot.Id, w.R.Id, second.Id, second.Assignments.Single().Id, new RosterMutationInput { Revision = w.R.Revision });
         var input = w.Input(true); input.ToDate = w.Day.AddDays(2); await w.Save(input);
@@ -152,7 +152,7 @@ public class WorkRotationTests
         using var w = await World.Create(1, false);
         var r = await w.S.CreateRosterAsync(w.T.Lot.Id, new CreateDutyRosterInput { Name = "Prior", FromDate = w.Day.AddDays(-1), ToDate = w.Day.AddDays(-1) });
         var t = await w.S.SaveTemplateAsync(w.T.Lot.Id, null, new WorkShiftTemplateInput { Name = "Prior night", StartTime = new TimeOnly(22, 0), EndTime = new TimeOnly(5, 1) });
-        await w.S.AssignFromCalendarAsync(w.T.Lot.Id, r.Id, new CalendarAssignmentInput { Revision = r.Revision, EmployeeId = w.EmployeeId, Position = "Entry", WorkDate = w.Day.AddDays(-1), WorkShiftTemplateId = t.Id });
+        await w.S.AssignFromCalendarAsync(w.T.Lot.Id, r.Id, new CalendarAssignmentInput { Revision = r.Revision, EmployeeId = w.EmployeeId, WorkDate = w.Day.AddDays(-1), WorkShiftTemplateId = t.Id });
         (await w.Preview()).Issues.Should().Contain(x => x.Code == "MinimumRest");
         var shift = w.T.Db.DutyRosterShifts.Single(s => s.DutyRosterId == r.Id); shift.EndsAt = shift.EndsAt.AddMinutes(-1); await w.T.Db.SaveChangesAsync();
         (await w.Preview()).ProposedAssignments.Should().Be(1);
@@ -190,7 +190,7 @@ public class WorkRotationTests
         w.Identity.Users.Add(new ApplicationUser { Id = "standby-staff", Role = "Staff", IsActive = true }); await w.Identity.SaveChangesAsync();
         var employee = new Employee { UserId = "standby-staff", FullName = "Standby Staff", EmployeeCode = "SB", ParkingLotId = w.T.Lot.Id, Status = "Active", Position = "Staff" };
         w.T.Db.Employees.Add(employee); await w.T.Db.SaveChangesAsync();
-        var pool = await w.S.SaveRotationGroupAsync(w.T.Lot.Id, null, new RotationGroupInput { Name = "Standby pool", Members = [new(employee.Id, "Counter")] });
+        var pool = await w.S.SaveRotationGroupAsync(w.T.Lot.Id, null, new RotationGroupInput { Name = "Standby pool", Members = [new(employee.Id)] });
         var input = w.Input(); input.IncludeStandby = true; input.StandbyGroupIds = [pool.Id];
         await w.Save(input);
         w.R.Standbys.Should().ContainSingle(s => s.EmployeeId == employee.Id);
@@ -212,7 +212,7 @@ public class WorkRotationTests
     {
         using var w = await World.Create(1, false);
         var r = await w.S.CreateRosterAsync(w.T.Lot.Id, new CreateDutyRosterInput { Name = "Existing", FromDate = w.Day, ToDate = w.Day });
-        r = await w.S.AssignFromCalendarAsync(w.T.Lot.Id, r.Id, new CalendarAssignmentInput { Revision = r.Revision, EmployeeId = w.EmployeeId, Position = "Entry", WorkDate = w.Day, WorkShiftTemplateId = w.Templates[0].Id });
+        r = await w.S.AssignFromCalendarAsync(w.T.Lot.Id, r.Id, new CalendarAssignmentInput { Revision = r.Revision, EmployeeId = w.EmployeeId, WorkDate = w.Day, WorkShiftTemplateId = w.Templates[0].Id });
         r = await w.S.PublishAsync(w.T.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
         var preview = await w.Preview(w.Input(true)); preview.ProposedAssignments.Should().Be(0);
         preview.Changes.Should().Contain(x => x.Kind == "Keep" && x.Detail.Contains("Published"));

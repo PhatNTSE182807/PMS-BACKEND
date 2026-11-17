@@ -19,7 +19,7 @@ public class PayrollCalculatorTests
     };
     public static PayrollPerson Staff = new("staff", 1, "Staff arithmetic fixture", "Staff");
     public static PayrollAssignmentEvidence Assignment(DateTime start, DateTime end, string kind = "Regular", int id = 10) =>
-        new(id, 1, "staff", Staff.Name, "Frozen night", "Entry", DateOnly.FromDateTime(start.AddHours(7)), "SE Asia Standard Time", start, end, 2, start, end,
+        new(id, 1, "staff", Staff.Name, "Frozen night", DateOnly.FromDateTime(start.AddHours(7)), "SE Asia Standard Time", start, end, 2, start, end,
             false, false, "Completed", [new(start, end, kind)], null, false, "[]", "[]");
     public static PayrollSourceBundle Source(IReadOnlyList<PayrollAssignmentEvidence> assignments, IReadOnlyList<PayrollStandbyEvidence> standbys = null,
         IReadOnlyList<PayrollHoliday> holidays = null, IReadOnlyList<ManagerWorkDayModel> days = null) => new(1, "frozen-hash",

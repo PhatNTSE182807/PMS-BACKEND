@@ -5,9 +5,7 @@ public class WorkShiftTemplateInput
     public string Name { get; set; }
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
-    public int MinimumEntryStaff { get; set; }
-    public int MinimumExitStaff { get; set; }
-    public int MinimumCounterStaff { get; set; }
+    public int MinimumStaff { get; set; }
     public bool IsActive { get; set; } = true;
     public int Revision { get; set; }
 }
@@ -34,7 +32,6 @@ public class RosterShiftInput : RosterMutationInput
 public class DutyAssignmentInput : RosterMutationInput
 {
     public int EmployeeId { get; set; }
-    public string Position { get; set; }
     public string Notes { get; set; }
     public int? TargetShiftId { get; set; }
 }
@@ -49,7 +46,7 @@ public class CalendarAssignmentInput : DutyAssignmentInput
 public record RosterStaffModel(int EmployeeId, string UserId, string FullName, string EmployeeCode);
 public record RosterChangeModel(long Id, int DutyRosterId, int Revision, string Action, string ChangedBy,
     string ChangedByName, DateTime ChangedAt, string Reason, string BeforeJson, string AfterJson);
-public record AssignmentModel(int Id, int EmployeeId, string StaffName, string Position, string Notes = null)
+public record AssignmentModel(int Id, int EmployeeId, string StaffName, string Notes = null)
 {
     public string Source { get; init; } = "Manual";
     public bool IsManuallyEdited { get; init; }
@@ -60,16 +57,15 @@ public record AssignmentModel(int Id, int EmployeeId, string StaffName, string P
     public string Status => "Assigned";
     public AttendanceModel Attendance { get; init; }
 }
-public record ShortageModel(int ShiftId, DateOnly WorkDate, string ShiftName, string Position, int Required, int Assigned);
+public record ShortageModel(int ShiftId, DateOnly WorkDate, string ShiftName, int Required, int Assigned);
 public record RosterShiftModel(int Id, int WorkShiftTemplateId, DateOnly WorkDate, string Name,
     string TimeZoneId, TimeOnly StartTime, TimeOnly EndTime, DateTime StartsAt, DateTime EndsAt,
-    int MinimumEntryStaff, int MinimumExitStaff, int MinimumCounterStaff, IReadOnlyList<AssignmentModel> Assignments)
+    int MinimumStaff, IReadOnlyList<AssignmentModel> Assignments)
 {
     public bool AttendanceLocked { get; init; }
     // Captured before filtering personal schedules: own assignments must not be mistaken for the whole shift.
-    public int EntryAssigned { get; init; }
-    public int ExitAssigned { get; init; }
-    public int CounterAssigned { get; init; }
+    // Staff counted toward the minimum: assignments not marked absent plus recorded Manager coverage.
+    public int Assigned { get; init; }
     public IReadOnlyList<AssignmentTrailModel> Trail { get; init; } = [];
     public IReadOnlyList<OpenShiftModel> OpenShifts { get; init; } = [];
     public IReadOnlyList<CoverageModel> ManagerCoverage { get; init; } = [];

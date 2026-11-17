@@ -27,9 +27,9 @@ public class PayrollWorkflowTests
             identity.Users.AddRange(new ApplicationUser { Id = t.StaffUserId, Role = "Staff", IsActive = true }, new ApplicationUser { Id = t.ManagerUserId, Role = "Manager", IsActive = true }, new ApplicationUser { Id = "admin", Role = "Admin", IsActive = true });
             await identity.SaveChangesAsync(); var s = new WorkSchedulingService(t.Db, identity, new LotScopeService(t.Db, t.Claims), t.Clock);
             t.ActAs(t.ManagerUserId, "Manager");
-            var template = await s.SaveTemplateAsync(t.Lot.Id, null, new() { Name = "Frozen day", StartTime = new(8, 0), EndTime = new(16, 0), MinimumEntryStaff = 1 });
+            var template = await s.SaveTemplateAsync(t.Lot.Id, null, new() { Name = "Frozen day", StartTime = new(8, 0), EndTime = new(16, 0), MinimumStaff = 1 });
             var r = await s.CreateRosterAsync(t.Lot.Id, new() { Name = "Payroll evidence", FromDate = new(2026, 10, 30), ToDate = new(2026, 10, 30) });
-            r = await s.AssignFromCalendarAsync(t.Lot.Id, r.Id, new() { Revision = r.Revision, WorkDate = r.FromDate, WorkShiftTemplateId = template.Id, EmployeeId = t.Db.Employees.Single(e => e.UserId == t.StaffUserId).Id, Position = "Entry" });
+            r = await s.AssignFromCalendarAsync(t.Lot.Id, r.Id, new() { Revision = r.Revision, WorkDate = r.FromDate, WorkShiftTemplateId = template.Id, EmployeeId = t.Db.Employees.Single(e => e.UserId == t.StaffUserId).Id });
             r = await s.PublishAsync(t.Lot.Id, r.Id, new() { Revision = r.Revision });
             t.ActAs(t.StaffUserId, "Staff"); t.Clock.Now = new DateTimeOffset(r.Shifts.Single().StartsAt);
             var id = r.Shifts.Single().Assignments.Single().Id;

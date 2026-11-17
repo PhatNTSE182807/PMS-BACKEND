@@ -50,9 +50,9 @@ public class WorkRequestEndpointTests
         HttpClient Client(ApplicationUser user) { var client = factory.CreateClient(); client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", JwtHelper.GenerateToken(user, factory.Services.GetRequiredService<IConfiguration>())); return client; }
         using var m = Client(manager); using var staff = Client(owner); using var peer = Client(replacement);
         var root = $"/api/manager/lots/{lot.Id}/work-scheduling";
-        var template = (await ResponseHelper.GetApiResultAsync<WorkShiftTemplate>(await m.PostAsJsonAsync($"{root}/templates", new { name = "Night", startTime = "22:00:00", endTime = "06:00:00", minimumEntryStaff = 1, isActive = true }))).Result;
+        var template = (await ResponseHelper.GetApiResultAsync<WorkShiftTemplate>(await m.PostAsJsonAsync($"{root}/templates", new { name = "Night", startTime = "22:00:00", endTime = "06:00:00", minimumStaff = 1, isActive = true }))).Result;
         var roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters", new { name = "Requests", fromDate = "2026-11-20", toDate = "2026-11-21" }))).Result;
-        roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters/{roster.Id}/calendar-assignments", new { revision = roster.Revision, workDate = "2026-11-20", workShiftTemplateId = template.Id, employeeId = a.Id, position = "Entry" }))).Result;
+        roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters/{roster.Id}/calendar-assignments", new { revision = roster.Revision, workDate = "2026-11-20", workShiftTemplateId = template.Id, employeeId = a.Id }))).Result;
         roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters/{roster.Id}/publish", new { revision = roster.Revision }))).Result;
         var original = roster.Shifts.Single().Assignments.Single().Id;
         var detailUrl = $"/api/work-scheduling/assignments/{original}/requests";

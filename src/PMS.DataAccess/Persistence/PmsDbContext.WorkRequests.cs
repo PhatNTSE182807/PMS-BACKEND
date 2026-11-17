@@ -44,7 +44,7 @@ public partial class PmsDbContext
         });
         b.Entity<WorkOpenShift>(e => {
             e.ToTable("WorkOpenShifts"); e.HasKey(x => x.Id); e.Property(x => x.Revision).IsConcurrencyToken();
-            e.Property(x => x.Position).IsRequired().HasMaxLength(20); e.Property(x => x.Status).IsRequired().HasMaxLength(30);
+            e.Property(x => x.Status).IsRequired().HasMaxLength(30);
             e.Property(x => x.Stage).IsRequired().HasMaxLength(30); e.Property(x => x.Reason).IsRequired().HasMaxLength(1000);
             e.HasIndex(x => new { x.ParkingLotId, x.Status });
             e.HasOne<DutyRosterShift>().WithMany().HasForeignKey(x => x.DutyRosterShiftId).OnDelete(DeleteBehavior.Restrict);
@@ -58,7 +58,7 @@ public partial class PmsDbContext
         });
         b.Entity<WorkManagerCoverage>(e => {
             e.ToTable("WorkManagerCoverages"); e.HasKey(x => x.Id); e.Property(x => x.ManagerUserId).IsRequired().HasMaxLength(450);
-            e.Property(x => x.Position).IsRequired().HasMaxLength(20); e.Property(x => x.Reason).IsRequired().HasMaxLength(1000);
+            e.Property(x => x.Reason).IsRequired().HasMaxLength(1000);
             e.HasIndex(x => x.WorkOpenShiftId).IsUnique();
             e.HasOne<WorkOpenShift>().WithMany().HasForeignKey(x => x.WorkOpenShiftId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<DutyRosterShift>().WithMany().HasForeignKey(x => x.DutyRosterShiftId).OnDelete(DeleteBehavior.Restrict);

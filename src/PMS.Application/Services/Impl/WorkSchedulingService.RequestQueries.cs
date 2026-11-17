@@ -30,21 +30,19 @@ public partial class WorkSchedulingService
             Trail = trails.Where(t => t.a.DutyRosterShiftId == s.Id).Select(t => {
                 var leave = leaves.FirstOrDefault(l => l.DutyAssignmentId == t.a.Id && l.Status == "Approved");
                 var swap = swaps.FirstOrDefault(w => (w.AssignmentId == t.a.Id || w.OtherAssignmentId == t.a.Id) && w.Status == "Approved");
-                return new AssignmentTrailModel(t.a.Id, t.a.EmployeeId, t.FullName, t.a.Position, t.a.CancellationKind,
+                return new AssignmentTrailModel(t.a.Id, t.a.EmployeeId, t.FullName, t.a.CancellationKind,
                     leave?.Id ?? swap?.Id ?? 0, leave?.IsPaid ?? false, leave?.DecisionReason ?? swap?.DecisionReason);
             }).ToList(),
             OpenShifts = slots.Where(o => o.ShiftId == s.Id).ToList(),
-            ManagerCoverage = coverage.Where(c => c.DutyRosterShiftId == s.Id).Select(c => new CoverageModel(c.Id, s.Id, c.Position,
+            ManagerCoverage = coverage.Where(c => c.DutyRosterShiftId == s.Id).Select(c => new CoverageModel(c.Id, s.Id,
                 managers.FirstOrDefault(e => e.UserId == c.ManagerUserId)?.FullName ?? "Manager", c.Reason, c.WorkOpenShiftId)).ToList(),
-            EntryAssigned = s.EntryAssigned + coverage.Count(c => c.DutyRosterShiftId == s.Id && c.Position == "Entry"),
-            ExitAssigned = s.ExitAssigned + coverage.Count(c => c.DutyRosterShiftId == s.Id && c.Position == "Exit"),
-            CounterAssigned = s.CounterAssigned + coverage.Count(c => c.DutyRosterShiftId == s.Id && c.Position == "Counter")
+            Assigned = s.Assigned + coverage.Count(c => c.DutyRosterShiftId == s.Id)
         }).ToList();
-        var shortages = shifts.SelectMany(s => Positions.Select((p, i) => new ShortageModel(s.Id, s.WorkDate, s.Name, p,
-            new[] { s.MinimumEntryStaff, s.MinimumExitStaff, s.MinimumCounterStaff }[i], new[] { s.EntryAssigned, s.ExitAssigned, s.CounterAssigned }[i])))
-            .Where(x => x.Assigned < x.Required).ToList();
-        return model with { Shifts = shifts, Shortages = shortages };
+        return model with { Shifts = shifts, Shortages = Shortages(shifts) };
     }
+    private static List<ShortageModel> Shortages(IEnumerable<RosterShiftModel> shifts) => shifts
+        .Where(s => s.Assigned < s.MinimumStaff)
+        .Select(s => new ShortageModel(s.Id, s.WorkDate, s.Name, s.MinimumStaff, s.Assigned)).ToList();
     private async Task<IReadOnlyList<LeaveRequestModel>> LeaveModelsAsync(IEnumerable<WorkLeaveRequest> rows)
     {
         var list = rows.ToList(); var ids = list.Select(l => l.EmployeeId).Distinct().ToList();
@@ -62,7 +60,7 @@ public partial class WorkSchedulingService
     private async Task<List<OpenShiftModel>> OpenShiftModelsAsync(int lotId, List<int> shiftIds = null) => await (
         from o in db.WorkOpenShifts.AsNoTracking() join s in db.DutyRosterShifts on o.DutyRosterShiftId equals s.Id
         join r in db.DutyRosters on s.DutyRosterId equals r.Id where o.ParkingLotId == lotId && !s.IsCancelled && r.Status == "Published" && (shiftIds == null || shiftIds.Contains(s.Id))
-        orderby o.Id descending select new OpenShiftModel(o.Id, s.Id, o.Position, o.Status, o.Stage, o.Revision, o.OriginalAssignmentId,
+        orderby o.Id descending select new OpenShiftModel(o.Id, s.Id, o.Status, o.Stage, o.Revision, o.OriginalAssignmentId,
             o.TargetEmployeeId, o.DeadlineAt == null ? null : Utc(o.DeadlineAt.Value), o.ReplacementAssignmentId,
             Utc(s.StartsAt), Utc(s.EndsAt), s.WorkDate, s.Name)).ToListAsync();
 
@@ -112,7 +110,7 @@ public partial class WorkSchedulingService
             join r in db.DutyRosters on s.DutyRosterId equals r.Id join e in db.Employees on a.EmployeeId equals e.Id
             where !a.IsCancelled && !s.IsCancelled && r.Status == "Published" && r.ParkingLotId == c.Roster.ParkingLotId
                 && e.UserId != c.Employee.UserId && eligibleIds.Contains(e.Id) && s.StartsAt > Now && s.StartsAt <= limit
-            orderby s.StartsAt, a.Id select new SwapCandidateModel(a.Id, e.Id, e.FullName, s.Name, s.WorkDate, Utc(s.StartsAt), Utc(s.EndsAt), a.Position)).Take(200).ToListAsync() : [];
+            orderby s.StartsAt, a.Id select new SwapCandidateModel(a.Id, e.Id, e.FullName, s.Name, s.WorkDate, Utc(s.StartsAt), Utc(s.EndsAt))).Take(200).ToListAsync() : [];
         return new(assignmentId, c.Roster.ParkingLotId, c.Employee.Id, c.Employee.FullName, c.Assignment.CancellationKind ?? (c.Assignment.IsCancelled ? "Cancelled" : "Assigned"),
             Utc(c.Shift.StartsAt), Utc(c.Shift.EndsAt), canRequest, available, candidates, await LeaveModelsAsync(leaves), await SwapModelsAsync(swaps));
     }

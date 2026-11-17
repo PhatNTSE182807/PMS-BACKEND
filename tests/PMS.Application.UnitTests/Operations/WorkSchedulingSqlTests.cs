@@ -68,7 +68,7 @@ public class WorkSchedulingSqlTests
             await identity.SaveChangesAsync();
             var attendanceClock = new TestClock(new DateTimeOffset(2026, 11, 16, 14, 0, 0, TimeSpan.Zero));
             var service = new WorkSchedulingService(db, identity, new LotScopeService(db, claims), attendanceClock);
-            var template = await service.SaveTemplateAsync(lot.Id, null, new WorkShiftTemplateInput { Name = "Night", StartTime = new TimeOnly(22, 0), EndTime = new TimeOnly(6, 0), MinimumEntryStaff = 2 });
+            var template = await service.SaveTemplateAsync(lot.Id, null, new WorkShiftTemplateInput { Name = "Night", StartTime = new TimeOnly(22, 0), EndTime = new TimeOnly(6, 0), MinimumStaff = 2 });
             var day = new DateOnly(2026, 11, 16);
             async Task<DutyRosterModel> MakeRoster()
             {
@@ -81,7 +81,7 @@ public class WorkSchedulingSqlTests
                 await using var writer = new PmsDbContext(options);
                 await using var id = new DatabaseContext(new DbContextOptionsBuilder<DatabaseContext>().UseSqlServer(cs).Options, claims);
                 var svc = new WorkSchedulingService(writer, id, new LotScopeService(writer, claims), attendanceClock);
-                try { await svc.SaveAssignmentAsync(lot.Id, r.Id, r.Shifts.Single().Id, null, new DutyAssignmentInput { Revision = r.Revision, EmployeeId = employee.Id, Position = "Entry" }); return true; }
+                try { await svc.SaveAssignmentAsync(lot.Id, r.Id, r.Shifts.Single().Id, null, new DutyAssignmentInput { Revision = r.Revision, EmployeeId = employee.Id }); return true; }
                 catch (BadRequestException) { return false; }
             }
             var outcomes = await Task.WhenAll(Assign(first), Assign(second));
@@ -96,7 +96,7 @@ public class WorkSchedulingSqlTests
             (await db.DutyRosterChangeLogs.CountAsync(h => h.DutyRosterId == current.Id)).Should().Be(current.Revision);
             var assigned = current.Shifts.Single().Assignments.Single();
             current = await service.SaveAssignmentAsync(lot.Id, current.Id, current.Shifts.Single().Id, assigned.Id,
-                new DutyAssignmentInput { Revision = current.Revision, EmployeeId = employee.Id, Position = "Entry", Notes = "Saved handover", Reason = "Update handover" });
+                new DutyAssignmentInput { Revision = current.Revision, EmployeeId = employee.Id, Notes = "Saved handover", Reason = "Update handover" });
             await AutomatedMigration.EnsureWorkSchedulingTablesAsync(db);
             db.ChangeTracker.Clear();
             (await db.DutyAssignments.SingleAsync()).Notes.Should().Be("Saved handover");
@@ -121,7 +121,7 @@ public class WorkSchedulingSqlTests
             (await service.UpdateDueAttendanceAsync()).Should().Be(0);
             (await db.DutyAttendances.AsNoTracking().SingleAsync()).AutoEnded.Should().BeTrue();
             (await db.DutyAttendanceEvents.CountAsync()).Should().Be(2);
-            var group = await service.SaveRotationGroupAsync(lot.Id, null, new RotationGroupInput { Name = "SQL A", Members = [new(employee.Id, "Entry")] });
+            var group = await service.SaveRotationGroupAsync(lot.Id, null, new RotationGroupInput { Name = "SQL A", Members = [new(employee.Id)] });
             var cycle = await service.SaveRotationCycleAsync(lot.Id, null, new RotationCycleInput { Name = "SQL cycle", Steps = [new(template.Id, 1)] });
             var rotation = await service.CreateRosterAsync(lot.Id, new CreateDutyRosterInput { Name = "SQL rotation", FromDate = new DateOnly(2026, 11, 18), ToDate = new DateOnly(2026, 11, 19) });
             var generate = new RotationGenerationInput { Revision = rotation.Revision, FromDate = rotation.FromDate, ToDate = rotation.ToDate,
@@ -146,7 +146,7 @@ public class WorkSchedulingSqlTests
             var claimantB = new Employee { UserId = "claim-b", EmployeeCode = "CLAIM-B", FullName = "Claim B", Position = "Staff", Status = "Active", ParkingLotId = lot.Id };
             db.Employees.AddRange(claimantA, claimantB); await db.SaveChangesAsync();
             var requestRoster = await service.CreateRosterAsync(lot.Id, new CreateDutyRosterInput { Name = "SQL requests", FromDate = new DateOnly(2026, 11, 23), ToDate = new DateOnly(2026, 11, 23) });
-            requestRoster = await service.AssignFromCalendarAsync(lot.Id, requestRoster.Id, new CalendarAssignmentInput { Revision = requestRoster.Revision, WorkDate = requestRoster.FromDate, WorkShiftTemplateId = template.Id, EmployeeId = employee.Id, Position = "Entry" });
+            requestRoster = await service.AssignFromCalendarAsync(lot.Id, requestRoster.Id, new CalendarAssignmentInput { Revision = requestRoster.Revision, WorkDate = requestRoster.FromDate, WorkShiftTemplateId = template.Id, EmployeeId = employee.Id });
             requestRoster = await service.PublishAsync(lot.Id, requestRoster.Id, new RosterMutationInput { Revision = requestRoster.Revision });
             var originalId = requestRoster.Shifts.Single().Assignments.Single().Id;
             claims.GetUserId().Returns("staff"); claims.GetClaim(ClaimTypes.Role).Returns("Staff");

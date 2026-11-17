@@ -48,7 +48,7 @@ public class PayrollEndpointTests
         var root = $"/api/manager/lots/{lot.Id}/work-scheduling";
         var template = (await ResponseHelper.GetApiResultAsync<WorkShiftTemplate>(await m.PostAsJsonAsync($"{root}/templates", new { name = "Salary source day", startTime = "08:00:00", endTime = "16:00:00", isActive = true }))).Result;
         var roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters", new { name = "Source roster", fromDate = "2026-10-30", toDate = "2026-10-30" }))).Result;
-        roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters/{roster.Id}/calendar-assignments", new { revision = roster.Revision, workDate = "2026-10-30", workShiftTemplateId = template.Id, employeeId = employee.Id, position = "Entry" }))).Result;
+        roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters/{roster.Id}/calendar-assignments", new { revision = roster.Revision, workDate = "2026-10-30", workShiftTemplateId = template.Id, employeeId = employee.Id }))).Result;
         roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters/{roster.Id}/publish", new { revision = roster.Revision }))).Result;
         var assignmentId = roster.Shifts.Single().Assignments.Single().Id; var attendanceUrl = $"/api/work-scheduling/assignments/{assignmentId}/attendance";
         factory.Clock.Now = new(2026, 10, 30, 1, 0, 0, TimeSpan.Zero);

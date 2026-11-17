@@ -21,7 +21,7 @@ public static partial class AutomatedMigration
                 CONSTRAINT FK_WorkRotationGroups_Lot FOREIGN KEY(ParkingLotId) REFERENCES dbo.ParkingLots(Id));
         IF OBJECT_ID('dbo.WorkRotationMembers','U') IS NULL
             CREATE TABLE dbo.WorkRotationMembers (
-                WorkRotationGroupId int NOT NULL, EmployeeId int NOT NULL, Position varchar(20) NOT NULL,
+                WorkRotationGroupId int NOT NULL, EmployeeId int NOT NULL,
                 PRIMARY KEY(WorkRotationGroupId,EmployeeId),
                 CONSTRAINT FK_WorkRotationMembers_Group FOREIGN KEY(WorkRotationGroupId) REFERENCES dbo.WorkRotationGroups(Id),
                 CONSTRAINT FK_WorkRotationMembers_Employee FOREIGN KEY(EmployeeId) REFERENCES dbo.Employees(Id));

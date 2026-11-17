@@ -8,9 +8,7 @@ public class WorkShiftTemplate
     public string Name { get; set; }
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
-    public int MinimumEntryStaff { get; set; }
-    public int MinimumExitStaff { get; set; }
-    public int MinimumCounterStaff { get; set; }
+    public int MinimumStaff { get; set; }
     public bool IsActive { get; set; } = true;
     public int Revision { get; set; } = 1;
 }
@@ -31,7 +29,7 @@ public class DutyRoster
     public DateTime? PublishedAt { get; set; }
 }
 
-/// <summary>A dated shift, including unfilled positions. All template values are snapshots.</summary>
+/// <summary>A dated shift, including unfilled places. All template values are snapshots.</summary>
 public class DutyRosterShift
 {
     public int Id { get; set; }
@@ -44,9 +42,7 @@ public class DutyRosterShift
     public TimeOnly EndTime { get; set; }
     public DateTime StartsAt { get; set; }
     public DateTime EndsAt { get; set; }
-    public int MinimumEntryStaff { get; set; }
-    public int MinimumExitStaff { get; set; }
-    public int MinimumCounterStaff { get; set; }
+    public int MinimumStaff { get; set; }
     public bool IsCancelled { get; set; }
 }
 
@@ -63,7 +59,6 @@ public class DutyAssignment
     public int Id { get; set; }
     public int DutyRosterShiftId { get; set; }
     public int EmployeeId { get; set; }
-    public string Position { get; set; }
     public string Notes { get; set; }
     public DateTime AttendanceTrackingFrom { get; set; } = DateTime.UtcNow;
     public bool IsCancelled { get; set; }

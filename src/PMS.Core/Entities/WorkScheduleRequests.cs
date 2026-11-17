@@ -58,7 +58,6 @@ public class WorkOpenShift
     public int? LeaveRequestId { get; set; }
     public int? ProposedEmployeeId { get; set; }
     public int? TargetEmployeeId { get; set; }
-    public string Position { get; set; }
     public string Reason { get; set; }
     public string Status { get; set; } = "Open";
     public string Stage { get; set; } = "Proposed";
@@ -81,7 +80,6 @@ public class WorkManagerCoverage
     public int WorkOpenShiftId { get; set; }
     public int DutyRosterShiftId { get; set; }
     public string ManagerUserId { get; set; }
-    public string Position { get; set; }
     public string Reason { get; set; }
     public DateTime CreatedAt { get; set; }
 }

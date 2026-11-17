@@ -20,7 +20,7 @@ public partial class WorkSchedulingService
         var ids = groups.Select(g => g.Id).ToList();
         var members = await db.WorkRotationMembers.AsNoTracking().Where(m => ids.Contains(m.WorkRotationGroupId)).OrderBy(m => m.EmployeeId).ToListAsync();
         return groups.Select(g => new RotationGroupModel(g.Id, g.Name, g.OffsetDays, g.IsActive, g.Revision,
-            members.Where(m => m.WorkRotationGroupId == g.Id).Select(m => new RotationMemberInput(m.EmployeeId, m.Position)).ToList())).ToList();
+            members.Where(m => m.WorkRotationGroupId == g.Id).Select(m => new RotationMemberInput(m.EmployeeId)).ToList())).ToList();
     }
 
     public async Task<RotationGroupModel> SaveRotationGroupAsync(int lotId, int? id, RotationGroupInput input)
@@ -33,8 +33,8 @@ public partial class WorkSchedulingService
             var eligible = await StaffAsync(lotId);
             foreach (var member in input.Members)
             {
-                if (!Positions.Contains(member.Position) || !eligible.Any(e => e.EmployeeId == member.EmployeeId))
-                    throw new BadRequestException("Every group member must be an active Staff member at this lot with a valid position.");
+                if (!eligible.Any(e => e.EmployeeId == member.EmployeeId))
+                    throw new BadRequestException("Every group member must be an active Staff member at this lot.");
                 if (input.IsActive && await (from m in db.WorkRotationMembers join g in db.WorkRotationGroups on m.WorkRotationGroupId equals g.Id
                     where g.ParkingLotId == lotId && g.IsActive && g.Id != id && m.EmployeeId == member.EmployeeId select m).AnyAsync())
                     throw new BadRequestException("A Staff member can belong to only one active rotation group at a lot.");
@@ -49,9 +49,8 @@ public partial class WorkSchedulingService
             foreach (var member in old.Where(m => !input.Members.Any(x => x.EmployeeId == m.EmployeeId))) db.WorkRotationMembers.Remove(member);
             foreach (var member in input.Members)
             {
-                var row = old.SingleOrDefault(m => m.EmployeeId == member.EmployeeId);
-                if (row == null) db.WorkRotationMembers.Add(new WorkRotationMember { WorkRotationGroupId = group.Id, EmployeeId = member.EmployeeId, Position = member.Position });
-                else row.Position = member.Position;
+                if (!old.Any(m => m.EmployeeId == member.EmployeeId))
+                    db.WorkRotationMembers.Add(new WorkRotationMember { WorkRotationGroupId = group.Id, EmployeeId = member.EmployeeId });
             }
             await SaveWorkChangesAsync();
             return new RotationGroupModel(group.Id, group.Name, group.OffsetDays, group.IsActive, group.Revision, input.Members);
@@ -85,7 +84,7 @@ public partial class WorkSchedulingService
     }
 
     private record RotationInterval(int AssignmentId, int EmployeeId, string UserId, DutyRosterShift Shift, DutyAssignment Assignment, DutyRoster Roster);
-    private record PlannedDuty(int EmployeeId, string StaffName, string Position, int GroupId, string Key, DutyRosterShift Shift);
+    private record PlannedDuty(int EmployeeId, string StaffName, int GroupId, string Key, DutyRosterShift Shift);
     private record RotationPlan(RotationPreviewModel Preview, List<PlannedDuty> Add, List<DutyAssignment> Remove,
         List<DutyStandbyAssignment> AddStandby, List<DutyStandbyAssignment> RemoveStandby, List<DutyRosterShift> Shifts);
 
@@ -215,7 +214,7 @@ public partial class WorkSchedulingService
         foreach (var row in all.Where(a => a.Roster.ParkingLotId == lotId && a.Shift.WorkDate >= input.FromDate && a.Shift.WorkDate <= input.ToDate))
             changes.Add(new(removedIds.Contains(row.AssignmentId) ? "Replace" : "Keep", row.Shift.WorkDate, row.EmployeeId,
                 (await db.Employees.FindAsync(row.EmployeeId)).FullName,
-                $"{row.Shift.Name} · {row.Assignment.Position} · {row.Roster.Status}" + (row.Assignment.IsManuallyEdited ? " · manually edited" : Protected(row) ? " · attendance protected" : ""), row.AssignmentId));
+                $"{row.Shift.Name} · {row.Roster.Status}" + (row.Assignment.IsManuallyEdited ? " · manually edited" : Protected(row) ? " · attendance protected" : ""), row.AssignmentId));
         var preservedKeys = await db.DutyAssignments.AsNoTracking().Where(a => a.IsManuallyEdited && a.GenerationKey != null)
             .Select(a => a.GenerationKey).ToListAsync();
         var model = await ModelAsync(roster); var shifts = model.Shifts.ToList(); var newShifts = new List<DutyRosterShift>(); var additions = new List<PlannedDuty>();
@@ -234,7 +233,7 @@ public partial class WorkSchedulingService
                 var snapshot = await TemplateSnapshotAsync(lotId, rosterId, day, template.Id);
                 snapshot.Id = -(newShifts.Count + 1); newShifts.Add(snapshot);
                 shifts.Add(new RosterShiftModel(snapshot.Id, template.Id, day, snapshot.Name, snapshot.TimeZoneId, snapshot.StartTime, snapshot.EndTime,
-                    Utc(snapshot.StartsAt), Utc(snapshot.EndsAt), snapshot.MinimumEntryStaff, snapshot.MinimumExitStaff, snapshot.MinimumCounterStaff, []));
+                    Utc(snapshot.StartsAt), Utc(snapshot.EndsAt), snapshot.MinimumStaff, []));
             }
             foreach (var group in groups.OrderBy(g => g.Id))
             {
@@ -247,15 +246,15 @@ public partial class WorkSchedulingService
                     var key = $"{group.Id}:{member.EmployeeId}:{day:yyyy-MM-dd}";
                     if (preservedKeys.Contains(key)) { changes.Add(new("KeepManual", day, member.EmployeeId, people.GetValueOrDefault(member.EmployeeId)?.FullName ?? "Staff", "Manual edit or cancellation retained.")); continue; }
                     if (!people.TryGetValue(member.EmployeeId, out var person)) { issues.Add(new("Unavailable", day, member.EmployeeId, "Group member is no longer active at this lot.")); continue; }
-                    if (working.Any(a => a.Roster.Id == rosterId && a.EmployeeId == member.EmployeeId && a.Shift.Id == snapshot.Id && a.Assignment.Position == member.Position)) continue;
+                    if (working.Any(a => a.Roster.Id == rosterId && a.EmployeeId == member.EmployeeId && a.Shift.Id == snapshot.Id)) continue;
                     var conflicts = CheckRotationInterval(person.EmployeeId, person.UserId, snapshot, working, leave);
                     if (allStandby.Any(s => s.EmployeeId == person.EmployeeId
                         && !(input.ReplaceGenerated && input.IncludeStandby && s.DutyRosterId == rosterId && s.Source == "Rotation" && s.WorkDate >= input.FromDate && s.WorkDate <= input.ToDate)
                         && DayBounds(s.WorkDate, zone).Start < snapshot.EndsAt && snapshot.StartsAt < DayBounds(s.WorkDate, zone).End))
                         conflicts.Add(new("StandbyConflict", day, person.EmployeeId, "Existing standby overlaps the proposed work day."));
                     if (conflicts.Count > 0) { issues.AddRange(conflicts); continue; }
-                    additions.Add(new(person.EmployeeId, person.FullName, member.Position, group.Id, key, snapshot));
-                    changes.Add(new("Add", day, person.EmployeeId, person.FullName, $"{snapshot.Name} · {member.Position}"));
+                    additions.Add(new(person.EmployeeId, person.FullName, group.Id, key, snapshot));
+                    changes.Add(new("Add", day, person.EmployeeId, person.FullName, snapshot.Name));
                     working.Add(new RotationInterval(-additions.Count, person.EmployeeId, person.UserId, snapshot, new DutyAssignment(), roster));
                 }
             }
@@ -290,11 +289,10 @@ public partial class WorkSchedulingService
         foreach (var s in removeStandby) changes.Add(new("ReplaceStandby", s.WorkDate, s.EmployeeId, people.GetValueOrDefault(s.EmployeeId)?.FullName ?? "Staff", "Generated standby replaced."));
         var projected = shifts.Select(s => {
             var assigned = s.Assignments.Where(a => !removedIds.Contains(a.Id)).Concat(additions.Where(a => a.Shift.Id == s.Id)
-                .Select(a => new AssignmentModel(-additions.IndexOf(a) - 1, a.EmployeeId, a.StaffName, a.Position) { Source = "Rotation" })).ToList();
-            return s with { Assignments = assigned, EntryAssigned = assigned.Count(a => a.Position == "Entry"), ExitAssigned = assigned.Count(a => a.Position == "Exit"), CounterAssigned = assigned.Count(a => a.Position == "Counter") };
+                .Select(a => new AssignmentModel(-additions.IndexOf(a) - 1, a.EmployeeId, a.StaffName) { Source = "Rotation" })).ToList();
+            return s with { Assignments = assigned, Assigned = assigned.Count };
         }).ToList();
-        var shortages = projected.SelectMany(s => Positions.Select((p, i) => new ShortageModel(s.Id, s.WorkDate, s.Name, p,
-            new[] { s.MinimumEntryStaff, s.MinimumExitStaff, s.MinimumCounterStaff }[i], s.Assignments.Count(a => a.Position == p)))).Where(x => x.Assigned < x.Required).ToList();
+        var shortages = Shortages(projected);
         var projectedStandby = (await StandbysAsync(rosterId)).Where(s => !removeStandby.Any(x => x.Id == s.Id)).Concat(addedStandby.Select((s, i) => new StandbyModel(-i - 1, s.WorkDate, s.EmployeeId, people[s.EmployeeId].FullName, s.Source))).ToList();
         var projectedRoster = model with { Shifts = projected, Shortages = shortages, Standbys = projectedStandby, RotationIssues = issues };
         var assignedIds = projected.Where(s => s.WorkDate >= input.FromDate && s.WorkDate <= input.ToDate).SelectMany(s => s.Assignments).Select(a => a.EmployeeId).ToHashSet();
@@ -325,7 +323,7 @@ public partial class WorkSchedulingService
                 var key = shift.Id; shift.Id = 0; db.DutyRosterShifts.Add(shift); await SaveWorkChangesAsync(); shiftMap[key] = shift.Id;
             }
             foreach (var duty in plan.Add) db.DutyAssignments.Add(new DutyAssignment {
-                DutyRosterShiftId = shiftMap.GetValueOrDefault(duty.Shift.Id, duty.Shift.Id), EmployeeId = duty.EmployeeId, Position = duty.Position,
+                DutyRosterShiftId = shiftMap.GetValueOrDefault(duty.Shift.Id, duty.Shift.Id), EmployeeId = duty.EmployeeId,
                 Source = "Rotation", RotationGroupId = duty.GroupId, GenerationKey = duty.Key, AttendanceTrackingFrom = Now });
             foreach (var row in plan.RemoveStandby) (await db.DutyStandbyAssignments.SingleAsync(s => s.Id == row.Id)).IsCancelled = true;
             db.DutyStandbyAssignments.AddRange(plan.AddStandby);

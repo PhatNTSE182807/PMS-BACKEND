@@ -1,6 +1,6 @@
 namespace PMS.Application.Models.WorkScheduling;
 
-public record RotationMemberInput(int EmployeeId, string Position);
+public record RotationMemberInput(int EmployeeId);
 public class RotationGroupInput
 {
     public string Name { get; set; }
