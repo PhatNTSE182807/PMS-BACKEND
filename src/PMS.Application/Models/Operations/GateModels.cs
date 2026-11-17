@@ -1,7 +1,7 @@
 namespace PMS.Application.Models.Operations;
 
 /// <summary>
-/// A vehicle at an entry lane (FR-OPS-01). The lane gives the vehicle type; the plate comes from ANPR
+/// A vehicle at an entry lane. The lane gives the vehicle type; the plate comes from ANPR
 /// (with its confidence) or is typed by the Staff. Overrides are the Staff's decisions on the alerts of a
 /// previous attempt and need <see cref="OverrideReason"/>.
 /// </summary>
@@ -11,7 +11,7 @@ public class CheckInModel
 
     public string PlateNumber { get; set; }
 
-    /// <summary>The plate cannot be read or is missing: no ANPR, no duplicate-plate rule; ticket and photo only (FR-OPS-10).</summary>
+    /// <summary>The plate cannot be read or is missing: no ANPR, no duplicate-plate rule; ticket and photo only.</summary>
     public bool NoPlate { get; set; }
 
     /// <summary>Required with <see cref="NoPlate"/>: why the plate is unreadable or missing. Not a device failure (that is <see cref="IsManual"/>).</summary>
@@ -23,13 +23,13 @@ public class CheckInModel
     /// <summary>ANPR confidence 0..1 (or 0..100); null when typed by hand.</summary>
     public decimal? AnprConfidence { get; set; }
 
-    /// <summary>The Staff checked or corrected a low-confidence plate (FR-OPS-14).</summary>
+    /// <summary>The Staff checked or corrected a low-confidence plate.</summary>
     public bool PlateConfirmed { get; set; }
 
     /// <summary>Scanned reservation QR (signed payload).</summary>
     public string ReservationQr { get; set; }
 
-    /// <summary>Reservation code typed by the Staff (phone flat, FR-RSV-04 exceptions).</summary>
+    /// <summary>Reservation code typed by the Staff (phone flat or other check-in exceptions).</summary>
     public string ReservationCode { get; set; }
 
     /// <summary>Enter as a walk-in even though a reservation matched (e.g. arrived early, 4.2.1).</summary>
@@ -38,7 +38,7 @@ public class CheckInModel
     /// <summary>Optional bay picked on the 3D model for a walk-in.</summary>
     public int? SlotId { get; set; }
 
-    /// <summary>Device failure: entry recorded by hand (FR-OPS-03).</summary>
+    /// <summary>Device failure: entry recorded by hand.</summary>
     public bool IsManual { get; set; }
 
     public string ManualReason { get; set; }
@@ -83,7 +83,7 @@ public class CheckInResultModel
 
     public SessionResponseModel Session { get; set; }
 
-    /// <summary>Signed QR ticket for a Guest (lot code, entry time, lane, NFR-16).</summary>
+    /// <summary>Signed QR ticket for a Guest (lot code, entry time, lane).</summary>
     public string Ticket { get; set; }
 }
 
@@ -186,7 +186,7 @@ public class CheckoutQuoteRequestModel
 {
     public int? GateId { get; set; }
 
-    /// <summary>Plate read at the exit, compared with the entry plate (FR-OPS-04).</summary>
+    /// <summary>Plate read at the exit, compared with the entry plate.</summary>
     public string PlateNumber { get; set; }
 
     public decimal? AnprConfidence { get; set; }
@@ -229,7 +229,7 @@ public class CheckoutQuoteModel
 
     public decimal AmountDue { get; set; }
 
-    /// <summary>Residual deposit refunded at check-out (BR-03).</summary>
+    /// <summary>Residual deposit refunded at check-out.</summary>
     public decimal DepositRefund { get; set; }
 
     public string ZeroFeeReason { get; set; }
@@ -254,7 +254,7 @@ public class CheckoutModel
 
     public string PlateNumber { get; set; }
 
-    /// <summary>The Staff compared entry and exit photos (required for vehicles without a plate, FR-OPS-10).</summary>
+    /// <summary>The Staff compared entry and exit photos (required for vehicles without a plate).</summary>
     public bool PhotoChecked { get; set; }
 
     public bool AllowPlateMismatch { get; set; }
@@ -304,7 +304,7 @@ public class LostTicketModel
 {
     public string Reason { get; set; }
 
-    /// <summary>BR-13 conditions met (photos, papers and ID match; standard fine): no Manager approval needed.</summary>
+    /// <summary>Conditional approval met (photos, papers and ID match; standard fine): no Manager approval needed.</summary>
     public bool ConditionsMet { get; set; }
 }
 

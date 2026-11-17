@@ -53,7 +53,7 @@ public class AssignParkingLotsModel
     public List<int> ParkingLotIds { get; set; } = [];
 }
 
-/// <summary>Manager creates a Staff account in one of the lots they manage (UC-09).</summary>
+/// <summary>Manager creates a Staff account in one of the lots they manage.</summary>
 public class CreateStaffAccountModel
 {
     /// <summary>Optional; derived from the email when empty.</summary>

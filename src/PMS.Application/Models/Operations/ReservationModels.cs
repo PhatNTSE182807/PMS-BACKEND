@@ -1,6 +1,6 @@
 namespace PMS.Application.Models.Operations;
 
-/// <summary>Book a slot picked on the 3D model (FR-RSV-02).</summary>
+/// <summary>Book a slot picked on the 3D model.</summary>
 public class CreateReservationModel
 {
     public int ParkingLotId { get; set; }
@@ -25,7 +25,7 @@ public class CreateReservationModel
     public bool PayDeposit { get; set; } = true;
 }
 
-/// <summary>Change the arrival time and/or the slot before the change deadline (FR-RSV-03).</summary>
+/// <summary>Change the arrival time and/or the slot before the change deadline.</summary>
 public class UpdateReservationModel
 {
     public DateTimeOffset? ArrivalTime { get; set; }
@@ -87,7 +87,7 @@ public class ReservationResponseModel
     /// <summary>The bay is marked Reserved for this booking now (it is locked shortly before arrival).</summary>
     public bool IsSlotHeld { get; set; }
 
-    /// <summary>BR-02: check-in window.</summary>
+    /// <summary>Check-in window.</summary>
     public DateTime CheckInFrom { get; set; }
 
     public DateTime CheckInUntil { get; set; }
@@ -103,7 +103,7 @@ public class ReservationResponseModel
     /// <summary>The same hold in seconds (a simulated hold can be shorter than a minute).</summary>
     public int HoldSeconds { get; set; }
 
-    /// <summary>Pay the deposit before this or the reservation expires (BR-06).</summary>
+    /// <summary>Pay the deposit before this or the reservation expires.</summary>
     public DateTime? DepositDueAt { get; set; }
 
     public decimal RefundAmount { get; set; }
@@ -116,12 +116,12 @@ public class ReservationResponseModel
 
     public DateTime? ConfirmedAt { get; set; }
 
-    /// <summary>The arrival time / slot can still be changed (FR-RSV-03).</summary>
+    /// <summary>The arrival time / slot can still be changed.</summary>
     public bool CanChange { get; set; }
 
     public bool CanCancel { get; set; }
 
-    /// <summary>What a cancellation now would refund (BR-04).</summary>
+    /// <summary>What a cancellation now would refund.</summary>
     public decimal RefundIfCancelledNow { get; set; }
 
     /// <summary>The open deposit payment, if one was started.</summary>
@@ -158,7 +158,7 @@ public class GateReservationLookupModel
     public string OpenSessionCode { get; set; }
 }
 
-/// <summary>Signed reservation QR (FR-RSV-04, NFR-16); the app renders <see cref="QrPayload"/> as a QR code.</summary>
+/// <summary>Signed reservation QR; the app renders <see cref="QrPayload"/> as a QR code.</summary>
 public class ReservationQrModel
 {
     public long ReservationId { get; set; }

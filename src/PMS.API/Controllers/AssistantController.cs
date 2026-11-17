@@ -10,7 +10,7 @@ using PMS.Application.Services.Assistant;
 namespace PMS.API.Controllers;
 
 /// <summary>
-/// Customer chat assistant (SRS FR-SYS-10), open to Guests and Users. It answers from the help files
+/// Customer chat assistant, open to Guests and Users. It answers from the help files
 /// only and reads no account data, so it needs no sign-in.
 /// </summary>
 [AllowAnonymous]

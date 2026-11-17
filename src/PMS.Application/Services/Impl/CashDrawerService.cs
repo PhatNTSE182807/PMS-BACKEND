@@ -8,7 +8,7 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// Cash drawer per Staff and lot (SRS 4.3 "Daily cash close"). A drawer opens with a float and keeps one running
+/// Cash drawer per Staff and lot. A drawer opens with a float and keeps one running
 /// total: the float, plus every cash fee the Staff records (the change goes back to the customer, so only the fee
 /// stays), plus the cash the Manager approved into it.
 /// User decision (2026-11-15): banknotes are no longer counted. There is no count by value at the lane, at the
@@ -27,7 +27,7 @@ public class CashDrawerService(
     IParkingRealtimeNotifier notifier = null,
     IUserNotificationPublisher notifications = null)
 {
-    /// <summary>The float every drawer opened by the system starts with (BR-30: 8,880,000 VND).</summary>
+    /// <summary>The float every drawer opened by the system starts with (8,880,000 VND).</summary>
     public const decimal DefaultFloat = 8_880_000;
 
     /// <summary>The largest float, or cash request, a Staff can enter at once.</summary>

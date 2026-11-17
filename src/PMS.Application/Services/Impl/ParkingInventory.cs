@@ -27,7 +27,7 @@ public class ParkingInventory(
     /// <summary>
     /// Runs <paramref name="action"/> while no other request of this process works on the same slots.
     /// Across processes the Slot RowVersion and the unique index IX_Reservations_SlotId_Held keep the
-    /// first holder the winner (NFR-15); losers get a <see cref="ConflictException"/>.
+    /// first holder the winner; losers get a <see cref="ConflictException"/>.
     /// </summary>
     public static async Task<T> WithSlotLockAsync<T>(IEnumerable<int> slotIds, Func<Task<T>> action)
     {
@@ -177,7 +177,7 @@ public class ParkingInventory(
             await AdjustCounterAsync(zoneId.Value, lotId, available: +1, occupied: -1);
     }
 
-    /// <summary>Moves a zone counter, kept within 0..capacity (BR-19: a forced entry may leave it off by one).</summary>
+    /// <summary>Moves a zone counter, kept within 0..capacity (a forced entry may leave it off by one).</summary>
     public async Task AdjustCounterAsync(int zoneId, int lotId, int available, int occupied)
     {
         var counter = pmsContext.ZoneCounters.Local.FirstOrDefault(c => c.ZoneId == zoneId)

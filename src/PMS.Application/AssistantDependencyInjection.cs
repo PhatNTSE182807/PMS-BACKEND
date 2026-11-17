@@ -10,7 +10,7 @@ using PMS.Application.Services.Assistant;
 namespace PMS.Application;
 
 /// <summary>
-/// Customer chat assistant answering from the help files (SRS FR-SYS-10), on any OpenAI-compatible
+/// Customer chat assistant answering from the help files, on any OpenAI-compatible
 /// API: Google Gemini by default, for both the embeddings and the answers.
 /// </summary>
 public static class AssistantDependencyInjection

@@ -36,6 +36,7 @@ public class GateRequestsController(IGateRequestService gateRequests, IClaimServ
     public async Task<IActionResult> GetMineAsync() =>
         Ok(ApiResult<IReadOnlyList<GateRequestModel>>.Success(await gateRequests.GetMineAsync(claimService.GetUserId())));
 
+    /// <summary>The customer withdraws a gate request that is still waiting for the Staff.</summary>
     [HttpPost("~/api/gate-requests/{requestId:long}/cancel")]
     [Authorize(Roles = "User")]
     public async Task<IActionResult> CancelAsync(long requestId) =>

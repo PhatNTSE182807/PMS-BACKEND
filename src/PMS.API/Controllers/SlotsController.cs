@@ -12,6 +12,7 @@ namespace PMS.API.Controllers;
 [Authorize(Roles = "Admin,Manager")]
 public class SlotsController(ISlotService slotService) : ApiController
 {
+    /// <summary>Lists parking bays, filtered by zone, vehicle type, status and active state.</summary>
     [HttpGet]
     public async Task<IActionResult> GetAllAsync(
         [FromQuery] int? zoneId = null,
@@ -23,6 +24,7 @@ public class SlotsController(ISlotService slotService) : ApiController
             await slotService.GetAllAsync(zoneId, vehicleTypeId, status, isActive)));
     }
 
+    /// <summary>Bays of one zone.</summary>
     [HttpGet("/api/zones/{zoneId:int}/slots")]
     public async Task<IActionResult> GetByZoneIdAsync(int zoneId)
     {
@@ -30,6 +32,7 @@ public class SlotsController(ISlotService slotService) : ApiController
             await slotService.GetByZoneIdAsync(zoneId)));
     }
 
+    /// <summary>One parking bay.</summary>
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetByIdAsync(int id)
     {
@@ -38,6 +41,7 @@ public class SlotsController(ISlotService slotService) : ApiController
     }
 
     // Slots are generated from the lot's ready-made model (LotTemplates); there is no create or delete.
+    /// <summary>Updates a bay's configuration: code, vehicle type and the vehicle it is dedicated to.</summary>
     [HttpPut("{id:int}")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateSlotModel model)

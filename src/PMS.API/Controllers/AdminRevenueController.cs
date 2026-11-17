@@ -15,6 +15,7 @@ namespace PMS.API.Controllers;
 public class AdminRevenueController(
     IRevenueReportService revenueReportService) : ApiController
 {
+    /// <summary>Settled revenue of every lot (or one lot) over a date range, optionally for one vehicle type.</summary>
     [HttpGet]
     public async Task<IActionResult> GetRevenueAsync(
         [FromQuery] string startDate = null,

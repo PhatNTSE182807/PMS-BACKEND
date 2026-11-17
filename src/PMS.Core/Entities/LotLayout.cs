@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace PMS.DataAccess.Persistence.Entities;
 
 /// <summary>
-/// Layout 3D of a parking lot (SRS 8 "Layout3D"): display only, never the source of slots.
+/// Layout 3D of a parking lot: display only, never the source of slots.
 /// A lot has at most one Draft and one Published version; older versions are Archived.
 /// </summary>
 public partial class LotLayout
@@ -38,7 +38,7 @@ public partial class LotLayout
 }
 
 /// <summary>
-/// Where a business slot sits in a layout (SRS 8 "Slot3DMeta"): floor, grid cell, heading and GLB model.
+/// Where a business slot sits in a layout: floor, grid cell, heading and GLB model.
 /// It points to a Slot and never creates or removes one.
 /// </summary>
 public partial class LotLayoutSlot

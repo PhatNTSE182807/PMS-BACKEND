@@ -7,8 +7,8 @@ using PMS.Application.Models.Operations;
 namespace PMS.Application.Helpers.Parking;
 
 /// <summary>
-/// Signs and checks the self-contained codes of NFR-16: the reservation QR, the entry ticket (lot code,
-/// entry time, lane, FR-OPS-09) and the Exit Pass (FR-PAY-07). Format: <c>kind.payload.signature</c>,
+/// Signs and checks the self-contained signed codes: the reservation QR, the entry ticket (lot code,
+/// entry time, lane) and the Exit Pass. Format: <c>kind.payload.signature</c>,
 /// base64url, HMAC-SHA256 with a per-lot key derived from <see cref="ParkingOptions.TicketSigningKey"/>,
 /// so an Edge that holds one lot's key cannot forge another lot's codes.
 /// </summary>

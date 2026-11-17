@@ -18,6 +18,7 @@ public class AdminController(
     IEmployeeAccountService employeeAccountService,
     IClaimService claimService) : ApiController
 {
+    /// <summary>Creates a Manager account and, when lots are given, assigns those lots to it.</summary>
     [HttpPost("managers")]
     public async Task<IActionResult> CreateManagerAsync([FromBody] CreateEmployeeAccountModel model)
     {
@@ -31,6 +32,7 @@ public class AdminController(
         return Ok(ApiResult<CreateUserResponseModel>.Success(created));
     }
 
+    /// <summary>Lists Manager accounts, filtered by active state and a search term (name, email or phone).</summary>
     [HttpGet("managers")]
     public async Task<IActionResult> GetManagersAsync([FromQuery] bool? isActive = null, [FromQuery] string searchTerm = null)
     {
@@ -38,18 +40,21 @@ public class AdminController(
             await employeeAccountService.GetManagersAsync(isActive, searchTerm)));
     }
 
+    /// <summary>One Manager account with the lots it manages.</summary>
     [HttpGet("managers/{id}")]
     public async Task<IActionResult> GetManagerAsync(string id)
     {
         return Ok(ApiResult<EmployeeAccountResponseModel>.Success(await employeeAccountService.GetManagerAsync(id)));
     }
 
+    /// <summary>Updates a Manager's personal and employment details.</summary>
     [HttpPut("managers/{id}")]
     public async Task<IActionResult> UpdateManagerAsync(string id, [FromBody] UpdateEmployeeAccountModel model)
     {
         return Ok(ApiResult<EmployeeAccountResponseModel>.Success(await employeeAccountService.UpdateManagerAsync(id, model)));
     }
 
+    /// <summary>Activates or locks a Manager account.</summary>
     [HttpPatch("managers/{id}/status")]
     public async Task<IActionResult> UpdateManagerStatusAsync(string id, [FromBody] UpdateUserStatusModel model)
     {
@@ -65,6 +70,7 @@ public class AdminController(
             await employeeAccountService.AssignManagerLotsAsync(id, model)));
     }
 
+    /// <summary>Lists internal accounts (Admin, Manager, Staff), filtered by role, active state and a search term.</summary>
     [HttpGet("users")]
     public async Task<IActionResult> GetInternalUsersAsync(
         [FromQuery] string role = null,
@@ -75,6 +81,7 @@ public class AdminController(
             await userService.GetInternalUsersAsync(role, isActive, searchTerm)));
     }
 
+    /// <summary>Activates or locks an internal account; Admins cannot lock their own account.</summary>
     [HttpPatch("users/{id}/status")]
     public async Task<IActionResult> UpdateStatusAsync(string id, [FromBody] UpdateUserStatusModel model)
     {

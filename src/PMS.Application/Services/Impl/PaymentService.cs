@@ -465,7 +465,7 @@ public class PaymentService(
 
     /// <summary>
     /// Applies a gateway result once. A success that arrives after the reservation expired or after the
-    /// session was already paid (cash, another QR) is refunded at once (FR-RSV-08, FR-PAY-08/09).
+    /// session was already paid (cash, another QR) is refunded at once.
     /// </summary>
     private async Task<PaymentCallbackResultModel> ApplyAsync(string paymentCode, bool success, decimal amount, string transactionNo, string message, string payload)
     {
@@ -606,7 +606,7 @@ public class PaymentService(
         return "Refunded";
     }
 
-    /// <summary>The session is paid: Paid; prepaid at the app or a kiosk also gets an Exit Window (FR-PAY-07).</summary>
+    /// <summary>The session is paid: Paid; prepaid at the app or a kiosk also gets an Exit Window.</summary>
     private void SettleSession(ParkingSession session, Payment payment)
     {
         ParkingStateMachines.EnsureSession(session.Status, SessionStatus.Paid);
@@ -619,7 +619,7 @@ public class PaymentService(
     }
 
     /// <summary>
-    /// Creates a refund row and sends it (cash is handed back on the spot, FR-PAY-09). <paramref name="toWallet"/> credits
+    /// Creates a refund row and sends it (cash is handed back on the spot). <paramref name="toWallet"/> credits
     /// the customer's XXIV wallet whatever the original method was (VNPay, MoMo, wallet).
     /// </summary>
     private async Task RefundAsync(Payment original, decimal amount, string reason, string requestedBy, bool toWallet = false)

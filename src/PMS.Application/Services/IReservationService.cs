@@ -2,7 +2,7 @@ using PMS.Application.Models.Operations;
 
 namespace PMS.Application.Services;
 
-/// <summary>Customer reservations (SRS FR-RSV-02..09, UC-04) and the Manager's lot-side cancellation.</summary>
+/// <summary>Customer reservations and the Manager's lot-side cancellation.</summary>
 public interface IReservationService
 {
     /// <summary>Holds the slot at once (first holder wins) and starts the deposit deadline.</summary>
@@ -15,16 +15,16 @@ public interface IReservationService
     /// <summary>The customer's next booking that has not started (soonest arrival), or null.</summary>
     Task<ReservationResponseModel> GetUpcomingAsync(string userId);
 
-    /// <summary>FR-RSV-03: new arrival time (within BR-01) and/or another free slot, before the change deadline.</summary>
+    /// <summary>New arrival time (within the booking window) and/or another free slot, before the change deadline.</summary>
     Task<ReservationResponseModel> UpdateAsync(string userId, long id, UpdateReservationModel model);
 
-    /// <summary>FR-RSV-03 / BR-04: cancel; refunds 100 % up to H minutes before arrival, nothing after.</summary>
+    /// <summary>Cancel; refunds 100 % up to H minutes before arrival, nothing after.</summary>
     Task<ReservationResponseModel> CancelAsync(string userId, long id, string reason);
 
-    /// <summary>FR-RSV-04: signed QR for the check-in window.</summary>
+    /// <summary>Signed QR for the check-in window.</summary>
     Task<ReservationQrModel> GetQrAsync(string userId, long id);
 
-    /// <summary>FR-RSV-09: the lot cancels (closure, maintenance): 100 % refund and a notification.</summary>
+    /// <summary>The lot cancels (closure, maintenance): 100 % refund and a notification.</summary>
     Task<ReservationResponseModel> CancelByLotAsync(long id, string reason);
 
     /// <summary>Reservations of a lot for its Staff and Managers.</summary>

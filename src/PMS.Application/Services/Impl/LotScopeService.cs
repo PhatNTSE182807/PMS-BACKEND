@@ -7,7 +7,7 @@ using PMS.Shared.Services;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// Lot scope of internal accounts (SRS section 8, 11): Admins act on every lot, a Manager on the lots
+/// Lot scope of internal accounts: Admins act on every lot, a Manager on the lots
 /// they manage (ParkingLots.ManagerUserId), a Staff on the lot they are assigned to (Employees.ParkingLotId).
 /// </summary>
 public class LotScopeService(PmsDbContext pmsContext, IClaimService claimService)

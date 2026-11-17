@@ -16,7 +16,7 @@ namespace PMS.API;
 
 public static class ApiDependencyInjection
 {
-    /// <summary>Rate limit for the public 3D layout channel (SRS FR-3D-08).</summary>
+    /// <summary>Rate limit for the public 3D layout channel.</summary>
     public const string PublicLayoutRateLimit = "public-layout";
 
     /// <summary>Rate limit for the forgot / reset password endpoints, which send emails and check tokens.</summary>

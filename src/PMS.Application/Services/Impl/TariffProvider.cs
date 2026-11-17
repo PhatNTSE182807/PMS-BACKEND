@@ -7,7 +7,7 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// Finds the tariff of a session: the active PricingRule in force at the entry time (BR-22), most
+/// Finds the tariff of a session: the active PricingRule in force at the entry time, most
 /// specific first (zone → lot → whole chain), then priority and version; otherwise the configured default.
 /// </summary>
 public class TariffProvider(PmsDbContext pmsContext, ParkingOptions options)

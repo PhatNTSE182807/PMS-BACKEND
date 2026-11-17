@@ -8,8 +8,8 @@ using PMS.Shared.Services;
 namespace PMS.API.Controllers;
 
 /// <summary>
-/// The customer's own parking sessions: running fee and prepaying in the app (FR-PAY-07), and the
-/// history of finished sessions with their e-receipts (FR-CUS-02).
+/// The customer's own parking sessions: running fee and prepaying in the app, and the
+/// history of finished sessions with their e-receipts.
 /// </summary>
 [Route("api/parking-sessions")]
 [Authorize(Roles = "User")]
@@ -18,6 +18,7 @@ public class ParkingSessionsController(
     IParkingHistoryService historyService,
     IClaimService claimService) : ApiController
 {
+    /// <summary>The customer's current parking sessions with their running fee.</summary>
     [HttpGet("mine")]
     public async Task<IActionResult> GetMineAsync() =>
         Ok(ApiResult<IReadOnlyList<SessionResponseModel>>.Success(await gateService.GetMySessionsAsync(claimService.GetUserId())));

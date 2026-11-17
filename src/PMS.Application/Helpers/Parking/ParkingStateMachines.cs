@@ -4,7 +4,7 @@ using PMS.Application.Models.Operations;
 namespace PMS.Application.Helpers.Parking;
 
 /// <summary>
-/// The arrows of the SRS state machines (section 4.3: "không được chuyển trạng thái ngoài các mũi tên đã vẽ").
+/// The allowed moves of each state machine: no state change outside the drawn arrows.
 /// Services call <c>EnsureCan…</c> before every status change.
 /// </summary>
 public static class ParkingStateMachines

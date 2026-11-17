@@ -8,7 +8,7 @@ using PMS.Application.Services.Impl;
 namespace PMS.API.Controllers;
 
 /// <summary>
-/// Gate operations of a lot (SRS FR-OPS, UC-01, UC-02): check-in, sensor confirmation, payment points
+/// Gate operations of a lot: check-in, sensor confirmation, payment points
 /// and check-out. Staff act on their assigned lot; Managers on the lots they manage.
 /// </summary>
 [Route("api/staff")]
@@ -40,11 +40,12 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> CancelCashTopUpAsync(int lotId, long id) =>
         Ok(ApiResult<CashTopUpModel>.Success(await cashDrawers.CancelTopUpAsync(lotId, id)));
 
+    /// <summary>Entry and exit lanes of the lot.</summary>
     [HttpGet("lots/{lotId:int}/gates")]
     public async Task<IActionResult> GetGatesAsync(int lotId) =>
         Ok(ApiResult<IReadOnlyList<GateResponseModel>>.Success(await gateService.GetGatesAsync(lotId)));
 
-    /// <summary>Zone Counters of the lot (FR-LOT-03).</summary>
+    /// <summary>Zone Counters of the lot.</summary>
     [HttpGet("lots/{lotId:int}/zone-counters")]
     public async Task<IActionResult> GetZoneCountersAsync(int lotId) =>
         Ok(ApiResult<IReadOnlyList<ZoneCounterModel>>.Success(await gateService.GetZoneCountersAsync(lotId)));
@@ -89,7 +90,7 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> GetPlateListsAsync(int lotId, [FromQuery] string listType = null) =>
         Ok(ApiResult<IReadOnlyList<PlateListEntryModel>>.Success(await plateLists.GetAsync(lotId, listType)));
 
-    /// <summary>FR-OPS-01: all gate checks; "Created" opens the barrier, "Blocked" lists what the Staff must resolve.</summary>
+    /// <summary>All gate checks; "Created" opens the barrier, "Blocked" lists what the Staff must resolve.</summary>
     [HttpPost("lots/{lotId:int}/check-in")]
     public async Task<IActionResult> CheckInAsync(int lotId, [FromBody] CheckInModel model) =>
         Ok(ApiResult<CheckInResultModel>.Success(await gateService.CheckInAsync(lotId, model)));
@@ -104,6 +105,7 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> GetParkedSessionAsync(int lotId, long sessionId) =>
         Ok(ApiResult<BaySessionModel>.Success(await gateService.GetParkedSessionAsync(lotId, sessionId)));
 
+    /// <summary>One parking session with its fee, payments and photos.</summary>
     [HttpGet("sessions/{id:long}")]
     public async Task<IActionResult> GetSessionAsync(long id) =>
         Ok(ApiResult<SessionResponseModel>.Success(await gateService.GetSessionAsync(id)));
@@ -123,10 +125,12 @@ public class StaffGateController(IGateService gateService, IReservationService r
     public async Task<IActionResult> QuoteAsync(long id, [FromBody] CheckoutQuoteRequestModel model) =>
         Ok(ApiResult<CheckoutQuoteModel>.Success(await gateService.RequestPaymentAsync(id, model)));
 
+    /// <summary>Cancels the open payment request of a session at the exit lane.</summary>
     [HttpPost("sessions/{id:long}/cancel-payment")]
     public async Task<IActionResult> CancelPaymentAsync(long id) =>
         Ok(ApiResult<SessionResponseModel>.Success(await gateService.CancelPaymentRequestAsync(id)));
 
+    /// <summary>Records a cash payment for the session at the exit lane or counter.</summary>
     [HttpPost("sessions/{id:long}/payments/cash")]
     public async Task<IActionResult> PayCashAsync(long id, [FromBody] CashPaymentModel model) =>
         Ok(ApiResult<PaymentResponseModel>.Success(await gateService.PayCashAsync(id, model)));
@@ -176,7 +180,7 @@ public class StaffGateController(IGateService gateService, IReservationService r
         return File(content, contentType);
     }
 
-    /// <summary>FR-OPS-05: lost ticket / card.</summary>
+    /// <summary>Lost ticket / card.</summary>
     [HttpPost("sessions/{id:long}/lost-ticket")]
     public async Task<IActionResult> LostTicketAsync(long id, [FromBody] LostTicketModel model) =>
         Ok(ApiResult<SessionResponseModel>.Success(await gateService.ReportLostTicketAsync(id, model)));

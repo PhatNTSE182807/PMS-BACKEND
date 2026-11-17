@@ -1,7 +1,7 @@
 namespace PMS.Application.Helpers.Parking;
 
 /// <summary>
-/// A pricing rule reduced to what the fee needs (FR-PRC-02/03). Built from a PricingRule row or from a
+/// A pricing rule reduced to what the fee needs. Built from a PricingRule row or from a
 /// configured default tariff.
 /// </summary>
 public sealed record Tariff
@@ -9,7 +9,7 @@ public sealed record Tariff
     /// <summary>"Block" (default; "Hourly" is the same with 60-minute blocks), "PerEntry" or "DayNight".</summary>
     public string ChargeModel { get; init; } = "Block";
 
-    /// <summary>BR-22: free when the whole stay is at most this long; longer stays pay from the first minute.</summary>
+    /// <summary>Free when the whole stay is at most this long; longer stays pay from the first minute.</summary>
     public int GraceMinutes { get; init; }
 
     /// <summary>Charged once per session ("PerEntry": once per calendar day).</summary>
@@ -24,7 +24,7 @@ public sealed record Tariff
 
     public decimal BlockPrice { get; init; }
 
-    /// <summary>Cap per calendar day (BR-22: "trần/ngày tính theo ngày lịch").</summary>
+    /// <summary>Cap per calendar day ("trần/ngày tính theo ngày lịch").</summary>
     public decimal? MaxDailyFee { get; init; }
 
     /// <summary>"DayNight": blocks starting in [DayStart, NightStart) cost DayPrice, the others NightPrice.</summary>
@@ -38,7 +38,7 @@ public sealed record Tariff
 
     public decimal LostTicketFee { get; init; }
 
-    /// <summary>The PricingRule row and version this came from; null for a configured default (BR-22, FR-PRC-04).</summary>
+    /// <summary>The PricingRule row and version this came from; null for a configured default.</summary>
     public int? RuleId { get; init; }
 
     public int? Version { get; init; }
@@ -47,10 +47,10 @@ public sealed record Tariff
 /// <summary>One calendar day of a stay.</summary>
 public sealed record FeeDay(DateOnly Date, int Minutes, int Blocks, decimal Amount, bool Capped);
 
-/// <summary>The fee of a stay and how it was reached (FR-PRC-06 shows the blocks).</summary>
+/// <summary>The fee of a stay and how it was reached (shows the blocks).</summary>
 public sealed record FeeBreakdown(int DurationMinutes, decimal Total, bool WithinGrace, IReadOnlyList<FeeDay> Days);
 
-/// <summary>What is left to pay, or to give back, when the vehicle leaves (FR-RSV-07, BR-03, BR-10).</summary>
+/// <summary>What is left to pay, or to give back, when the vehicle leaves.</summary>
 public sealed record Settlement(
     decimal Fee,
     decimal LostTicketFee,
@@ -62,19 +62,19 @@ public sealed record Settlement(
     decimal PenaltyFee = 0);
 
 /// <summary>
-/// Parking fee rules of SRS BR-09, BR-10 and BR-22. Pure functions: every example of the SRS fee table
-/// (section 5) is a unit test.
+/// Parking fee rules: hourly blocks, the Exit Window and daily caps. Pure functions: every example of the
+/// fee table in the requirements is a unit test.
 /// </summary>
 public static class FeeCalculator
 {
-    /// <summary>BR-22: fees are rounded up to a multiple of 1,000 VND.</summary>
+    /// <summary>Fees are rounded up to a multiple of 1,000 VND.</summary>
     public const decimal RoundingStep = 1_000m;
 
     /// <summary>
     /// The fee for a stay from <paramref name="entryUtc"/> to <paramref name="exitUtc"/>. Days are split at
     /// local midnight in <paramref name="timeZone"/>; blocks are counted per day and rounded up; each day is
     /// capped by <see cref="Tariff.MaxDailyFee"/>.
-    /// Team change to BR-09 / BR-22: there is no free period. The first block (the first hour by default)
+    /// There is no free period. The first block (the first hour by default)
     /// is owed from the moment the vehicle enters, so a stay is never charged 0; <see cref="Tariff.GraceMinutes"/>
     /// is no longer used here.
     /// </summary>
@@ -157,9 +157,9 @@ public static class FeeCalculator
     }
 
     /// <summary>
-    /// Settles a stay at the exit: the fee (plus a lost-ticket fine and the BR-10 late charge when the Exit
+    /// Settles a stay at the exit: the fee (plus a lost-ticket fine and the late charge when the Exit
     /// Window was missed) minus the deposit and what was paid already. A deposit larger than the fee leaves
-    /// a residual that is refunded (BR-03); money paid earlier is never refunded here.
+    /// a residual that is refunded; money paid earlier is never refunded here.
     /// </summary>
     /// <param name="penaltyFee">Owed by a vehicle towed out of a booked bay (team rule of 2026-11-15).</param>
     public static Settlement Settle(decimal fee, decimal deposit, decimal alreadyPaid, bool exitWindowMissed, decimal exitWindowLateFee, decimal lostTicketFee = 0, decimal penaltyFee = 0)

@@ -2,7 +2,7 @@ namespace PMS.Application.Models.Assistant;
 
 /// <summary>
 /// Settings of the customer chat assistant ("Assistant" section of appsettings).
-/// The assistant answers from the Markdown help files in <see cref="KnowledgePath"/> (SRS FR-SYS-10),
+/// The assistant answers from the Markdown help files in <see cref="KnowledgePath"/>,
 /// using Google Gemini for both the embeddings and the answers, through Gemini's OpenAI-compatible API.
 /// </summary>
 public class AssistantOptions

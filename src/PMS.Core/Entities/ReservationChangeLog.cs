@@ -2,7 +2,7 @@ using System;
 
 namespace PMS.DataAccess.Persistence.Entities;
 
-/// <summary>History of a reservation's changes and status moves (SRS section 8 "ReservationChangeLog").</summary>
+/// <summary>History of a reservation's changes and status moves.</summary>
 public class ReservationChangeLog
 {
     public long Id { get; set; }

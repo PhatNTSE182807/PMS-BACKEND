@@ -3,7 +3,7 @@ using PMS.Application.Models.Operations;
 
 namespace PMS.Application.Models.Validators.Operations;
 
-/// <summary>Lost ticket report at the gate (FR-OPS-05): the reason is stored on the case (500 characters).</summary>
+/// <summary>Lost ticket report at the gate: the reason is stored on the case (500 characters).</summary>
 public class LostTicketModelValidator : AbstractValidator<LostTicketModel>
 {
     public LostTicketModelValidator()
