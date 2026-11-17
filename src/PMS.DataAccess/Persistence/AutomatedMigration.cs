@@ -37,6 +37,7 @@ public static partial class AutomatedMigration
                 await EnsureSystemSettingsTableAsync(pmsContext);
                 await EnsureCustomerAvatarsTableAsync(pmsContext);
                 await EnsurePricingRuleDraftsTableAsync(pmsContext);
+                await EnsureAccountDeletionRequestsTableAsync(pmsContext);
                 await SetBookedBayCompensationDefaultsAsync(pmsContext);
                 await SetPenaltyFeeDefaultsAsync(pmsContext);
             }

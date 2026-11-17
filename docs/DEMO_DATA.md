@@ -43,7 +43,7 @@ can empty that folder at the same time.
 Demo passwords: Managers **`Manager123@`**, Staff **`Staff123@`**, customers **`Demo@123`**. Demo
 Managers and Staff that still had `Demo@123` from an older seed are moved to their new password on the
 next start. Internal accounts sign in with the username,
-customers with the email (either works). Emails use `example.com`, so no mail is ever delivered.
+customers with the email (either works). Emails use `gmail.com` (since 2026-11-17; accounts seeded with `example.com` are moved on the next start). These are real-looking addresses: password-reset and other mails may be sent to them.
 
 The Admin comes from the base seed: `systemadmin` / `admin@gmail.com`, password `Admin123@`.
 
@@ -67,14 +67,14 @@ The Admin comes from the base seed: `systemadmin` / `admin@gmail.com`, password 
 
 | Email | Name | Wallet | Vehicles (papers) | Use it to test |
 | --- | --- | --- | --- | --- |
-| `an.nguyen@example.com` | Nguyễn Văn An | ≥ 200,000 | 51K-123.45 car, 51H-678.90 7-seat, 59X1-234.56 motorbike (all approved) | parked car paid in the app; booking arriving now; the 2-booking limit |
-| `binh.tran@example.com` | Trần Thị Bình | ≥ 200,000 | 30G-555.88 car (approved) | check-out of a booking: deposit deducted |
-| `cuong.le@example.com` | Lê Hoàng Cường | none | 51F-246.80 car (waiting for Staff), 59T2-135.79 motorbike (draft: Citizen ID photo missing) | finishing an upload; Staff approving papers; first wallet top-up |
-| `dung.pham@example.com` | Phạm Thu Dung | 100,000 | 43A-246.13 car (approved), 43A-777.99 7-seat (waiting: owner on the paper differs), 29A-111.22 (rejected, removed) | booking with a deposit from the wallet; Staff rejecting papers; the rejection notice |
-| `em.vo@example.com` | Võ Minh Em | 50,000 | 51G-999.01 car (approved) | lost ticket; wallet too low for the fine |
-| `giang.hoang@example.com` | Hoàng Gia Giang | ≥ 200,000 | 51L-202.02 car (approved) | exit window after paying in the app |
-| `hai.do@example.com` | Đỗ Thanh Hải | ≥ 200,000 | 59C1-468.02 motorbike, 51A-864.20 car (approved) | check-out request from the app; long history |
-| `khoa.mai@example.com` | Mai Đăng Khoa | none | none, no Citizen ID | a brand-new account: profile first, then a vehicle |
+| `an.nguyen@gmail.com` | Nguyễn Văn An | ≥ 200,000 | 51K-123.45 car, 51H-678.90 7-seat, 59X1-234.56 motorbike (all approved) | parked car paid in the app; booking arriving now; the 2-booking limit |
+| `binh.tran@gmail.com` | Trần Thị Bình | ≥ 200,000 | 30G-555.88 car (approved) | check-out of a booking: deposit deducted |
+| `cuong.le@gmail.com` | Lê Hoàng Cường | none | 51F-246.80 car (waiting for Staff), 59T2-135.79 motorbike (draft: Citizen ID photo missing) | finishing an upload; Staff approving papers; first wallet top-up |
+| `dung.pham@gmail.com` | Phạm Thu Dung | 100,000 | 43A-246.13 car (approved), 43A-777.99 7-seat (waiting: owner on the paper differs), 29A-111.22 (rejected, removed) | booking with a deposit from the wallet; Staff rejecting papers; the rejection notice |
+| `em.vo@gmail.com` | Võ Minh Em | 50,000 | 51G-999.01 car (approved) | lost ticket; wallet too low for the fine |
+| `giang.hoang@gmail.com` | Hoàng Gia Giang | ≥ 200,000 | 51L-202.02 car (approved) | exit window after paying in the app |
+| `hai.do@gmail.com` | Đỗ Thanh Hải | ≥ 200,000 | 59C1-468.02 motorbike, 51A-864.20 car (approved) | check-out request from the app; long history |
+| `khoa.mai@gmail.com` | Mai Đăng Khoa | none | none, no Citizen ID | a brand-new account: profile first, then a vehicle |
 
 ## Lots
 

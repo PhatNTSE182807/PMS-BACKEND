@@ -37,6 +37,9 @@ public partial class PmsDbContext
         // Price changes a Manager saved as drafts live in PmsDbContext.PricingRuleDrafts.cs
         ConfigurePricingRuleDrafts(modelBuilder);
 
+        // Customers' account deletion requests live in PmsDbContext.AccountDeletionRequests.cs
+        ConfigureAccountDeletionRequests(modelBuilder);
+
         modelBuilder.Entity<ParkingLot>()
             .Property(e => e.LayoutTemplate)
             .HasMaxLength(30)

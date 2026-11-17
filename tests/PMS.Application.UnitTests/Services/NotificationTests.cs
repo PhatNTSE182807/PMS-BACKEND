@@ -124,7 +124,9 @@ public class NotificationTests : IDisposable
             NotificationTypes.VehicleTowed,
             NotificationTypes.LotAlmostFull,
             NotificationTypes.LotFull,
-            NotificationTypes.LotSpaceAvailable);
+            NotificationTypes.LotSpaceAvailable,
+            NotificationTypes.AccountDeletionRequested,
+            NotificationTypes.LotPricingChanged);
         NotificationTypes.All.Should().OnlyHaveUniqueItems();
     }
 

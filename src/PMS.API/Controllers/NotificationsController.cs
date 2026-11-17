@@ -8,11 +8,11 @@ using PMS.Shared.Services;
 namespace PMS.API.Controllers;
 
 /// <summary>
-/// The signed-in customer's notification bell: newest items, unread count, mark read and delete.
+/// The signed-in person's notification bell (customers, Staff, Managers and Admins): newest items, unread count, mark read and delete.
 /// Notifications are created by Hangfire jobs (vehicle approved/rejected, check-in, check-out)
 /// and pushed in real time through the parking-ops hub as "NotificationCreated".
 /// </summary>
-[Authorize(Roles = "User,Staff,Manager")]
+[Authorize(Roles = "User,Staff,Manager,Admin")]
 public class NotificationsController(INotificationService notifications, IClaimService claimService) : ApiController
 {
     /// <summary>Newest notifications (default 30, max 100) and the unread count.</summary>

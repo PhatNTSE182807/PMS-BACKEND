@@ -16,7 +16,8 @@ namespace PMS.API.Controllers;
 public class AdminController(
     IUserService userService,
     IEmployeeAccountService employeeAccountService,
-    IClaimService claimService) : ApiController
+    IClaimService claimService,
+    IAccountDeletionRequestService deletionRequests) : ApiController
 {
     /// <summary>Creates a Manager account and, when lots are given, assigns those lots to it.</summary>
     [HttpPost("managers")]
@@ -73,11 +74,17 @@ public class AdminController(
             await userService.GetInternalUsersAsync(role, isActive, searchTerm)));
     }
 
-    /// <summary>Activates or locks an internal account; Admins cannot lock their own account.</summary>
+    /// <summary>
+    /// Activates or locks an account (internal or customer); Admins cannot lock their own account. Locking a customer
+    /// completes their pending account deletion request.
+    /// </summary>
     [HttpPatch("users/{id}/status")]
     public async Task<IActionResult> UpdateStatusAsync(string id, [FromBody] UpdateUserStatusModel model)
     {
         var currentUserId = claimService.GetUserId();
-        return Ok(ApiResult<bool>.Success(await userService.UpdateUserStatusAsync(currentUserId, id, model.IsActive)));
+        var updated = await userService.UpdateUserStatusAsync(currentUserId, id, model.IsActive);
+        if (updated && !model.IsActive)
+            await deletionRequests.CompletePendingAsync(id, currentUserId);
+        return Ok(ApiResult<bool>.Success(updated));
     }
 }

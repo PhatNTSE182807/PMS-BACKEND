@@ -26,15 +26,17 @@ public class PricingRuleService(
     TimeProvider clock,
     ILotPriceNotifier priceNotifier = null,
     ILogger<PricingRuleService> logger = null,
-    ILotDataChangeListener lotDataChanged = null) : IPricingRuleService
+    ILotDataChangeListener lotDataChanged = null,
+    IUserNotificationPublisher notifications = null) : IPricingRuleService
 {
     private static readonly string[] ValidStatuses = ["Draft", "Active", "Inactive", "Archived"];
 
-    private async Task TryRecordHistoryAsync(int ruleId, string changeType, string oldJson, string newJson, string reason, DateTime now)
+    /// <summary>Writes a history row; returns its id, or null when it could not be saved (the change itself stands).</summary>
+    private async Task<long?> TryRecordHistoryAsync(int ruleId, string changeType, string oldJson, string newJson, string reason, DateTime now)
     {
         try
         {
-            pmsContext.PricingRuleHistories.Add(new PricingRuleHistory
+            var history = new PricingRuleHistory
             {
                 PricingRuleId = ruleId,
                 ChangeType = changeType,
@@ -43,8 +45,10 @@ public class PricingRuleService(
                 ChangedBy = lotScopeService.UserId,
                 ChangedAt = now,
                 Reason = reason
-            });
+            };
+            pmsContext.PricingRuleHistories.Add(history);
             await pmsContext.SaveChangesAsync();
+            return history.Id;
         }
         catch (Exception ex)
         {
@@ -53,6 +57,7 @@ public class PricingRuleService(
             {
                 entry.State = EntityState.Detached;
             }
+            return null;
         }
     }
 
@@ -264,7 +269,21 @@ public class PricingRuleService(
         var priceChanged = proposed != previous;
         newModel.PriceUpdateStatus = priceChanged ? PriceUpdateStatuses.Applied : PriceUpdateStatuses.Unchanged;
 
-        await TryRecordHistoryAsync(rule.Id, "Update", JsonSerializer.Serialize(oldModel), JsonSerializer.Serialize(newModel), model.Reason ?? "Updated pricing rule parameters", now);
+        var historyId = await TryRecordHistoryAsync(rule.Id, "Update", JsonSerializer.Serialize(oldModel), JsonSerializer.Serialize(newModel), model.Reason ?? "Updated pricing rule parameters", now);
+
+        // Admins hear about every price change, whatever the rule's status (the notice reads the history row)
+        if (priceChanged && historyId is { } id)
+        {
+            try
+            {
+                notifications?.LotPricingChanged(id, previous.Describe(), proposed.Describe());
+            }
+            catch (Exception ex)
+            {
+                // The price is already saved; losing the Admin notice must not fail the Manager's request
+                logger?.LogWarning(ex, "Could not queue the Admin price notice of rule {RuleId}", rule.Id);
+            }
+        }
 
         // A rule that is not Active charges nobody, so there is nothing to tell customers
         if (priceChanged && string.Equals(rule.Status, "Active", StringComparison.OrdinalIgnoreCase))

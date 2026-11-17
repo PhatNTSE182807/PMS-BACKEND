@@ -60,7 +60,7 @@ public class DemoDataSeedTests(DemoDataFixture fixture) : IClassFixture<DemoData
     [Theory]
     [InlineData("mgr.fptu", "Manager")]
     [InlineData("staff.fsoft1", "Staff")]
-    [InlineData("an.nguyen@example.com", "User")]
+    [InlineData("an.nguyen@gmail.com", "User")]
     public async Task Demo_Accounts_Sign_In_With_Their_Role(string login, string role)
     {
         var result = await AuthenticateAsync(login);
@@ -152,9 +152,9 @@ public class DemoDataSeedTests(DemoDataFixture fixture) : IClassFixture<DemoData
         var balances = await db.Wallets.Join(db.Customers, w => w.CustomerId, c => c.Id, (w, c) => new { c.Email, w.Balance })
             .ToDictionaryAsync(x => x.Email, x => x.Balance);
         foreach (var payer in new[] { "an.nguyen", "binh.tran", "giang.hoang", "hai.do" })
-            balances[$"{payer}@example.com"].Should().BeGreaterThanOrEqualTo(200_000, payer);
-        balances["em.vo@example.com"].Should().Be(50_000);
-        balances["dung.pham@example.com"].Should().Be(100_000);
+            balances[$"{payer}@gmail.com"].Should().BeGreaterThanOrEqualTo(200_000, payer);
+        balances["em.vo@gmail.com"].Should().Be(50_000);
+        balances["dung.pham@gmail.com"].Should().Be(100_000);
     }
 
     [Fact]
@@ -292,7 +292,7 @@ public class DemoDataSeedTests(DemoDataFixture fixture) : IClassFixture<DemoData
     [Fact]
     public async Task Customer_Sees_The_Parked_Car_And_The_Wallet()
     {
-        var customer = await SignInAsync("an.nguyen@example.com");
+        var customer = await SignInAsync("an.nguyen@gmail.com");
 
         var current = (await Body(await customer.GetAsync("/api/parking-sessions/current")))["result"]!;
         current.Select(c => c["session"]!["plateNumber"]!.Value<string>()).Should().Contain("51K-123.45");
