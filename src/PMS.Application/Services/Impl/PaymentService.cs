@@ -990,29 +990,7 @@ public class PaymentService(
             .Select(s => (decimal?)s.FinalFee)
             .SumAsync() ?? 0m;
 
-        var txs = await pmsContext.WalletTransactions
-            .Where(t => t.WalletId == wallet.Id)
-            .OrderByDescending(t => t.CreatedAt)
-            .Take(10)
-            .ToListAsync();
-
-        var recent = txs.Select(t => new WalletTransactionResponseModel
-        {
-            Id = t.ReferenceId ?? $"TX-{t.Id}",
-            Title = t.Description ?? (t.Amount >= 0 ? "Wallet Deposit" : "Wallet Withdrawal"),
-            Subtitle = $"{t.CreatedAt:MMM dd, HH:mm} • Ref: {t.ReferenceId ?? t.Id.ToString()}",
-            Amount = t.Amount,
-            Status = "Completed",
-            // Refunds and compensation come back to the wallet: listed as such, not as a top-up
-            Type = t.TxnType switch
-            {
-                "Refund" or "Compensation" => "refund",
-                "Payment" => "payment",
-                _ => t.Amount >= 0 ? "deposit" : "withdraw"
-            },
-            Method = t.ReferenceType ?? "Wallet",
-            CreatedAt = t.CreatedAt
-        }).ToList();
+        var recent = await WalletTransactionsAsync(wallet.Id, RecentWalletTransactions);
 
         return new WalletResponseModel
         {
@@ -1025,6 +1003,50 @@ public class PaymentService(
             MinTopUp = parkingOptions.Wallet.MinTopUp,
             RecentTransactions = recent
         };
+    }
+
+    public async Task<IReadOnlyList<WalletTransactionResponseModel>> GetWalletTransactionsAsync(string userId)
+    {
+        var customer = await GetOrCreateCustomerAsync(userId);
+        var wallet = await GetOrCreateWalletAsync(customer.Id);
+        return await WalletTransactionsAsync(wallet.Id, WalletHistoryLimit);
+    }
+
+    /// <summary>Transactions shown with the wallet balance; the history view asks for the rest.</summary>
+    private const int RecentWalletTransactions = 10;
+
+    /// <summary>Most transactions the history view gets in one answer.</summary>
+    private const int WalletHistoryLimit = 500;
+
+    /// <summary>The wallet's latest transactions, newest first, as the customer sees them.</summary>
+    private async Task<IReadOnlyList<WalletTransactionResponseModel>> WalletTransactionsAsync(int walletId, int take)
+    {
+        var txs = await pmsContext.WalletTransactions.AsNoTracking()
+            .Where(t => t.WalletId == walletId)
+            .OrderByDescending(t => t.CreatedAt)
+            .ThenByDescending(t => t.Id)
+            .Take(take)
+            .ToListAsync();
+
+        return txs.Select(t => new WalletTransactionResponseModel
+        {
+            Id = t.ReferenceId ?? $"TX-{t.Id}",
+            Title = t.Description ?? (t.Amount >= 0 ? "Wallet Deposit" : "Wallet Withdrawal"),
+            Subtitle = $"{t.CreatedAt:MMM dd, HH:mm} • Ref: {t.ReferenceId ?? t.Id.ToString()}",
+            Amount = t.Amount,
+            BalanceBefore = t.BalanceBefore,
+            BalanceAfter = t.BalanceAfter,
+            Status = "Completed",
+            // Refunds and compensation come back to the wallet: listed as such, not as a top-up
+            Type = t.TxnType switch
+            {
+                "Refund" or "Compensation" => "refund",
+                "Payment" => "payment",
+                _ => t.Amount >= 0 ? "deposit" : "withdraw"
+            },
+            Method = t.ReferenceType ?? "Wallet",
+            CreatedAt = t.CreatedAt
+        }).ToList();
     }
 
     public async Task<WalletResponseModel> WithdrawWalletAsync(string userId, WithdrawWalletModel model)
