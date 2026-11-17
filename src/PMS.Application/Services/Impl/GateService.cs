@@ -996,8 +996,8 @@ public class GateService(
         var result = new List<CurrentSessionModel>();
         foreach (var (session, model) in sessions.Zip(models))
         {
-            // A read-only quote: looking at the fee never changes the session. A lost-ticket case waiting for a
-            // Manager has no fee yet (the lane cannot charge it either), so the vehicle is listed without one instead
+            // A read-only quote: looking at the fee never changes the session. A lost-ticket case waiting for the
+            // Staff decision has no fee yet (the lane cannot charge it either), so the vehicle is listed without one instead
             // of failing the whole list
             var lostTicketPending = session.Status == SessionStatus.LostTicketPending;
             var quote = lostTicketPending ? new CheckoutQuoteModel() : await QuoteAsync(session, null, null, mutate: false);
@@ -1091,7 +1091,7 @@ public class GateService(
     private async Task<CheckoutQuoteModel> QuoteAsync(ParkingSession session, string exitPlate, decimal? exitConfidence, bool mutate)
     {
         if (session.Status == SessionStatus.LostTicketPending)
-            throw new BadRequestException("The lost-ticket case is waiting for a Manager.");
+            throw new BadRequestException("The lost-ticket case is waiting for the Staff to check the papers.");
         if (!SessionStatus.Inside.Contains(session.Status))
             throw new BadRequestException($"The session is {session.Status} and cannot be charged.");
         // 4.2.4: after a rejection nobody takes the fee (lane, counter, app or check-out) until a new case is approved

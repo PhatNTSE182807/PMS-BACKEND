@@ -217,7 +217,7 @@ public static class ViolationType
 /// </summary>
 public static class LostTicketCaseStatus
 {
-    /// <summary>Waiting for a Manager (the session is LostTicketPending).</summary>
+    /// <summary>Waiting for the Staff to check the papers and decide (the session is LostTicketPending).</summary>
     public const string Pending = "Pending";
     /// <summary>Approved, directly by a Manager or on the spot under the conditional approval rule: the fee and fine can be paid.</summary>
     public const string Approved = "Approved";

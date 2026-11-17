@@ -369,7 +369,7 @@ public class WalkInSimulationService(
             }
             catch (Exception e) when (e is BadRequestException or ConflictException or ForbiddenException or NotFoundException)
             {
-                // A lost ticket waiting for a Manager, or a case that was rejected: the vehicle stays for now
+                // A lost ticket waiting for the Staff decision, or a case that was rejected: the vehicle stays for now
                 pmsContext.ChangeTracker.Clear();
                 result.Skipped++;
             }

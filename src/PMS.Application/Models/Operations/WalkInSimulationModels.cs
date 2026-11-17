@@ -110,7 +110,7 @@ public class WalkInCheckOutResultModel
 {
     public int CheckedOut { get; set; }
 
-    /// <summary>Vehicles that could not leave yet (a lost ticket waiting for a Manager, for instance).</summary>
+    /// <summary>Vehicles that could not leave yet (a lost ticket waiting for the Staff decision, for instance).</summary>
     public int Skipped { get; set; }
 }
 
