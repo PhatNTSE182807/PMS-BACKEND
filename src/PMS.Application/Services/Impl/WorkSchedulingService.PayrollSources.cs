@@ -13,8 +13,8 @@ public partial class WorkSchedulingService
     private static PayrollInterval ClipPayroll(DateTime start, DateTime end, DateTime from, DateTime to, string kind) =>
         new(Utc(start > from ? start : from), Utc(end < to ? end : to), kind);
 
-    private async Task<PayrollAttendanceSource> CapturePayrollSourceAsync(AttendancePeriodLot lot,
-        AttendancePeriodReview review, bool legacy, SealPayrollSourceInput input = null)
+    // The payroll snapshot is taken once, when the month's attendance is locked.
+    private async Task<PayrollAttendanceSource> CapturePayrollSourceAsync(AttendancePeriodLot lot, AttendancePeriodReview review)
     {
         var existing = await db.PayrollAttendanceSources.SingleOrDefaultAsync(x => x.AttendancePeriodLotId == lot.Id);
         if (existing != null) return existing;
@@ -64,13 +64,8 @@ public partial class WorkSchedulingService
             var employee = await db.Employees.AsNoTracking().SingleAsync(e => e.Id == carry.EmployeeId);
             people.TryAdd(employee.UserId, new(employee.UserId, employee.Id, employee.FullName, "Staff"));
         }
-        var managerId = legacy ? lot.ConfirmedBy ?? input?.ManagerUserId
-            : await db.ParkingLots.Where(x => x.Id == lot.ParkingLotId).Select(x => x.ManagerUserId).SingleAsync();
-        if (legacy && lot.ConfirmedBy == null && input?.ManagerUserId != null
-            && !await identity.Users.AnyAsync(u => u.Id == input.ManagerUserId && u.Role == "Manager"))
-            throw new BadRequestException("The explicitly selected historical employee must be a Manager; Admin salary is not managed.");
+        var managerId = await db.ParkingLots.Where(x => x.Id == lot.ParkingLotId).Select(x => x.ManagerUserId).SingleAsync();
         if (!string.IsNullOrEmpty(managerId)) managerIds.Add(managerId);
-        if (legacy && managerIds.Count == 0) throw new BadRequestException("Select the historical Manager explicitly before sealing this unconfirmed legacy period.");
         foreach (var id in managerIds) {
             var e = await db.Employees.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == id);
             people[id] = new(id, e?.Id, review.ManagerDays.FirstOrDefault(x => x.ManagerUserId == id)?.ManagerName ?? e?.FullName ?? "Manager", "Manager");
@@ -86,30 +81,16 @@ public partial class WorkSchedulingService
         var source = new PayrollAttendanceSource { AttendancePeriodLotId = lot.Id, SnapshotJson = json, SnapshotHash = PayrollHash(json),
             CreatedBy = scope.UserId, CreatedAt = Now };
         db.PayrollAttendanceSources.Add(source);
-        PayrollAuditEntry("AttendanceSourceSealed", lot.ParkingLotId, null, input?.Reason ?? "Sealed atomically with attendance lock.", null, new { lot.Id, source.SnapshotHash, Legacy = legacy });
+        PayrollAuditEntry("AttendanceSourceSealed", lot.ParkingLotId, null, "Sealed atomically with attendance lock.", null, new { lot.Id, source.SnapshotHash });
         return source;
     }
 
-    public async Task<object> PayrollSourcesAsync(int lotId)
+    /// <summary>Hours carried between locked attendance months at a lot, for Admin to value as payroll adjustments.</summary>
+    public async Task<IReadOnlyList<AttendanceCarryAdjustment>> PayrollCarriesAsync(int lotId)
     {
         EnsurePeriodAdmin(); await scope.EnsureCanManageAsync(lotId);
-        var periods = await (from l in db.AttendancePeriodLots join p in db.AttendancePeriods on l.AttendancePeriodId equals p.Id
-            where l.ParkingLotId == lotId && l.Status == "Locked" select new { l.Id, p.Name, p.FromDate, p.ToDate, l.ConfirmedBy }).ToListAsync();
-        var sources = await db.PayrollAttendanceSources.AsNoTracking().Where(s => periods.Select(p => p.Id).Contains(s.AttendancePeriodLotId)).ToListAsync();
-        return periods.Select(p => new { PeriodLotId = p.Id, p.Name, p.FromDate, p.ToDate, Sealed = sources.Any(s => s.AttendancePeriodLotId == p.Id),
-            Hash = sources.FirstOrDefault(s => s.AttendancePeriodLotId == p.Id)?.SnapshotHash, ManagerUserId = p.ConfirmedBy,
-            CarryAdjustments = sources.Where(s => s.AttendancePeriodLotId == p.Id).SelectMany(s => JsonSerializer.Deserialize<PayrollEvidence>(s.SnapshotJson).CarryAdjustments).ToList() }).ToList();
-    }
-    public async Task<object> SealPayrollSourceAsync(int periodLotId, SealPayrollSourceInput input)
-    {
-        EnsurePeriodAdmin(); var reason = RequestReason(input.Reason);
-        return await WriteAsync(async () => {
-            var lot = await db.AttendancePeriodLots.SingleOrDefaultAsync(x => x.Id == periodLotId) ?? throw new NotFoundException("Attendance period lot not found.");
-            await scope.EnsureCanManageAsync(lot.ParkingLotId);
-            var review = JsonSerializer.Deserialize<AttendancePeriodReview>(lot.SnapshotJson ?? "null") ?? throw new BadRequestException("A locked attendance snapshot is required.");
-            input.Reason = reason;
-            var source = await CapturePayrollSourceAsync(lot, review, true, input); await SaveWorkChangesAsync();
-            return new { source.Id, source.AttendancePeriodLotId, source.SnapshotHash };
-        });
+        var lotIds = await db.AttendancePeriodLots.Where(l => l.ParkingLotId == lotId && l.Status == "Locked").Select(l => l.Id).ToListAsync();
+        var sources = await db.PayrollAttendanceSources.AsNoTracking().Where(s => lotIds.Contains(s.AttendancePeriodLotId)).ToListAsync();
+        return sources.SelectMany(s => JsonSerializer.Deserialize<PayrollEvidence>(s.SnapshotJson)?.CarryAdjustments ?? []).ToList();
     }
 }

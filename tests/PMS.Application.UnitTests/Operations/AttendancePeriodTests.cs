@@ -40,8 +40,8 @@ public class AttendancePeriodTests
             r = await s.PublishAsync(t.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
             var w = new World { T = t, Identity = identity, Service = s, Roster = r };
             t.ActAs("admin", "Admin");
-            w.October = await s.CreateAttendancePeriodAsync(new CreateAttendancePeriodInput { Name = "October", FromDate = new(2026, 10, 1), ToDate = day, LotIds = [t.Lot.Id] });
-            w.November = await s.CreateAttendancePeriodAsync(new CreateAttendancePeriodInput { Name = "November", FromDate = day.AddDays(1), ToDate = new(2026, 11, 30), LotIds = [t.Lot.Id] });
+            w.October = await s.CreateAttendancePeriodAsync(new CreateAttendancePeriodInput { Name = "October", Month = new(2026, 10, 1), LotIds = [t.Lot.Id] });
+            w.November = await s.CreateAttendancePeriodAsync(new CreateAttendancePeriodInput { Name = "November", Month = new(2026, 11, 1), LotIds = [t.Lot.Id] });
             t.ActAs(t.StaffUserId, "Staff"); t.Clock.Now = new DateTimeOffset(w.Start);
             if (start) await s.StartAssignmentAsync(w.Id, w.Command());
             if (start && finish) {
@@ -176,7 +176,7 @@ public class AttendancePeriodTests
     public async Task Periods_Cannot_Overlap_And_Manager_Workdays_Are_Admin_Only_And_Locked()
     {
         using var w = await World.Create(); w.Admin();
-        await FluentActions.Invoking(() => w.Service.CreateAttendancePeriodAsync(new() { Name = "Overlap", FromDate = new(2026, 10, 31), ToDate = new(2026, 11, 1), LotIds = [w.T.Lot.Id] })).Should().ThrowAsync<ConflictException>();
+        await FluentActions.Invoking(() => w.Service.CreateAttendancePeriodAsync(new() { Name = "Same month", Month = new(2026, 10, 1), LotIds = [w.T.Lot.Id] })).Should().ThrowAsync<ConflictException>();
         await w.Service.SaveManagerWorkDayAsync(w.T.Lot.Id, new() { ManagerUserId = w.T.ManagerUserId, WorkDate = new(2026, 10, 31), Kind = "Work", Reason = "Admin verified" });
         await w.Confirm(w.October); await w.Lock(w.October);
         (await w.Review(w.October)).ManagerDays.Should().ContainSingle(x => x.Kind == "Work" && x.WorkDate == new DateOnly(2026, 10, 31));

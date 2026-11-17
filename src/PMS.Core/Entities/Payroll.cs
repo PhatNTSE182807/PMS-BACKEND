@@ -19,8 +19,6 @@ public class PayrollProfile
     public string PaidLeaveMethod { get; set; }
     public decimal? PaidLeaveHoursPerDay { get; set; }
     public decimal? StandardWorkDays { get; set; }
-    public string ManagerProration { get; set; }
-    public string ManagerUnpaidLeavePolicy { get; set; }
     public string Currency { get; set; }
     public int? MoneyDecimals { get; set; }
     public string RoundingMode { get; set; }

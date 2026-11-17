@@ -61,9 +61,7 @@ public partial class WorkSchedulingService
                 || input.StandardWorkDays is <= 0 or > 31 || input.MoneyDecimals is < 0 or > 4
                 || (input.NightStart.HasValue && input.NightEnd.HasValue && input.NightStart == input.NightEnd)
                 || (input.Currency != null && (input.Currency.Length != 3 || !input.Currency.All(char.IsAsciiLetter)))
-                || (input.RoundingMode != null && input.RoundingMode is not ("ToEven" or "AwayFromZero"))
-                || (input.ManagerProration != null && input.ManagerProration is not ("CalendarDays" or "WholeMonthOnly"))
-                || (input.ManagerUnpaidLeavePolicy != null && input.ManagerUnpaidLeavePolicy is not ("NoDeduction" or "DeductDaily")))
+                || (input.RoundingMode != null && input.RoundingMode is not ("ToEven" or "AwayFromZero")))
                 throw new BadRequestException("Invalid salary profile values. Missing values may remain unconfigured; calculation will report them.");
             var row = id.HasValue ? await db.PayrollProfiles.SingleOrDefaultAsync(x => x.Id == id) ?? throw new NotFoundException("Salary profile not found.") : null;
             if (row != null && (row.UserId != input.UserId || row.Role != input.Role || row.EffectiveFrom != input.EffectiveFrom))
@@ -82,7 +80,6 @@ public partial class WorkSchedulingService
             row.HolidayFactor = input.HolidayFactor; row.OvertimeFactor = input.OvertimeFactor;
             row.OvertimeCombination = "PremiumThenOvertime"; row.PaidLeaveMethod = "PlannedHours"; row.PaidLeaveHoursPerDay = null;
             row.StandardWorkDays = input.StandardWorkDays;
-            row.ManagerProration = input.ManagerProration; row.ManagerUnpaidLeavePolicy = input.ManagerUnpaidLeavePolicy;
             row.Currency = input.Currency?.ToUpperInvariant(); row.MoneyDecimals = input.MoneyDecimals; row.RoundingMode = input.RoundingMode;
             row.Reason = reason; row.Revision = revision; row.CreatedAt = created; row.CreatedBy = scope.UserId;
             if (!id.HasValue) db.PayrollProfiles.Add(row);
@@ -93,25 +90,16 @@ public partial class WorkSchedulingService
 
     private async Task<List<PayrollSourceBundle>> LoadPayrollSourcesAsync(DateOnly month, int lotId)
     {
+        // The month's attendance period covers exactly that calendar month; its snapshot was taken when it was locked.
         PayrollMonth(month); var last = month.AddMonths(1).AddDays(-1);
-        var periods = await (from l in db.AttendancePeriodLots.AsNoTracking() join p in db.AttendancePeriods.AsNoTracking() on l.AttendancePeriodId equals p.Id
-            where l.ParkingLotId == lotId && p.FromDate <= last && month <= p.ToDate select new { l.Id, l.Status, p.FromDate, p.ToDate }).ToListAsync();
-        for (var date = month; date <= last; date = date.AddDays(1)) {
-            var coverage = periods.Where(p => p.FromDate <= date && date <= p.ToDate).ToList();
-            if (coverage.Count != 1 || coverage[0].Status != "Locked")
-                throw new BadRequestException($"Lot #{lotId}, {date:yyyy-MM-dd}: the whole payroll month must be covered by locked attendance periods.");
-        }
-        var ids = periods.Select(p => p.Id).ToList();
-        var sources = await db.PayrollAttendanceSources.AsNoTracking().Where(s => ids.Contains(s.AttendancePeriodLotId)).OrderBy(s => s.Id).ToListAsync();
-        if (sources.Count != ids.Count) throw new BadRequestException("Seal the legacy locked attendance sources before calculating payroll.");
-        var result = new List<PayrollSourceBundle>();
-        foreach (var source in sources) {
-            if (PayrollHash(source.SnapshotJson) != source.SnapshotHash) throw new ConflictException("Sealed payroll source failed its integrity check.");
-            var evidence = JsonSerializer.Deserialize<PayrollEvidence>(source.SnapshotJson) ?? throw new ConflictException("Invalid sealed payroll source.");
-            result.Add(new(source.Id, source.SnapshotHash, evidence));
-        }
-        if (result.Select(s => s.Evidence.TimeZoneId).Distinct().Count() != 1) throw new BadRequestException("Attendance sources changed time zones within this month; Admin must resolve the source period scope explicitly.");
-        return result;
+        var period = await (from l in db.AttendancePeriodLots.AsNoTracking() join p in db.AttendancePeriods.AsNoTracking() on l.AttendancePeriodId equals p.Id
+            where l.ParkingLotId == lotId && p.FromDate == month && p.ToDate == last select new { l.Id, l.Status }).SingleOrDefaultAsync();
+        if (period?.Status != "Locked") throw new BadRequestException("Lock this month's attendance before calculating payroll.");
+        var source = await db.PayrollAttendanceSources.AsNoTracking().SingleOrDefaultAsync(s => s.AttendancePeriodLotId == period.Id)
+            ?? throw new BadRequestException("This month's locked attendance has no payroll snapshot.");
+        if (PayrollHash(source.SnapshotJson) != source.SnapshotHash) throw new ConflictException("Sealed payroll source failed its integrity check.");
+        var evidence = JsonSerializer.Deserialize<PayrollEvidence>(source.SnapshotJson) ?? throw new ConflictException("Invalid sealed payroll source.");
+        return [new(source.Id, source.SnapshotHash, evidence)];
     }
     private async Task<List<PayrollCalculation>> CalculatePayrollAsync(PayrollGenerateInput input, string onlyUser = null)
     {
@@ -130,9 +118,6 @@ public partial class WorkSchedulingService
             people = people.Where(p => p.UserId == onlyUser).ToList();
             if (people.Count == 0) throw new BadRequestException("The selected employee has no matching locked source or traced adjustment at this lot/month.");
         }
-        if (people.Any(p => p.Role == "Manager" && sources.Any(s => s.Evidence.People.Any(e => e.UserId == p.UserId && e.Role == "Manager")))
-            && sources.SelectMany(s => s.Evidence.People).Where(p => p.Role == "Manager").Select(p => p.UserId).Distinct().Count() > 1)
-            throw new BadRequestException("Manager employment changed within the month. An agreed employment-day proration source is required before calculating monthly bases; missing days are not inferred.");
         var userIds = people.Select(x => x.UserId).ToList();
         var profiles = await db.PayrollProfiles.AsNoTracking().Where(x => userIds.Contains(x.UserId)).OrderBy(x => x.EffectiveFrom).ToListAsync();
         var carries = sources.SelectMany(s => s.Evidence.CarryAdjustments).ToList();

@@ -20,7 +20,6 @@ public partial class PmsDbContext
             e.Property(x => x.Revision).IsConcurrencyToken(); e.HasIndex(x => new { x.UserId, x.EffectiveFrom }).IsUnique();
             e.Property(x => x.Reason).HasMaxLength(1000).IsRequired(); e.Property(x => x.Currency).HasMaxLength(3);
             e.Property(x => x.OvertimeCombination).HasMaxLength(40); e.Property(x => x.PaidLeaveMethod).HasMaxLength(30);
-            e.Property(x => x.ManagerProration).HasMaxLength(30); e.Property(x => x.ManagerUnpaidLeavePolicy).HasMaxLength(30);
             e.Property(x => x.RoundingMode).HasMaxLength(30);
             foreach (var name in new[] { "HourlyRate", "MonthlyRate", "StandardWorkDays", "PaidLeaveHoursPerDay", "NightFactor", "HolidayFactor", "OvertimeFactor" })
                 e.Property<decimal?>(name).HasPrecision(18, 6);

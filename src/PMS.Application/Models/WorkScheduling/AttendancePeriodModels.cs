@@ -4,9 +4,10 @@ namespace PMS.Application.Models.WorkScheduling;
 
 public class CreateAttendancePeriodInput
 {
+    /// <summary>Optional; defaults to the month name, for example "November 2026".</summary>
     public string Name { get; set; }
-    public DateOnly FromDate { get; set; }
-    public DateOnly ToDate { get; set; }
+    /// <summary>The first day of the calendar month. The period covers that whole month in each lot's time zone.</summary>
+    public DateOnly Month { get; set; }
     public int[] LotIds { get; set; } = [];
 }
 public class PeriodActionInput

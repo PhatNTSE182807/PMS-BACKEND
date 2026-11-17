@@ -178,9 +178,12 @@ public class WorkSchedulingSqlTests
             await AutomatedMigration.EnsureWorkSchedulingTablesAsync(db);
             (await db.DutyAttendanceEvents.CountAsync()).Should().Be(2);
             db.ChangeTracker.Clear();
+            // One attendance period is the whole calendar month; review it after the month has ended.
+            attendanceClock.Now = new DateTimeOffset(2026, 12, 2, 0, 0, 0, TimeSpan.Zero);
+            await service.UpdateDueAttendanceAsync();
             claims.GetUserId().Returns("admin"); claims.GetClaim(ClaimTypes.Role).Returns("Admin");
             var period = await service.CreateAttendancePeriodAsync(new CreateAttendancePeriodInput {
-                Name = "SQL attendance lock", FromDate = day, ToDate = day, LotIds = [lot.Id] });
+                Name = "SQL attendance lock", Month = new DateOnly(day.Year, day.Month, 1), LotIds = [lot.Id] });
             claims.GetUserId().Returns("manager"); claims.GetClaim(ClaimTypes.Role).Returns("Manager");
             var detail = await service.AttendanceDetailAsync(assigned.Id);
             detail.PayReview.OriginalCheckInAt.Should().Be(new DateTime(2026, 11, 16, 14, 45, 0, DateTimeKind.Utc));
@@ -189,7 +192,8 @@ public class WorkSchedulingSqlTests
             await service.DecideOvertimeAsync(assigned.Id, new OvertimeDecisionInput {
                 Revision = detail.Attendance.Revision, RosterRevision = current.Revision, Approved = false, Reason = "Early start not approved" });
             var review = await service.ReviewPeriodAsync(period.Id, lot.Id);
-            review.Employees.Single().ScheduledHours.Should().Be(2);
+            // The whole month: the 8-hour night shift on the 16th plus 8 hours of approved leave on the 23rd.
+            review.Employees.Single(e => e.EmployeeId == employee.Id).ScheduledHours.Should().Be(16);
             review.Warnings.Should().BeEmpty();
             await service.ConfirmAttendancePeriodAsync(period.Id, lot.Id, new PeriodActionInput { Revision = review.Lot.Revision, Reason = "SQL verified hours" });
             async Task<bool> LockPeriod()
@@ -204,7 +208,7 @@ public class WorkSchedulingSqlTests
             (await Task.WhenAll(LockPeriod(), LockPeriod())).Count(x => x).Should().Be(1);
             db.ChangeTracker.Clear();
             var lockedReview = await service.ReviewPeriodAsync(period.Id, lot.Id);
-            lockedReview.Lot.Status.Should().Be("Locked"); lockedReview.Employees.Single().ApprovedHours.Should().Be(2);
+            lockedReview.Lot.Status.Should().Be("Locked"); lockedReview.Employees.Single(e => e.EmployeeId == employee.Id).ApprovedHours.Should().Be(8);
             await FluentActions.Invoking(() => service.AdjustAttendanceAsync(assigned.Id, new() {
                 Revision = detail.Attendance.Revision, RosterRevision = current.Revision, Reason = "Locked correction attempt",
                 CheckInAt = new DateTimeOffset(current.Shifts.Single().StartsAt), CheckOutAt = new DateTimeOffset(current.Shifts.Single().EndsAt) })).Should().ThrowAsync<ConflictException>();
@@ -212,14 +216,9 @@ public class WorkSchedulingSqlTests
             await AutomatedMigration.EnsureWorkSchedulingTablesAsync(db);
             (await db.AttendancePeriodLots.SingleAsync()).Status.Should().Be("Locked");
             (await db.ShiftTemplates.SingleAsync()).Name.Should().Be("Legacy preserved");
-            // Complete a payroll month from several independently locked attendance periods.
+            // Payroll for the month reads the one locked November period.
             // Explicit fixture rates only: night 8h × 100 × 1.5 + paid leave 8h × 100 = 2000.
-            attendanceClock.Now = new DateTimeOffset(2026, 12, 2, 0, 0, 0, TimeSpan.Zero);
             claims.GetUserId().Returns("admin"); claims.GetClaim(ClaimTypes.Role).Returns("Admin");
-            foreach (var range in new[] { (From: new DateOnly(2026, 11, 1), To: new DateOnly(2026, 11, 15)), (From: new DateOnly(2026, 11, 17), To: new DateOnly(2026, 11, 30)) }) {
-                var rest = await service.CreateAttendancePeriodAsync(new() { Name = "SQL remaining attendance", FromDate = range.From, ToDate = range.To, LotIds = [lot.Id] });
-                await service.LockAttendancePeriodAsync(rest.Id, new() { Revision = rest.Revision, AcknowledgeUnconfirmed = true, Reason = "SQL monthly payroll evidence" });
-            }
             foreach (var userId in new[] { "staff", "claim-a", "claim-b" })
                 await service.SavePayrollProfileAsync(null, new() { UserId = userId, Role = "Staff", EffectiveFrom = new(2026, 11, 1), HourlyRate = 100,
                     NightStart = new(22, 0), NightEnd = new(6, 0), NightFactor = 1.5m, HolidayFactor = 2, OvertimeFactor = 1.25m,

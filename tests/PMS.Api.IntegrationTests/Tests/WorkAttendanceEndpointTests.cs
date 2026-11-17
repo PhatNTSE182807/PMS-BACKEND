@@ -97,13 +97,14 @@ public class WorkAttendanceEndpointTests
         using var otherStaff = await factory.CreateClientWithRoleAsync("Staff");
         (await otherStaff.GetAsync(url)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        factory.Clock.Now = new DateTimeOffset(2026, 11, 18, 0, 0, 0, TimeSpan.Zero);
+        // A period is the whole calendar month, so it is reviewed after November has ended.
+        factory.Clock.Now = new DateTimeOffset(2026, 12, 2, 0, 0, 0, TimeSpan.Zero);
         using var admin = await factory.CreateClientWithRoleAsync("Admin");
         const string periodsUrl = "/api/work-scheduling/attendance-periods";
         (await staffClient.GetAsync($"{periodsUrl}?lotId={lot.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await managerClient.PostAsJsonAsync(periodsUrl, new { name = "Forbidden", fromDate = "2026-11-16", toDate = "2026-11-16", lotIds = new[] { lot.Id } })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await managerClient.PostAsJsonAsync(periodsUrl, new { name = "Forbidden", month = "2026-11-01", lotIds = new[] { lot.Id } })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         var period = (await ResponseHelper.GetApiResultAsync<PeriodModel>(await admin.PostAsJsonAsync(periodsUrl,
-            new { name = "Explicit attendance day", fromDate = "2026-11-16", toDate = "2026-11-16", lotIds = new[] { lot.Id } }))).Result;
+            new { name = "November attendance", month = "2026-11-01", lotIds = new[] { lot.Id } }))).Result;
         var reviewUrl = $"{periodsUrl}/{period.Id}/lots/{lot.Id}";
         (await admin.PutAsJsonAsync($"{periodsUrl}/manager-days/lots/{lot.Id}", new { managerUserId = manager.Id, workDate = "2026-11-16", kind = "Work", reason = "Admin verified Manager day" })).StatusCode.Should().Be(HttpStatusCode.OK);
         (await other.GetAsync(reviewUrl)).StatusCode.Should().Be(HttpStatusCode.Forbidden);

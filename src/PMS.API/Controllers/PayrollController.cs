@@ -21,12 +21,9 @@ public class PayrollController(WorkSchedulingService payroll) : ApiController
     /// <summary>Updates a pay profile.</summary>
     [HttpPut("profiles/{id:int}"), Authorize(Roles = "Admin")]
     public async Task<IActionResult> Profile(int id, PayrollProfileInput input) => Ok(ApiResult<object>.Success(await payroll.SavePayrollProfileAsync(id, input)));
-    /// <summary>Locked attendance periods of a lot that can feed payroll, and whether each one is sealed.</summary>
-    [HttpGet("sources"), Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Sources([FromQuery] int lotId) => Ok(ApiResult<object>.Success(await payroll.PayrollSourcesAsync(lotId)));
-    /// <summary>Seals a lot's locked attendance as the source of payroll; the numbers can no longer change.</summary>
-    [HttpPost("sources/{periodLotId:int}/seal"), Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Seal(int periodLotId, SealPayrollSourceInput input) => Ok(ApiResult<object>.Success(await payroll.SealPayrollSourceAsync(periodLotId, input)));
+    /// <summary>Hours carried between locked attendance months at a lot, to be valued as adjustments.</summary>
+    [HttpGet("carries"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> Carries([FromQuery] int lotId) => Ok(ApiResult<object>.Success(await payroll.PayrollCarriesAsync(lotId)));
     /// <summary>Calculates payslips for a lot and month without saving them.</summary>
     [HttpPost("preview"), Authorize(Roles = "Admin")]
     public async Task<IActionResult> Preview(PayrollGenerateInput input) => Ok(ApiResult<object>.Success(await payroll.PreviewPayrollAsync(input)));

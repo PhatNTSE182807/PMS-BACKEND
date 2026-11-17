@@ -56,7 +56,7 @@ public class PayrollEndpointTests
         factory.Clock.Now = new(2026, 10, 30, 9, 0, 0, TimeSpan.Zero);
         (await owner.PostAsJsonAsync($"{attendanceUrl}/end", new { revision = 1, rosterRevision = roster.Revision })).StatusCode.Should().Be(HttpStatusCode.OK);
         factory.Clock.Now = new(2026, 11, 2, 0, 0, 0, TimeSpan.Zero);
-        var period = (await ResponseHelper.GetApiResultAsync<PeriodModel>(await admin.PostAsJsonAsync("/api/work-scheduling/attendance-periods", new { name = "Payroll October", fromDate = "2026-10-01", toDate = "2026-10-31", lotIds = new[] { lot.Id } }))).Result;
+        var period = (await ResponseHelper.GetApiResultAsync<PeriodModel>(await admin.PostAsJsonAsync("/api/work-scheduling/attendance-periods", new { name = "Payroll October", month = "2026-10-01", lotIds = new[] { lot.Id } }))).Result;
         (await admin.PostAsJsonAsync($"/api/work-scheduling/attendance-periods/{period.Id}/lock", new { revision = 1, acknowledgeUnconfirmed = true, reason = "Verified full month" })).StatusCode.Should().Be(HttpStatusCode.OK);
         var profile = new { userId = staff.Id, role = "Staff", effectiveFrom = "2026-01-01", hourlyRate = 100, nightStart = "22:00:00", nightEnd = "06:00:00", nightFactor = 1.5m, holidayFactor = 2, overtimeFactor = 1.25m, currency = "VND", moneyDecimals = 2, roundingMode = "AwayFromZero", reason = "Explicit arithmetic fixture, not a production default" };
         (await m.PostAsJsonAsync("/api/payroll/profiles", profile)).StatusCode.Should().Be(HttpStatusCode.Forbidden);

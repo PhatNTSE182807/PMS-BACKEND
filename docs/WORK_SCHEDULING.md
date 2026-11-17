@@ -459,9 +459,10 @@ entries in a subsequent period. This module does not create payroll, salary amou
 
 Implementation choices for these requirements:
 
-- Admin creates a named, explicit inclusive date range and selects the included lots. Periods
-  cannot overlap for the same lot. Each lot stores its timezone and the corresponding half-open
-  UTC interval. The calendar's Day/Week/Month selector only controls display.
+- An attendance period is exactly one calendar month, so it matches one payroll month. Admin picks
+  the month (the name defaults to it, for example "November 2026") and the included lots. A lot has
+  at most one period per month. Each lot stores its timezone and the half-open UTC interval of that
+  local month. The calendar's Day/Week/Month selector only controls display.
 - Lot states are `Open → Confirmed → Locked`. Edits to related schedule, attendance, approvals,
   Manager days or carry adjustments invalidate a confirmation and retain its old snapshot in
   the audit trail. Confirming again requires the current lot revision. A period displays Confirmed
@@ -504,9 +505,9 @@ Implementation choices for these requirements:
 
 Frontend: Manager opens **Work schedules → Review attendance by period**, selects period/lot,
 filters anomalies on the same calendar and opens the existing assignment details. Summary totals
-cover all Published rosters in the explicit period, even when the selected roster/calendar view
+cover all Published rosters in the period's month, even when the selected roster/calendar view
 shows only part of it. A matching-assignment list opens records outside the current visible range.
-Admin opens **Facility Managers → Attendance periods and Manager workdays** to create periods,
+Admin opens **Facility Managers → Attendance periods and Manager workdays** to create a month's period,
 record Manager days and review the explicit lot list before locking. Queries use the existing
 realtime invalidation, reconnect refetch and polling; updates retain calendar filters and scroll.
 
@@ -530,7 +531,7 @@ All existing mutation routes remain subject to period guards; there is no direct
 Limits: overtime decisions currently approve/reject all overtime of an assignment, rather than
 selecting individual minute segments. Manager workdays are Work/Leave records for the currently
 assigned active Manager; no standard workday divisor, salary or inferred Manager hours are added.
-Periods are limited to 93 days, matching the existing roster review bounds. Review evidence is
+A period is one calendar month (at most 31 days). Review evidence is
 loaded in batches; large summaries/tables scroll. The existing SignalR event has polling fallback.
 
 Validation includes complete application regression tests, HTTP role/lock tests, isolated SQL

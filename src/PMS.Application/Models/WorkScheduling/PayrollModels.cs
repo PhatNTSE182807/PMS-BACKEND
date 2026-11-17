@@ -23,7 +23,6 @@ public record PayrollEvidence(int Version, int PeriodLotId, int LotId, string Lo
     IReadOnlyList<PayrollHoliday> Holidays, IReadOnlyList<AttendanceCarryAdjustment> CarryAdjustments);
 public class PayrollProfileInput : PayrollProfile { }
 public class PayrollGenerateInput { public DateOnly PayMonth { get; set; } public int ParkingLotId { get; set; } public string Role { get; set; } public string UserId { get; set; } public string Reason { get; set; } }
-public class SealPayrollSourceInput { public string Reason { get; set; } public string ManagerUserId { get; set; } }
 public class PayrollActionInput
 {
     public int Revision { get; set; }
