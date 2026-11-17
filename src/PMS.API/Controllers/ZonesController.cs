@@ -22,7 +22,6 @@ public class ZonesController(IZoneService zoneService) : ApiController
 
     /// <summary>Zones of one lot.</summary>
     [HttpGet("/api/lots/{lotId:int}/zones")]
-    [HttpGet("/api/parking-lots/{lotId:int}/zones")]
     public async Task<IActionResult> GetByLotIdAsync(int lotId)
     {
         return Ok(ApiResult<IEnumerable<ZoneResponseModel>>.Success(

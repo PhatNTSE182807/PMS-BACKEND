@@ -224,16 +224,13 @@ public class PriceUpdateTests
     }
 
     [Fact]
-    public async Task Entry_Counts_The_Vehicle_In_And_A_Turned_Back_Vehicle_Is_Counted_Out()
+    public async Task Entry_Counts_The_Vehicle_In()
     {
         var s = await NewSetupAsync();
         s.T.ActAs(s.T.StaffUserId, "Staff");
 
-        var entry = await s.T.Gates.CheckInAsync(s.T.Lot.Id, new CheckInModel { PlateNumber = PlateA, VehicleTypeId = s.T.TypeId("CAR_4") });
+        await s.T.Gates.CheckInAsync(s.T.Lot.Id, new CheckInModel { PlateNumber = PlateA, VehicleTypeId = s.T.TypeId("CAR_4") });
         (await s.LotAsync()).OccupiedBays.Should().Be(1, "the session is open as soon as the barrier lifts");
-
-        await s.T.Gates.CancelEntryAsync(entry.Session.Id);
-        (await s.LotAsync()).OccupiedBays.Should().Be(0);
     }
 
     // ---- customers are told ----------------------------------------------------------------------

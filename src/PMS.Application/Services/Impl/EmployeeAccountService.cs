@@ -53,13 +53,6 @@ public class EmployeeAccountService(
         return await ManagerResponseAsync(user);
     }
 
-    public async Task<EmployeeAccountResponseModel> SetManagerStatusAsync(string managerId, bool isActive)
-    {
-        var user = await FindAccountAsync(managerId, ManagerRole);
-        await SetActiveAsync(user, isActive, isActive ? "Active" : "Inactive");
-        return await ManagerResponseAsync(user);
-    }
-
     public async Task<EmployeeAccountResponseModel> AssignManagerLotsAsync(string managerId, AssignParkingLotsModel model)
     {
         var user = await FindAccountAsync(managerId, ManagerRole);
@@ -111,12 +104,6 @@ public class EmployeeAccountService(
     }
 
     /* Manager -> Staff ---------------------------------------------- */
-
-    public async Task<IEnumerable<AssignedParkingLotModel>> GetManagedLotsAsync(string managerId)
-    {
-        var lots = await ManagedLotsQuery(managerId).OrderBy(p => p.Name).ToListAsync();
-        return lots.Select(ToLotModel).ToList();
-    }
 
     public async Task<IEnumerable<AssignedParkingLotModel>> GetStaffLotsAsync(string staffId)
     {

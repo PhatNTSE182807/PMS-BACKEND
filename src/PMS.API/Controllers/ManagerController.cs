@@ -17,13 +17,6 @@ public class ManagerController(
     IEmployeeAccountService employeeAccountService,
     IClaimService claimService) : ApiController
 {
-    /// <summary>The lots managed by the signed-in Manager.</summary>
-    [HttpGet("lots")]
-    public async Task<IActionResult> GetLotsAsync()
-    {
-        return Ok(ApiResult<IEnumerable<AssignedParkingLotModel>>.Success(
-            await employeeAccountService.GetManagedLotsAsync(claimService.GetUserId())));
-    }
 
     /// <summary>Staff of the Manager's lots, filtered by lot, active state and a search term.</summary>
     [HttpGet("staff")]

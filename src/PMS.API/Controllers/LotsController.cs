@@ -13,7 +13,6 @@ using PMS.Shared.Services;
 namespace PMS.API.Controllers;
 
 [Route("api/lots")]
-[Route("api/parking-lots")]
 public class LotsController(
     IParkingLotService parkingLotService,
     IPricingRuleService pricingRuleService,
@@ -34,9 +33,7 @@ public class LotsController(
     /// <summary>
     /// Real-time occupancy and performance of every active lot for the Admin Lot Performance dashboard.
     /// </summary>
-    [HttpGet("capacity")]
     [HttpGet("/api/v1/parking/lots/capacity")]
-    [HttpGet("/api/admin/lots/capacity")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> GetCapacityOverviewAsync(System.Threading.CancellationToken cancellationToken)
     {
@@ -46,7 +43,6 @@ public class LotsController(
 
     /// <summary>Open lots for guests and customers (name, address, location and free spaces), no sign-in needed.</summary>
     [HttpGet("/api/public/lots")]
-    [HttpGet("/api/public/parking-lots")]
     [AllowAnonymous]
     [EnableRateLimiting(ApiDependencyInjection.PublicLayoutRateLimit)]
     public async Task<IActionResult> GetPublicLotsAsync([FromQuery] string searchTerm = null)

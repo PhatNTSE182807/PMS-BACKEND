@@ -18,10 +18,6 @@ public class ParkingSessionsController(
     IParkingHistoryService historyService,
     IClaimService claimService) : ApiController
 {
-    /// <summary>The customer's current parking sessions with their running fee.</summary>
-    [HttpGet("mine")]
-    public async Task<IActionResult> GetMineAsync() =>
-        Ok(ApiResult<IReadOnlyList<SessionResponseModel>>.Success(await gateService.GetMySessionsAsync(claimService.GetUserId())));
 
     /// <summary>
     /// Finished sessions (the vehicle left), newest exit first. Query: page (1-based), pageSize (1..50,
@@ -43,16 +39,6 @@ public class ParkingSessionsController(
     [HttpGet("current")]
     public async Task<IActionResult> GetCurrentAsync() =>
         Ok(ApiResult<IReadOnlyList<CurrentSessionModel>>.Success(await gateService.GetMyCurrentSessionsAsync(claimService.GetUserId())));
-
-    /// <summary>Exit pass of a parked vehicle: every checked-in session has one; the exit lane scans it.</summary>
-    [HttpGet("{id:long}/exit-pass")]
-    public async Task<IActionResult> GetExitPassAsync(long id) =>
-        Ok(ApiResult<ExitPassModel>.Success(await gateService.GetMyExitPassAsync(claimService.GetUserId(), id)));
-
-    /// <summary>Fee so far after the deposit (does not change the session).</summary>
-    [HttpGet("{id:long}/quote")]
-    public async Task<IActionResult> QuoteAsync(long id) =>
-        Ok(ApiResult<CheckoutQuoteModel>.Success(await gateService.QuoteMySessionAsync(claimService.GetUserId(), id)));
 
     /// <summary>Prepay with VNPay or MoMo; once paid an Exit Window and a signed Exit Pass are issued.</summary>
     [HttpPost("{id:long}/payments")]

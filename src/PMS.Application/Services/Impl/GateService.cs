@@ -587,17 +587,6 @@ public class GateService(
         return await ToModelAsync(session);
     }
 
-    public async Task<SessionResponseModel> CancelEntryAsync(long sessionId)
-    {
-        var session = await ScopedSessionAsync(sessionId, tracked: true);
-        await CancelPendingEntryAsync(session, "Vehicle turned around / cancelled by Staff");
-        await pmsContext.SaveChangesAsync();
-        // The session counted the vehicle in when it was created; it never got in, so count it out again
-        await occupancy.ReleaseAsync(session.ParkingLotId);
-        await inventory.FlushAsync();
-        return await ToModelAsync(session);
-    }
-
     /// <summary>Shared with the turn-around job: no sensor signal, so nothing was counted (4.2.1).</summary>
     internal Task CancelPendingEntryAsync(ParkingSession session, string note)
     {
@@ -967,25 +956,6 @@ public class GateService(
 
     // ---- customer ---------------------------------------------------------------------------------
 
-    public async Task<IReadOnlyList<SessionResponseModel>> GetMySessionsAsync(string userId)
-    {
-        var customerId = await CustomerIdAsync(userId);
-        var sessions = await pmsContext.ParkingSessions.AsNoTracking()
-            .Where(s => s.CustomerId == customerId && s.Status != SessionStatus.Cancelled)
-            .OrderByDescending(s => s.EntryTime)
-            .Take(50)
-            .ToListAsync();
-        return (await ToModelsAsync(sessions)).OrderByDescending(s => SessionStatus.Inside.Contains(s.Status)).ToList();
-    }
-
-    public async Task<CheckoutQuoteModel> QuoteMySessionAsync(string userId, long sessionId)
-    {
-        var session = await OwnSessionAsync(userId, sessionId, tracked: false);
-        var quote = await QuoteAsync(session, null, null, mutate: false);
-        quote.Session = await ToModelAsync(session);
-        return quote;
-    }
-
     public async Task<PaymentResponseModel> PayMySessionAsync(string userId, long sessionId, CreatePaymentModel model, PaymentRequestContext context)
     {
         var session = await OwnSessionAsync(userId, sessionId, tracked: true);
@@ -1064,15 +1034,6 @@ public class GateService(
         }
 
         return result;
-    }
-
-    public async Task<ExitPassModel> GetMyExitPassAsync(string userId, long sessionId)
-    {
-        var session = await OwnSessionAsync(userId, sessionId, tracked: false);
-        if (!SessionStatus.Inside.Contains(session.Status))
-            throw new BadRequestException("The exit pass is available while the vehicle is inside the lot.");
-        var quote = await QuoteAsync(session, null, null, mutate: false);
-        return ExitPassFor(session, quote.AmountDue);
     }
 
     /// <summary>

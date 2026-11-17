@@ -14,21 +14,9 @@ using Xunit;
 
 namespace PMS.Application.UnitTests.Operations;
 
-/// <summary>The last small paths: a cancelled entry, the time zone fallback and a few framework hooks.</summary>
+/// <summary>The last small paths: the time zone fallback and a few framework hooks.</summary>
 public class RemainingCoverageTests
 {
-    [Fact]
-    public async Task CancelEntryAsync_Should_Cancel_A_Vehicle_That_Turned_Around()
-    {
-        var t = await new OperationsTestContext().SeedAsync();
-        var entry = await t.Gates.CheckInAsync(t.Lot.Id, new CheckInModel { PlateNumber = "30E-111.11", VehicleTypeId = t.TypeId("CAR_4") });
-
-        var cancelled = await t.Gates.CancelEntryAsync(entry.Session.Id);
-
-        cancelled.Status.Should().Be(SessionStatus.Cancelled);
-        t.Db.ParkingSessions.Find(entry.Session.Id)!.ClosedNote.Should().Be("Vehicle turned around / cancelled by Staff");
-    }
-
     [Fact]
     public void FirstTimeZone_Should_Fall_Back_To_A_Fixed_UTC_Plus_7_Zone()
     {

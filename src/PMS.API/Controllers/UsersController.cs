@@ -18,8 +18,6 @@ internal static class SwaggerTags
     public const string Authentication = "User Authentication";
 
     public const string Profile = "User Profile Management";
-
-    public const string Management = "User Management";
 }
 
 public class UsersController(
@@ -28,40 +26,6 @@ public class UsersController(
     IPasswordResetService passwordResetService,
     IClaimService claimService) : ApiController
 {
-    /// <summary>Lists user accounts, filtered by role, active state and a search term.</summary>
-    [HttpGet]
-    [Tags(SwaggerTags.Management)]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> GetAllAsync([FromQuery] string role = null, [FromQuery] bool? isActive = null, [FromQuery] string searchTerm = null)
-    {
-        return Ok(ApiResult<IEnumerable<UserResponseModel>>.Success(await userService.GetAllAsync(role, isActive, searchTerm)));
-    }
-
-    /// <summary>One user account.</summary>
-    [HttpGet("{id}")]
-    [Tags(SwaggerTags.Management)]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> GetByIdAsync(string id)
-    {
-        return Ok(ApiResult<UserResponseModel>.Success(await userService.GetByIdAsync(id)));
-    }
-
-    /// <summary>Creates an internal account (Admin, Manager or Staff).</summary>
-    [HttpPost("internal")]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> CreateInternalUserAsync([FromBody] CreateInternalUserModel model)
-    {
-        return Ok(ApiResult<CreateUserResponseModel>.Success(await userService.CreateInternalUserAsync(model)));
-    }
-
-    /// <summary>Activates or locks a user account; Admins cannot lock their own account.</summary>
-    [HttpPatch("{id}/status")]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> UpdateStatusAsync(string id, [FromBody] UpdateUserStatusModel model)
-    {
-        var currentUserId = claimService.GetUserId();
-        return Ok(ApiResult<bool>.Success(await userService.UpdateUserStatusAsync(currentUserId, id, model.IsActive)));
-    }
 
     /// <summary>Creates a customer account.</summary>
     [HttpPost("register")]
@@ -287,14 +251,5 @@ public class UsersController(
     {
         var userId = claimService.GetUserId();
         return Ok(ApiResult<bool>.Success(await userProfileService.ChangePasswordAsync(userId, model)));
-    }
-
-    /// <summary>Any user's profile, for Admins.</summary>
-    [HttpGet("{id}/profile")]
-    [Tags(SwaggerTags.Management)]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> GetProfileByUserIdAsync(string id)
-    {
-        return Ok(ApiResult<UserProfileResponseModel>.Success(await userProfileService.GetProfileAsync(id)));
     }
 }

@@ -25,14 +25,6 @@ public class PaymentsController(IPaymentService paymentService, ILogger<Payments
         return new PaymentRequestContext(clientIp, $"{http.Request.Scheme}://{http.Request.Host}");
     }
 
-    /// <summary>One payment and its current status.</summary>
-    [HttpGet("{id:long}")]
-    [Authorize]
-    public async Task<IActionResult> GetAsync(long id)
-    {
-        return Ok(ApiResult<PaymentResponseModel>.Success(await paymentService.GetAsync(id)));
-    }
-
     /// <summary>Ask the gateway about a pending payment (when no callback arrived within the wait time).</summary>
     [HttpPost("{id:long}/check")]
     [Authorize]

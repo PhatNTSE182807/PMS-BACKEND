@@ -80,17 +80,6 @@ public class UserService(
         };
     }
 
-    public async Task<CreateUserResponseModel> CreateInternalUserAsync(CreateInternalUserModel createInternalUserModel)
-    {
-        return await CreateInternalUserCoreAsync(
-            createInternalUserModel.UserName,
-            createInternalUserModel.FullName,
-            createInternalUserModel.Email,
-            createInternalUserModel.Password,
-            createInternalUserModel.PhoneNumber,
-            createInternalUserModel.Role);
-    }
-
     public async Task<CreateUserResponseModel> CreateManagerAsync(CreateEmployeeAccountModel model)
     {
         return await CreateInternalUserCoreAsync(
@@ -697,69 +686,6 @@ public class UserService(
         };
     }
 
-    public async Task<IEnumerable<UserResponseModel>> GetAllAsync(string role = null, bool? isActive = null, string searchTerm = null)
-    {
-        var query = userManager.Users.AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(role))
-        {
-            query = query.Where(u => u.Role == role);
-        }
-
-        if (isActive.HasValue)
-        {
-            query = query.Where(u => u.IsActive == isActive.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(searchTerm))
-        {
-            var term = searchTerm.Trim();
-            var matchingEmployeeUserIds = new List<string>();
-            if (pmsContext != null)
-            {
-                matchingEmployeeUserIds = await pmsContext.Employees
-                    .Where(e => (e.FullName != null && e.FullName.Contains(term)) ||
-                                (e.EmployeeCode != null && e.EmployeeCode.Contains(term)))
-                    .Select(e => e.UserId)
-                    .ToListAsync();
-            }
-
-            query = query.Where(u =>
-                (u.UserName != null && u.UserName.Contains(term)) ||
-                (u.Email != null && u.Email.Contains(term)) ||
-                (u.PhoneNumber != null && u.PhoneNumber.Contains(term)) ||
-                matchingEmployeeUserIds.Contains(u.Id));
-        }
-
-        var users = await query.ToListAsync();
-        Dictionary<string, Employee> employeeMap = null;
-
-        if (pmsContext != null)
-        {
-            var userIds = users.Select(u => u.Id).ToList();
-            var employees = await pmsContext.Employees.Where(e => userIds.Contains(e.UserId)).ToListAsync();
-            employeeMap = employees.ToDictionary(e => e.UserId);
-        }
-
-        return users.Select(u =>
-        {
-            Employee emp = null;
-            employeeMap?.TryGetValue(u.Id, out emp);
-            return new UserResponseModel
-            {
-                Id = u.Id,
-                UserName = u.UserName,
-                FullName = emp?.FullName,
-                Email = u.Email,
-                PhoneNumber = u.PhoneNumber,
-                Role = u.Role,
-                EmployeeCode = emp?.EmployeeCode,
-                IsActive = u.IsActive,
-                CreatedAt = emp?.CreatedAt
-            };
-        });
-    }
-
     public async Task<IEnumerable<UserResponseModel>> GetInternalUsersAsync(string role = null, bool? isActive = null, string searchTerm = null)
     {
         var query = userManager.Users.Where(u => u.Role == "Manager" || u.Role == "Staff");
@@ -821,41 +747,6 @@ public class UserService(
                 CreatedAt = emp?.CreatedAt
             };
         });
-    }
-
-    public async Task<UserResponseModel> GetByIdAsync(string id)
-    {
-        var user = await userManager.FindByIdAsync(id);
-
-        if (user == null)
-            throw new NotFoundException("User does not exist");
-
-        string employeeCode = null;
-        string fullName = null;
-        DateTime? createdAt = null;
-        if (pmsContext != null)
-        {
-            var emp = await pmsContext.Employees.FirstOrDefaultAsync(e => e.UserId == user.Id);
-            if (emp != null)
-            {
-                employeeCode = emp.EmployeeCode;
-                fullName = emp.FullName;
-                createdAt = emp.CreatedAt;
-            }
-        }
-
-        return new UserResponseModel
-        {
-            Id = user.Id,
-            UserName = user.UserName,
-            FullName = fullName,
-            Email = user.Email,
-            PhoneNumber = user.PhoneNumber,
-            Role = user.Role,
-            EmployeeCode = employeeCode,
-            IsActive = user.IsActive,
-            CreatedAt = createdAt
-        };
     }
 
     public async Task<bool> UpdateUserStatusAsync(string currentUserId, string targetUserId, bool isActive)

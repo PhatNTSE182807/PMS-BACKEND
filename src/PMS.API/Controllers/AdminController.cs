@@ -54,14 +54,6 @@ public class AdminController(
         return Ok(ApiResult<EmployeeAccountResponseModel>.Success(await employeeAccountService.UpdateManagerAsync(id, model)));
     }
 
-    /// <summary>Activates or locks a Manager account.</summary>
-    [HttpPatch("managers/{id}/status")]
-    public async Task<IActionResult> UpdateManagerStatusAsync(string id, [FromBody] UpdateUserStatusModel model)
-    {
-        return Ok(ApiResult<EmployeeAccountResponseModel>.Success(
-            await employeeAccountService.SetManagerStatusAsync(id, model.IsActive)));
-    }
-
     /// <summary>Sets every lot the Manager manages (one Manager per lot; other lots are released).</summary>
     [HttpPut("managers/{id}/lots")]
     public async Task<IActionResult> AssignManagerLotsAsync(string id, [FromBody] AssignParkingLotsModel model)
