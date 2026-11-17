@@ -155,6 +155,11 @@ public class WalletTransactionResponseModel
 
     public decimal Amount { get; set; }
 
+    /// <summary>Wallet balance just before and just after this transaction.</summary>
+    public decimal BalanceBefore { get; set; }
+
+    public decimal BalanceAfter { get; set; }
+
     public string Status { get; set; }
 
     public string Type { get; set; }

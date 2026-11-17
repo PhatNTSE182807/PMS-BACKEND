@@ -68,6 +68,9 @@ public interface IPaymentService
     /// <summary>Gets the user's current wallet balance, hold amount, and recent transactions.</summary>
     Task<WalletResponseModel> GetWalletAsync(string userId);
 
+    /// <summary>The user's wallet transactions, newest first (at most 500).</summary>
+    Task<IReadOnlyList<WalletTransactionResponseModel>> GetWalletTransactionsAsync(string userId);
+
     /// <summary>Withdraws funds from the user's wallet to a bank account or MoMo.</summary>
     Task<WalletResponseModel> WithdrawWalletAsync(string userId, WithdrawWalletModel model);
 }

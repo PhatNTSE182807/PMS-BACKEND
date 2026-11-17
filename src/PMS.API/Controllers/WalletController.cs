@@ -22,6 +22,14 @@ public class WalletController(
         return Ok(ApiResult<WalletResponseModel>.Success(wallet));
     }
 
+    /// <summary>Every transaction of the current user's wallet, newest first (at most 500), for the history view.</summary>
+    [HttpGet("transactions")]
+    public async Task<IActionResult> GetTransactionsAsync()
+    {
+        var transactions = await paymentService.GetWalletTransactionsAsync(claimService.GetUserId());
+        return Ok(ApiResult<IReadOnlyList<WalletTransactionResponseModel>>.Success(transactions));
+    }
+
     /// <summary>Starts a VNPay or MoMo online payment to top up the user's XXIV Wallet.</summary>
     [HttpPost("topup")]
     public async Task<IActionResult> TopUpAsync([FromBody] TopUpWalletModel model)
