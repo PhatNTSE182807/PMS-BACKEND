@@ -15,7 +15,7 @@ public static class PriceUpdateStatuses
 }
 
 /// <summary>
-/// Detailed DTO for a pricing rule / tariff configuration (SRS section 5, BR-09, BR-22).
+/// Detailed DTO for a pricing rule / tariff configuration.
 /// </summary>
 public class PricingRuleModel
 {

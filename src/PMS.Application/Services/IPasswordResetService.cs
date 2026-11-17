@@ -2,7 +2,7 @@ using PMS.Application.Models.User;
 
 namespace PMS.Application.Services;
 
-/// <summary>Self-service "forgot password" by email link (FR-AUTH-12), for every role.</summary>
+/// <summary>Self-service "forgot password" by email link, for every role.</summary>
 public interface IPasswordResetService
 {
     /// <summary>

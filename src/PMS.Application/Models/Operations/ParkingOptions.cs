@@ -1,8 +1,8 @@
 namespace PMS.Application.Models.Operations;
 
 /// <summary>
-/// Configurable business rules of reservations, gates and pricing (SRS section 5, BR-01..BR-22), read
-/// from the "Parking" configuration section. The defaults are the SRS defaults.
+/// Configurable business rules of reservations, gates and pricing, read
+/// from the "Parking" configuration section. The defaults are the documented business defaults.
 /// </summary>
 public class ParkingOptions
 {
@@ -15,18 +15,18 @@ public class ParkingOptions
     public WalletRules Wallet { get; set; } = new();
 
     /// <summary>
-    /// Tariffs used when a lot has no active PricingRule for the vehicle type. When empty the SRS fee
+    /// Tariffs used when a lot has no active PricingRule for the vehicle type. When empty the default fee
     /// example is used for cars plus small flat-ish tariffs for two-wheelers (see <see cref="DefaultTariffs"/>).
     /// </summary>
     public DefaultTariff[] Tariffs { get; set; } = [];
 
     /// <summary>
-    /// Master key for signed reservation QR codes, entry tickets and Exit Passes (NFR-16). Each lot signs
+    /// Master key for signed reservation QR codes, entry tickets and Exit Passes. Each lot signs
     /// with a key derived from it. When unset a random key is used, so tokens stop working after a restart.
     /// </summary>
     public string TicketSigningKey { get; set; }
 
-    /// <summary>Calendar days for daily caps and VNPay dates (BR-22); the lot's own time zone wins when set.</summary>
+    /// <summary>Calendar days for daily caps and VNPay dates; the lot's own time zone wins when set.</summary>
     public string TimeZoneId { get; set; } = "SE Asia Standard Time";
 
     /// <summary>Admin demo mode (seconds instead of minutes and hours); replaced as a whole when the Admin saves it.</summary>
@@ -40,25 +40,25 @@ public class ParkingOptions
         ? TimeSpan.FromSeconds(withDeposit ? s.DepositHoldSeconds : s.HoldSeconds)
         : TimeSpan.FromMinutes(Reservations.HoldMinutesFor(withDeposit));
 
-    /// <summary>Time to pay the deposit after booking (BR-06).</summary>
+    /// <summary>Time to pay the deposit after booking.</summary>
     public TimeSpan DepositPaymentTime => Pick(s => s.DepositPaymentSeconds, Reservations.DepositMinutes);
 
-    /// <summary>Check-in opens this long before the arrival time (BR-02).</summary>
+    /// <summary>Check-in opens this long before the arrival time.</summary>
     public TimeSpan EarlyArrivalTime => Pick(s => s.EarlyArrivalSeconds, Reservations.EarlyArrivalMinutes);
 
     /// <summary>Gap between two bookings of one bay (always in real minutes).</summary>
     public TimeSpan TurnoverTime => TimeSpan.FromMinutes(Math.Max(0, Reservations.TurnoverMinutes));
 
-    /// <summary>Full refund and changes allowed until this long before arrival (BR-04).</summary>
+    /// <summary>Full refund and changes allowed until this long before arrival.</summary>
     public TimeSpan CancelRefundTime => Pick(s => s.CancelRefundSeconds, Reservations.CancelRefundMinutes);
 
-    /// <summary>Time to leave after prepaying (BR-10).</summary>
+    /// <summary>Time to leave after prepaying.</summary>
     public TimeSpan ExitWindowTime => Pick(s => s.ExitWindowSeconds, Gate.ExitWindowMinutes);
 
     private TimeSpan Pick(Func<ParkingSimulationSettings, int> seconds, int minutes) =>
         Simulation is { Enabled: true } s ? TimeSpan.FromSeconds(seconds(s)) : TimeSpan.FromMinutes(minutes);
 
-    /// <summary>The tariffs in force: the configured ones, or the SRS defaults.</summary>
+    /// <summary>The tariffs in force: the configured ones, or the built-in defaults.</summary>
     public IReadOnlyList<DefaultTariff> EffectiveTariffs => Tariffs is { Length: > 0 } ? Tariffs : DefaultTariffs;
 
     /// <summary>Default car tariff: 20,000 VND per hour from entry (no free period), 150,000 VND per calendar day.</summary>
@@ -70,10 +70,10 @@ public class ParkingOptions
     ];
 }
 
-/// <summary>Reservation policy (FR-RSV-06): BR-01 to BR-07.</summary>
+/// <summary>Reservation policy: booking window, deposits, holds, cancellation and limits.</summary>
 public class ReservationRules
 {
-    /// <summary>BR-01 (changed): the arrival can be picked up to this many days ahead, never in the past.</summary>
+    /// <summary>The arrival can be picked up to this many days ahead, never in the past.</summary>
     public int MaxLeadDays { get; set; } = 30;
 
     /// <summary>The bay turns Reserved (and leaves the free count) this many minutes before arrival; earlier it stays free.</summary>
@@ -85,7 +85,7 @@ public class ReservationRules
     /// <summary>Longest window of a Scheduled booking.</summary>
     public int MaxStayHours { get; set; } = 24;
 
-    /// <summary>BR-06: the deposit must be paid within this many minutes of picking the slot.</summary>
+    /// <summary>The deposit must be paid within this many minutes of picking the slot.</summary>
     public int DepositMinutes { get; set; } = 10;
 
     /// <summary>
@@ -94,17 +94,17 @@ public class ReservationRules
     /// </summary>
     public int TurnoverMinutes { get; set; } = 30;
 
-    /// <summary>BR-02: check-in opens this many minutes before the arrival time.</summary>
+    /// <summary>Check-in opens this many minutes before the arrival time.</summary>
     public int EarlyArrivalMinutes { get; set; } = 15;
 
     /// <summary>
-    /// BR-02: a booking made without a deposit holds the slot this many minutes after the arrival time
-    /// (then No-show, BR-05).
+    /// A booking made without a deposit holds the slot this many minutes after the arrival time
+    /// (then No-show).
     /// </summary>
     public int HoldMinutes { get; set; } = 15;
 
     /// <summary>
-    /// Team change to BR-02: a booking with a paid deposit holds the slot longer, this many minutes
+    /// A booking with a paid deposit holds the slot longer, this many minutes
     /// after the arrival time.
     /// </summary>
     public int DepositHoldMinutes { get; set; } = 30;
@@ -112,19 +112,19 @@ public class ReservationRules
     /// <summary>How long the slot is held after arrival for a booking with or without a deposit.</summary>
     public int HoldMinutesFor(bool withDeposit) => withDeposit ? DepositHoldMinutes : HoldMinutes;
 
-    /// <summary>BR-04: cancelling at least this many minutes before arrival refunds 100 %; later refunds nothing. Also the change deadline.</summary>
+    /// <summary>Cancelling at least this many minutes before arrival refunds 100 %; later refunds nothing. Also the change deadline.</summary>
     public int CancelRefundMinutes { get; set; } = 30;
 
-    /// <summary>BR-07: active reservations per account.</summary>
+    /// <summary>Active reservations per account.</summary>
     public int MaxActivePerAccount { get; set; } = 2;
 
-    /// <summary>BR-07: active reservations per vehicle.</summary>
+    /// <summary>Active reservations per vehicle.</summary>
     public int MaxActivePerVehicle { get; set; } = 1;
 
-    /// <summary>FR-RSV-10: remind this many minutes before the arrival time.</summary>
+    /// <summary>Remind this many minutes before the arrival time.</summary>
     public int ReminderBeforeMinutes { get; set; } = 15;
 
-    /// <summary>FR-RSV-10: remind this many minutes before the hold ends.</summary>
+    /// <summary>Remind this many minutes before the hold ends.</summary>
     public int HoldEndReminderMinutes { get; set; } = 5;
 
     /// <summary>A parked vehicle on a scheduled booking is reminded this many minutes before its planned departure.</summary>
@@ -136,12 +136,12 @@ public class ReservationRules
     /// </summary>
     public int OverstayGraceMinutes { get; set; } = 5;
 
-    /// <summary>BR-06: fixed deposit per vehicle type code; types not listed use <see cref="DefaultDeposit"/>.</summary>
+    /// <summary>Fixed deposit per vehicle type code; types not listed use <see cref="DefaultDeposit"/>.</summary>
     public Dictionary<string, decimal> DepositByVehicleType { get; set; } = new();
 
     public decimal DefaultDeposit { get; set; } = 30_000;
 
-    /// <summary>BR-01 (changed): only these vehicle types may book. Cars book ahead; motorbikes only claim a bay on arrival.</summary>
+    /// <summary>Only these vehicle types may book. Cars book ahead; motorbikes only claim a bay on arrival.</summary>
     public string[] ReservableVehicleTypeCodes { get; set; } = ["CAR_4", "CAR_7", "MOTORBIKE"];
 
     /// <summary>
@@ -167,35 +167,35 @@ public class WalletRules
     public decimal DailyTopUpLimit { get; set; } = 10_000_000;
 }
 
-/// <summary>Gate rules: BR-10, BR-11, BR-18, BR-20 and the turn-around timeout.</summary>
+/// <summary>Gate rules: Exit Window, payment wait, overstay alerts and the turn-around timeout.</summary>
 public class GateRules
 {
-    /// <summary>BR-18: below this ANPR confidence (0..1) the Staff confirms the plate first.</summary>
+    /// <summary>Below this ANPR confidence (0..1) the Staff confirms the plate first.</summary>
     public decimal AnprConfidenceThreshold { get; set; } = 0.85m;
 
     /// <summary>No sensor signal this long after the barrier opened: the vehicle turned around and the session is cancelled.</summary>
     public int EntryConfirmTimeoutMinutes { get; set; } = 2;
 
-    /// <summary>FR-PAY-07: minutes to leave after prepaying.</summary>
+    /// <summary>Minutes to leave after prepaying.</summary>
     public int ExitWindowMinutes { get; set; } = 15;
 
-    /// <summary>BR-10: charge added when the vehicle leaves after its Exit Window.</summary>
+    /// <summary>Charge added when the vehicle leaves after its Exit Window.</summary>
     public decimal ExitWindowLateFee { get; set; } = 10_000;
 
-    /// <summary>BR-11: seconds to wait for a dynamic QR callback before the Staff may switch method.</summary>
+    /// <summary>Seconds to wait for a dynamic QR callback before the Staff may switch method.</summary>
     public int PendingPaymentCallbackSeconds { get; set; } = 60;
 
     /// <summary>A gateway payment link is valid this long.</summary>
     public int PaymentLinkMinutes { get; set; } = 15;
 
-    /// <summary>BR-20: overdue after this many hours parked.</summary>
+    /// <summary>Overdue after this many hours parked.</summary>
     public int OverdueHours { get; set; } = 24;
 
-    /// <summary>BR-20: abandoned after this many days parked.</summary>
+    /// <summary>Abandoned after this many days parked.</summary>
     public int AbandonedDays { get; set; } = 7;
 }
 
-/// <summary>A fallback tariff for one vehicle type (block pricing, BR-22).</summary>
+/// <summary>A fallback tariff for one vehicle type (block pricing).</summary>
 public class DefaultTariff
 {
     public string VehicleTypeCode { get; set; }

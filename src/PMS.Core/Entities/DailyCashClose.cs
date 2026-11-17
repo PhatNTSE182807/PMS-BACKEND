@@ -27,7 +27,7 @@ public partial class DailyCashClose
 
     public DateTime OpenedAt { get; set; }
 
-    /// <summary>When the drawer must be closed: 23:00 of the business day (BR-12), or sooner when the Admin's simulation ends the day.</summary>
+    /// <summary>When the drawer must be closed: 23:00 of the business day, or sooner when the Admin's simulation ends the day.</summary>
     public DateTime? CloseDueAt { get; set; }
 
     /// <summary>When the drawer was found still open after its deadline and the Manager was told.</summary>

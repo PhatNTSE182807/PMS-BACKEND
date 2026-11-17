@@ -7,7 +7,7 @@ using PMS.Shared.Services;
 
 namespace PMS.API.Controllers;
 
-/// <summary>The signed-in customer's slot reservations (SRS FR-RSV-02..05, UC-04).</summary>
+/// <summary>The signed-in customer's slot reservations.</summary>
 [Route("api/reservations")]
 [Authorize(Roles = "User")]
 public class ReservationsController(
@@ -26,6 +26,7 @@ public class ReservationsController(
         return StatusCode(StatusCodes.Status201Created, ApiResult<ReservationResponseModel>.Success(created));
     }
 
+    /// <summary>The customer's reservations, newest first; activeOnly=true hides finished and cancelled ones.</summary>
     [HttpGet("mine")]
     public async Task<IActionResult> GetMineAsync([FromQuery] bool activeOnly = false)
     {
@@ -38,27 +39,28 @@ public class ReservationsController(
     public async Task<IActionResult> GetUpcomingAsync() =>
         Ok(ApiResult<ReservationResponseModel>.Success(await reservationService.GetUpcomingAsync(claimService.GetUserId())));
 
+    /// <summary>One reservation of the signed-in customer.</summary>
     [HttpGet("{id:long}")]
     public async Task<IActionResult> GetAsync(long id)
     {
         return Ok(ApiResult<ReservationResponseModel>.Success(await reservationService.GetAsync(claimService.GetUserId(), id)));
     }
 
-    /// <summary>Change the arrival, the departure / booking mode and/or the bay before the change deadline (FR-RSV-03).</summary>
+    /// <summary>Change the arrival, the departure / booking mode and/or the bay before the change deadline.</summary>
     [HttpPut("{id:long}")]
     public async Task<IActionResult> UpdateAsync(long id, [FromBody] UpdateReservationModel model)
     {
         return Ok(ApiResult<ReservationResponseModel>.Success(await reservationService.UpdateAsync(claimService.GetUserId(), id, model)));
     }
 
-    /// <summary>Cancel; the deposit is refunded per BR-04.</summary>
+    /// <summary>Cancel; the deposit is refunded in full when cancelled before the change deadline, otherwise kept.</summary>
     [HttpPost("{id:long}/cancel")]
     public async Task<IActionResult> CancelAsync(long id, [FromBody] CancelReservationModel model)
     {
         return Ok(ApiResult<ReservationResponseModel>.Success(await reservationService.CancelAsync(claimService.GetUserId(), id, model?.Reason)));
     }
 
-    /// <summary>Signed QR to check in during the arrival window (FR-RSV-04).</summary>
+    /// <summary>Signed QR to check in during the arrival window.</summary>
     [HttpGet("{id:long}/qr")]
     public async Task<IActionResult> GetQrAsync(long id)
     {

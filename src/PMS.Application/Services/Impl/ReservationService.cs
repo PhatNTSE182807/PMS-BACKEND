@@ -432,7 +432,7 @@ public class ReservationService(
     }
 
     /// <summary>
-    /// BR-07: at most N bookings in progress per account, and one per vehicle. The vehicle is matched by
+    /// At most N bookings in progress per account, and one per vehicle. The vehicle is matched by
     /// plate, so the same car added twice (or to two accounts) still gets only one booking.
     /// </summary>
     private async Task EnsureBookingLimitsAsync(int customerId, Vehicle vehicle)
@@ -486,7 +486,7 @@ public class ReservationService(
     private decimal DepositFor(string vehicleTypeCode) =>
         Rules.DepositByVehicleType.TryGetValue(vehicleTypeCode, out var amount) ? amount : Rules.DefaultDeposit;
 
-    /// <summary>BR-04: full refund up to H minutes before arrival, nothing after.</summary>
+    /// <summary>Full refund up to H minutes before arrival, nothing after.</summary>
     private decimal RefundIfCancelledNow(Reservation reservation) =>
         reservation.Status == ReservationStatus.Confirmed && Now <= reservation.StartTime.Add(-options.CancelRefundTime)
             ? reservation.DepositAmount - reservation.RefundAmount
@@ -526,7 +526,7 @@ public class ReservationService(
     }
 
     /// <summary>
-    /// NFR-15 over time: no other booking of the bay overlaps the new window. A window runs from the arrival to the
+    /// No double booking over time: no other booking of the bay overlaps the new window. A window runs from the arrival to the
     /// departure plus the turnover gap (30 minutes), so a booking of 1:00 to 3:00 lets the next one arrive from 3:30;
     /// pay-as-you-go is open-ended.
     /// </summary>

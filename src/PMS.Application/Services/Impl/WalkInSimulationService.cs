@@ -252,7 +252,7 @@ public class WalkInSimulationService(
     }
 
     /// <summary>
-    /// A walk-in parks in the bay of a confirmed booking (BR-08 exception). When that customer checks in, the
+    /// A walk-in parks in the bay of a confirmed booking (exception). When that customer checks in, the
     /// entry lane moves the booking to another bay with the first hour free, or to the walk-in area with a full refund.
     /// </summary>
     public async Task<BookedBayTakenModel> OccupyBookedBayAsync(int lotId, long? reservationId, int? slotId = null)

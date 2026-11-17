@@ -6,7 +6,7 @@ using PMS.Application.Services.Impl;
 namespace PMS.API.Hubs;
 
 /// <summary>
-/// Private real-time channel of reservations, gate sessions and payments (SRS FR-3D-09 internal channel).
+/// Private real-time channel of reservations, gate sessions and payments.
 /// Customers receive "ReservationChanged", "ReservationReminder", "PaymentChanged" and "GateRequestChanged" for their own
 /// bookings (SignalR user = JWT NameIdentifier). Staff and Managers call JoinLot for each lot in their
 /// scope and receive "SessionChanged", "PaymentChanged", "ZoneCounterChanged", "GateRequestChanged" and "OpsAlert".

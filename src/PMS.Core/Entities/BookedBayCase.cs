@@ -3,7 +3,7 @@ using System;
 namespace PMS.DataAccess.Persistence.Entities;
 
 /// <summary>
-/// A walk-in parked in the bay of a confirmed booking (BR-08). Opened as soon as the walk-in is recorded in that bay;
+/// A walk-in parked in the bay of a confirmed booking. Opened as soon as the walk-in is recorded in that bay;
 /// the lot's Staff either move the booking to another free bay of its type, or, when none is left, cancel it with the
 /// deposit refunded and a compensation paid into the customer's XXIV wallet. Closed on its own when the walk-in
 /// leaves first or the booking ends another way. Never deleted.

@@ -82,7 +82,7 @@ public class GateRequestModel
     /// <summary>Paid so far on the session (check-out).</summary>
     public decimal PaidAmount { get; set; }
 
-    /// <summary>Paid: the vehicle may leave until then (BR-10).</summary>
+    /// <summary>Paid: the vehicle may leave until then.</summary>
     public DateTime? ExitWindowEndsAt { get; set; }
 
     /// <summary>
@@ -106,7 +106,7 @@ public class ApproveGateRequestModel
     /// <summary>The Staff checked the plate against the camera (clears LOW_CONFIDENCE / photo checks).</summary>
     public bool PlateConfirmed { get; set; } = true;
 
-    /// <summary>Let the vehicle in although the zone is full (BR-19).</summary>
+    /// <summary>Let the vehicle in although the zone is full.</summary>
     public bool AllowWhenFull { get; set; }
 
     /// <summary>Accept a changed vehicle / mismatching exit plate.</summary>

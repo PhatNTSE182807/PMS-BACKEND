@@ -11,7 +11,7 @@ public static class BookingMode
     public static readonly string[] All = [Scheduled, PayAsYouGo];
 }
 
-/// <summary>Reservation states (SRS 4.3.3).</summary>
+/// <summary>Reservation states.</summary>
 public static class ReservationStatus
 {
     /// <summary>Chờ cọc: the slot is held until the deposit deadline.</summary>
@@ -22,17 +22,17 @@ public static class ReservationStatus
     public const string CheckedIn = "CheckedIn";
     /// <summary>Hoàn tất: the vehicle left; the deposit was deducted from the fee.</summary>
     public const string Completed = "Completed";
-    /// <summary>Hủy: cancelled by the customer (refund per BR-04).</summary>
+    /// <summary>Hủy: cancelled by the customer (refund per the cancellation policy).</summary>
     public const string Cancelled = "Cancelled";
-    /// <summary>Bãi hủy: cancelled by the lot (100 % refund, FR-RSV-09).</summary>
+    /// <summary>Bãi hủy: cancelled by the lot (100 % refund).</summary>
     public const string LotCancelled = "LotCancelled";
     /// <summary>Hết hạn: the deposit was not paid in time (or the customer gave up).</summary>
     public const string Expired = "Expired";
-    /// <summary>No-show: not checked in before the hold ended; the deposit is kept (BR-05).</summary>
+    /// <summary>No-show: not checked in before the hold ended; the deposit is kept.</summary>
     public const string NoShow = "NoShow";
 
     /// <summary>
-    /// Bookings still in progress (BR-07 limits): waiting for the deposit, confirmed, or the vehicle is
+    /// Bookings still in progress (limits): waiting for the deposit, confirmed, or the vehicle is
     /// parked on it. A checked-in booking counts until the vehicle leaves, so a parked car cannot book again.
     /// </summary>
     public static readonly string[] Active = [PendingDeposit, Confirmed, CheckedIn];
@@ -41,7 +41,7 @@ public static class ReservationStatus
     public static readonly string[] Upcoming = [PendingDeposit, Confirmed];
 }
 
-/// <summary>Parking session states (SRS 4.3.2) plus the two pre-entry states before the sensor confirms passage.</summary>
+/// <summary>Parking session states plus the two pre-entry states before the sensor confirms passage.</summary>
 public static class SessionStatus
 {
     /// <summary>The barrier opened; waiting for the loop sensor. Not a valid session yet.</summary>
@@ -63,14 +63,14 @@ public static class SessionStatus
     /// <summary>The vehicle turned around before the sensor; never counted.</summary>
     public const string Cancelled = "Cancelled";
 
-    /// <summary>Sessions that block another entry with the same plate (FR-OPS-11, NFR-14).</summary>
+    /// <summary>Sessions that block another entry with the same plate.</summary>
     public static readonly string[] Open = [PendingEntry, Active, LostTicketPending, PendingPayment, Paid];
 
     /// <summary>The vehicle is inside the lot.</summary>
     public static readonly string[] Inside = [Active, LostTicketPending, PendingPayment, Paid];
 }
 
-/// <summary>Slot states (SRS 4.3.1); the names match SlotService.</summary>
+/// <summary>Slot states; the names match SlotService.</summary>
 public static class SlotStatus
 {
     public const string Available = "Available";
@@ -121,7 +121,7 @@ public static class PaymentStatus
     public const string Succeeded = "Succeeded";
     public const string Failed = "Failed";
     public const string Expired = "Expired";
-    /// <summary>A refund the gateway has not settled yet, or that failed and waits for a retry / Manager (FR-PAY-10).</summary>
+    /// <summary>A refund the gateway has not settled yet, or that failed and waits for a retry / Manager.</summary>
     public const string RefundPending = "RefundPending";
     public const string Refunded = "Refunded";
 }
@@ -136,7 +136,7 @@ public static class PaymentPurpose
     public const string Compensation = "Compensation";
 }
 
-/// <summary>A walk-in parked in a booked bay (BookedBayCase, BR-08).</summary>
+/// <summary>A walk-in parked in a booked bay (BookedBayCase).</summary>
 public static class BookedBayCaseStatus
 {
     /// <summary>Waiting for the lot's Staff.</summary>
@@ -151,7 +151,7 @@ public static class BookedBayCaseStatus
     public const string Closed = "Closed";
 }
 
-/// <summary>Daily cash close of a Staff drawer (BR-12).</summary>
+/// <summary>Daily cash close of a Staff drawer.</summary>
 public static class CashCloseStatus
 {
     public const string Open = "Open";
@@ -207,7 +207,7 @@ public static class ViolationType
 {
     /// <summary>A lost ticket / card case (one row per report).</summary>
     public const string LostTicket = "LostTicket";
-    /// <summary>The vehicle stayed past the abandoned threshold (BR-20).</summary>
+    /// <summary>The vehicle stayed past the abandoned threshold.</summary>
     public const string Abandoned = "Abandoned";
 }
 
@@ -219,9 +219,9 @@ public static class LostTicketCaseStatus
 {
     /// <summary>Waiting for a Manager (the session is LostTicketPending).</summary>
     public const string Pending = "Pending";
-    /// <summary>Approved, directly by a Manager or on the spot under BR-13: the fee and fine can be paid.</summary>
+    /// <summary>Approved, directly by a Manager or on the spot under the conditional approval rule: the fee and fine can be paid.</summary>
     public const string Approved = "Approved";
-    /// <summary>Rejected: the vehicle stays in the lot until a new case is approved (SRS 4.2.4).</summary>
+    /// <summary>Rejected: the vehicle stays in the lot until a new case is approved.</summary>
     public const string Rejected = "Rejected";
 }
 
@@ -231,8 +231,8 @@ public static class LostTicketApproval
     /// <summary>The Staff uploaded the driver's Citizen ID and registration papers and has to approve or refuse the case.</summary>
     public const string Staff = "Staff";
 
-    /// <summary>BR-13: the Staff checked photos, papers and ID and applied the standard fine; the Manager reviews it later.</summary>
+    /// <summary>The Staff checked photos, papers and ID and applied the standard fine; the Manager reviews it later.</summary>
     public const string Conditional = "Conditional";
-    /// <summary>BR-14: a Manager of the lot (or an Admin) decides; never the person who reported it.</summary>
+    /// <summary>A Manager of the lot (or an Admin) decides; never the person who reported it.</summary>
     public const string Manager = "Manager";
 }

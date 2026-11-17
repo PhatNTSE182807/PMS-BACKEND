@@ -10,7 +10,7 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// A walk-in parked in the bay of a confirmed booking (BR-08, team rules of 2026-11-06). The case opens as soon as the
+/// A walk-in parked in the bay of a confirmed booking (team rules of 2026-11-06). The case opens as soon as the
 /// walk-in is recorded in that bay: the lot's Staff get an alert and the customer a notification. Staff then move the
 /// booking to another free bay of its type (first hour free at check-in), or, only when none is free, cancel it: the
 /// deposit goes back to the XXIV wallet and the lot pays the compensation of its pricing rule into the wallet too
@@ -291,7 +291,7 @@ public class BookedBayCaseService(
         if (bayCase.CompensationPaid > 0) notifications?.BookedBayCaseChanged(bayCase.Id, NotificationTypes.CompensationPaid);
     }
 
-    /// <summary>The booking was moved away from a taken bay before it arrived: its first hour is free (BR-08).</summary>
+    /// <summary>The booking was moved away from a taken bay before it arrived: its first hour is free.</summary>
     public Task<bool> WasMovedAsync(long reservationId) =>
         pmsContext.BookedBayCases.AnyAsync(c => c.ReservationId == reservationId && c.Status == BookedBayCaseStatus.Reassigned);
 

@@ -19,6 +19,7 @@ public class LotsController(
     IPricingRuleService pricingRuleService,
     IClaimService claimService) : ApiController
 {
+    /// <summary>Lists parking lots, filtered by a search term and status; deleted lots only on request.</summary>
     [HttpGet]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> GetAllAsync(
@@ -43,6 +44,7 @@ public class LotsController(
             await parkingLotService.GetCapacityOverviewAsync(cancellationToken)));
     }
 
+    /// <summary>Open lots for guests and customers (name, address, location and free spaces), no sign-in needed.</summary>
     [HttpGet("/api/public/lots")]
     [HttpGet("/api/public/parking-lots")]
     [AllowAnonymous]
@@ -65,6 +67,7 @@ public class LotsController(
         return Ok(ApiResult<IReadOnlyList<PublicLotPriceModel>>.Success(await pricingRuleService.GetPublicPricesAsync(id)));
     }
 
+    /// <summary>One parking lot with its configuration.</summary>
     [HttpGet("{id:int}")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> GetByIdAsync(int id)
@@ -73,6 +76,7 @@ public class LotsController(
             await parkingLotService.GetByIdAsync(id)));
     }
 
+    /// <summary>Registers a new parking lot.</summary>
     [HttpPost]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> CreateAsync([FromBody] CreateParkingLotModel model)
@@ -109,6 +113,7 @@ public class LotsController(
             await parkingLotService.UpdateStatusAsync(id, model)));
     }
 
+    /// <summary>Soft-deletes a parking lot; it stays in the history but can no longer be used.</summary>
     [HttpDelete("{id:int}")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteAsync(int id)

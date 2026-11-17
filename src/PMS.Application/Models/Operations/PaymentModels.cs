@@ -10,17 +10,17 @@ public class CreatePaymentModel
     public string ReturnUrl { get; set; }
 }
 
-/// <summary>Cash taken at the exit lane or the counter (FR-PAY-01).</summary>
+/// <summary>Cash taken at the exit lane or the counter.</summary>
 public class CashPaymentModel
 {
     /// <summary>Money received; must cover the amount due (change is given back, only the due amount is recorded).</summary>
     public decimal Amount { get; set; }
 
-    /// <summary>True when paid at a counter/kiosk before driving to the exit: opens an Exit Window (FR-PAY-07).</summary>
+    /// <summary>True when paid at a counter/kiosk before driving to the exit: opens an Exit Window.</summary>
     public bool Prepaid { get; set; }
 }
 
-/// <summary>Online payment started by the Staff at a lane (dynamic QR for a Guest, FR-PAY-03).</summary>
+/// <summary>Online payment started by the Staff at a lane (dynamic QR for a Guest).</summary>
 public class LanePaymentModel
 {
     public string Provider { get; set; }
@@ -73,12 +73,12 @@ public class PaymentResponseModel
 
     public string Message { get; set; }
 
-    /// <summary>Signed Exit Pass after an app/kiosk prepayment (FR-PAY-07), for gates that are offline.</summary>
+    /// <summary>Signed Exit Pass after an app/kiosk prepayment, for gates that are offline.</summary>
     public string ExitPass { get; set; }
 
     public DateTime? ExitWindowEndsAt { get; set; }
 
-    /// <summary>BR-11: when the Staff may switch to another method if no callback came.</summary>
+    /// <summary>When the Staff may switch to another method if no callback came.</summary>
     public DateTime? CallbackDeadline { get; set; }
 }
 

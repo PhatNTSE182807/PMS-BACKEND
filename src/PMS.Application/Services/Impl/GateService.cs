@@ -27,7 +27,7 @@ public class GateService(
     BookedBayCaseService bookedBays = null,
     ILayoutService layouts = null) : IGateService
 {
-    /// <summary>Two lanes never open two sessions for one plate at the same time (NFR-14) inside this process.</summary>
+    /// <summary>Two lanes never open two sessions for one plate at the same time inside this process.</summary>
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlateGates = new();
 
     private GateRules Rules => options.Gate;
@@ -861,7 +861,7 @@ public class GateService(
     /// <summary>
     /// The Staff checked the driver's papers (uploaded or shown at the counter) against the vehicle and decides the case;
     /// the Manager no longer does (team decision, 2026-11-04). Approved: the fine goes on the bill and the vehicle stays
-    /// parked until it checks out. Refused: it stays and cannot leave until a new case is approved (SRS 4.2.4).
+    /// parked until it checks out. Refused: it stays and cannot leave until a new case is approved.
     /// Cases left waiting for a Manager before the change are decided here too.
     /// </summary>
     public async Task<SessionResponseModel> ReviewLostTicketAsync(long sessionId, LostTicketReviewModel model)
@@ -1078,7 +1078,7 @@ public class GateService(
     /// <summary>
     /// Every parked vehicle has an exit pass from check-in on. It carries the session code (the exit lane
     /// finds the session from it and charges what is due); after a prepayment it also carries the end of
-    /// the Exit Window, so an offline gate can open the barrier on it alone (FR-PAY-07).
+    /// the Exit Window, so an offline gate can open the barrier on it alone.
     /// </summary>
     private ExitPassModel ExitPassFor(ParkingSession session, decimal amountDue)
     {
@@ -1105,7 +1105,7 @@ public class GateService(
     // ---- fee --------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Prices the stay up to now (BR-10, BR-22, FR-RSV-07). With <paramref name="mutate"/> it is a fee request
+    /// Prices the stay up to now. With <paramref name="mutate"/> it is a fee request
     /// at a payment point: Active → PendingPayment, Paid past its Exit Window → PendingPayment, nothing due → Paid.
     /// </summary>
     /// <summary>

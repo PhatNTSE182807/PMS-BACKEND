@@ -52,29 +52,32 @@ public class ManagerOperationsController(
         return Ok(ApiResult<LotOccupancyModel>.Success(await parkingLots.GetOccupancyAsync(lotId)));
     }
 
+    /// <summary>Reservations of a lot, filtered by status and arrival time range.</summary>
     [HttpGet("lots/{lotId:int}/reservations")]
     public async Task<IActionResult> GetReservationsAsync(int lotId, [FromQuery] string status = null, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null) =>
         Ok(ApiResult<IReadOnlyList<ReservationResponseModel>>.Success(await reservationService.GetForLotAsync(lotId, status, from?.ToUniversalTime(), to?.ToUniversalTime())));
 
-    /// <summary>FR-RSV-09: lot-side cancellation with a 100 % refund.</summary>
+    /// <summary>Lot-side cancellation with a 100 % refund.</summary>
     [HttpPost("reservations/{id:long}/cancel")]
     public async Task<IActionResult> CancelReservationAsync(long id, [FromBody] CancelReservationModel model) =>
         Ok(ApiResult<ReservationResponseModel>.Success(await reservationService.CancelByLotAsync(id, model?.Reason)));
 
-    /// <summary>FR-OPS-12: close a ghost session (fee waived).</summary>
+    /// <summary>Close a ghost session (fee waived).</summary>
     [HttpPost("sessions/{id:long}/abnormal-close")]
     public async Task<IActionResult> CloseAbnormallyAsync(long id, [FromBody] SessionDecisionModel model) =>
         Ok(ApiResult<SessionResponseModel>.Success(await gateService.CloseAbnormallyAsync(id, model?.Reason)));
 
+    /// <summary>Whitelist and Blacklist plates of a lot (or one list type).</summary>
     [HttpGet("lots/{lotId:int}/plate-lists")]
     public async Task<IActionResult> GetPlateListsAsync(int lotId, [FromQuery] string listType = null) =>
         Ok(ApiResult<IReadOnlyList<PlateListEntryModel>>.Success(await plateLists.GetAsync(lotId, listType)));
 
-    /// <summary>FR-OPS-07: add a Whitelist / Blacklist plate for the lot (reason and expiry required).</summary>
+    /// <summary>Add a Whitelist / Blacklist plate for the lot (reason and expiry required).</summary>
     [HttpPost("lots/{lotId:int}/plate-lists")]
     public async Task<IActionResult> AddPlateListEntryAsync(int lotId, [FromBody] CreatePlateListEntryModel model) =>
         Ok(ApiResult<PlateListEntryModel>.Success(await plateLists.AddAsync(lotId, model)));
 
+    /// <summary>Removes a plate from the Whitelist / Blacklist of the lot (the entry is deactivated, not deleted).</summary>
     [HttpDelete("lots/{lotId:int}/plate-lists/{id:int}")]
     public async Task<IActionResult> RemovePlateListEntryAsync(int lotId, int id) =>
         Ok(ApiResult<bool>.Success(await plateLists.DeactivateAsync(lotId, id)));

@@ -8,8 +8,8 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// Whitelist / Blacklist of a lot (FR-OPS-07, BR-16/17): Managers edit their lot's lists, Staff can read
-/// them. Entries are never deleted (BR-21); removing one deactivates it.
+/// Whitelist / Blacklist of a lot: Managers edit their lot's lists, Staff can read
+/// them. Entries are never deleted; removing one deactivates it.
 /// </summary>
 public class PlateListService(PmsDbContext pmsContext, LotScopeService lotScope, TimeProvider clock)
 {

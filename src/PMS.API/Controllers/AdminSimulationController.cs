@@ -54,10 +54,12 @@ public class AdminSimulationController(
     public async Task<IActionResult> ReportLostTicketAsync(long sessionId, [FromBody] SimulateLostTicketModel model) =>
         Ok(ApiResult<SimulatedWalkInModel>.Success(await walkIns.ReportLostTicketAsync(sessionId, model)));
 
+    /// <summary>Current simulation settings (seconds used instead of real minutes) and the normal values they replace.</summary>
     [HttpGet]
     public async Task<IActionResult> GetAsync() =>
         Ok(ApiResult<ParkingSimulationResponseModel>.Success(await simulation.GetAsync()));
 
+    /// <summary>Turns the simulation on or off and sets the shortened times for fees and booking deadlines.</summary>
     [HttpPut]
     public async Task<IActionResult> UpdateAsync([FromBody] UpdateParkingSimulationModel model) =>
         Ok(ApiResult<ParkingSimulationResponseModel>.Success(await simulation.UpdateAsync(model, claimService.GetUserId())));

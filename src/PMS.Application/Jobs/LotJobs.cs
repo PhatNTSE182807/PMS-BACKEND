@@ -16,7 +16,7 @@ public class LotJobs(PmsDbContext pmsContext, ILotRealtimeNotifier notifier = nu
     /// <summary>Expired login codes and refresh tokens are kept this long for troubleshooting.</summary>
     public static readonly TimeSpan CredentialRetention = TimeSpan.FromDays(7);
 
-    /// <summary>Temporarily closed lots reopen on their own once the closing period ends (FR-LOT-06).</summary>
+    /// <summary>Temporarily closed lots reopen on their own once the closing period ends.</summary>
     public async Task<int> ReopenDueLotsAsync()
     {
         var now = DateTime.UtcNow;

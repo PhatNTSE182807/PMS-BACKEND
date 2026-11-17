@@ -3,8 +3,8 @@ using PMS.Application.Models.Account;
 namespace PMS.Application.Services;
 
 /// <summary>
-/// Internal account management (SRS FR-AUTH-04/07, UC-09). A lot has one Manager (ParkingLots.ManagerUserId)
-/// and many Staff (Employees.ParkingLotId). Staff are never hard-deleted (BR-21).
+/// Internal account management. A lot has one Manager (ParkingLots.ManagerUserId)
+/// and many Staff (Employees.ParkingLotId). Staff are never hard-deleted.
 /// </summary>
 public interface IEmployeeAccountService
 {

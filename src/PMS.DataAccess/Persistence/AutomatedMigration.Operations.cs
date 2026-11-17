@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 namespace PMS.DataAccess.Persistence;
 
 /// <summary>
-/// Tables for reservations, gate sessions and payments (SRS section 8). Each statement only runs when
+/// Tables for reservations, gate sessions and payments. Each statement only runs when
 /// the table, column or index is missing, so it is safe on databases created from the full script.
 /// </summary>
 public static partial class AutomatedMigration

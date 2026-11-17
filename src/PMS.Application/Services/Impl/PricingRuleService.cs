@@ -15,7 +15,7 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// Implements application-level operations for pricing rules, tariffs, and fee simulation (SRS section 5, BR-09, BR-22).
+/// Implements application-level operations for pricing rules, tariffs, and fee simulation.
 /// Restricts access to parking lots managed by the calling Manager (or all lots for Admin).
 /// </summary>
 public class PricingRuleService(

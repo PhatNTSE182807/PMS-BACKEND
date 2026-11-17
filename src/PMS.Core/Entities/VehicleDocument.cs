@@ -18,7 +18,7 @@ public partial class VehicleDocument
     /// <summary>Front or Back.</summary>
     public string Side { get; set; }
 
-    /// <summary>Path relative to the private storage root; null once the file was deleted (BR-26).</summary>
+    /// <summary>Path relative to the private storage root; null once the file was deleted.</summary>
     public string StoragePath { get; set; }
 
     public string OriginalFileName { get; set; }

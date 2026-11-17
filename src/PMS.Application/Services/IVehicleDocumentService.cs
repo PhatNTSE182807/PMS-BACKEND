@@ -8,7 +8,7 @@ namespace PMS.Application.Services;
 
 /// <summary>
 /// Papers of a new vehicle (one photo of the registration certificate, one of the Citizen ID card) and the Staff
-/// review that approves or rejects the vehicle (SRS FR-VER-01..04, BR-26). Staff compare the papers
+/// review that approves or rejects the vehicle. Staff compare the papers
 /// by eye; nothing is read automatically.
 /// </summary>
 public interface IVehicleDocumentService

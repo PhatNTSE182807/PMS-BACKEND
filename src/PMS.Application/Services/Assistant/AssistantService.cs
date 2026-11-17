@@ -18,7 +18,7 @@ public interface IAssistantService
 }
 
 /// <summary>
-/// Customer chat assistant (SRS FR-SYS-10): retrieves the closest help sections and lets the model
+/// Customer chat assistant: retrieves the closest help sections and lets the model
 /// answer from them only. Without a model (SearchOnly, no API key, or server unreachable) it returns the best
 /// sections as they are. It never reads account data.
 /// </summary>

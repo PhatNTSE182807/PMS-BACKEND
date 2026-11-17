@@ -10,7 +10,7 @@ using PMS.Application.Services;
 namespace PMS.API.Controllers;
 
 /// <summary>
-/// Manager pricing and tariff configuration endpoints (SRS section 5, BR-09, BR-22).
+/// Manager pricing and tariff configuration endpoints.
 /// All routes are scoped to a specific parking lot managed by the authenticated Manager (or Admin).
 /// Errors come back as <c>{ succeeded: false, errors: [...] }</c> with the matching HTTP status
 /// (mapped by the exception middleware): 400 invalid request, 403 lot not assigned to the caller,
