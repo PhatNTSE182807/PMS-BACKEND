@@ -176,3 +176,17 @@ public class PricingSimulationRequestModelValidator : AbstractValidator<PricingS
             .WithMessage("At least one of RuleId, VehicleTypeId, or VehicleTypeCode must be provided for simulation.");
     }
 }
+
+/// <summary>A draft holds a full set of rule values: they pass the same checks as a direct update.</summary>
+public class SavePricingRuleDraftModelValidator : AbstractValidator<SavePricingRuleDraftModel>
+{
+    public SavePricingRuleDraftModelValidator()
+    {
+        RuleFor(x => x.Values)
+            .NotNull().WithMessage("The draft prices are required.")
+            .SetValidator(new UpdatePricingRuleModelValidator());
+
+        RuleFor(x => x.Note)
+            .MaximumLength(500).WithMessage("The note must not exceed 500 characters.");
+    }
+}
