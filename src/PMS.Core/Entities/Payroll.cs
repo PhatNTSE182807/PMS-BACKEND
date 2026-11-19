@@ -16,12 +16,9 @@ public class PayrollProfile
     public decimal? HolidayFactor { get; set; }
     public decimal? OvertimeFactor { get; set; }
     public string OvertimeCombination { get; set; }
-    public decimal? StandbyDailyAllowance { get; set; }
     public string PaidLeaveMethod { get; set; }
     public decimal? PaidLeaveHoursPerDay { get; set; }
     public decimal? StandardWorkDays { get; set; }
-    public string ManagerProration { get; set; }
-    public string ManagerUnpaidLeavePolicy { get; set; }
     public string Currency { get; set; }
     public int? MoneyDecimals { get; set; }
     public string RoundingMode { get; set; }
@@ -73,7 +70,6 @@ public class PayrollLine
     public int SourcePeriodLotId { get; set; }
     public int? AssignmentId { get; set; }
     public int? AttendanceRevision { get; set; }
-    public int? StandbyId { get; set; }
     public int? LeaveRequestId { get; set; }
     public int? ManagerDayId { get; set; }
     public int? AdjustmentId { get; set; }

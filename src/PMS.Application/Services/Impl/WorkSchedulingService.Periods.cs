@@ -43,22 +43,25 @@ public partial class WorkSchedulingService
     public async Task<PeriodModel> CreateAttendancePeriodAsync(CreateAttendancePeriodInput input)
     {
         EnsurePeriodAdmin();
-        if (input.FromDate == default || input.ToDate == DateOnly.MaxValue || input.ToDate < input.FromDate || input.ToDate.DayNumber - input.FromDate.DayNumber > 92 || input.LotIds == null || input.LotIds.Length == 0)
-            throw new BadRequestException("Select an explicit period of up to 93 days and at least one lot.");
+        if (input.Month == default || input.Month.Day != 1 || input.Month.Year < 1900 || input.Month.Year >= 9999 || input.LotIds == null || input.LotIds.Length == 0)
+            throw new BadRequestException("Select a month and at least one lot.");
+        // One attendance period is exactly one calendar month, so it matches one payroll month.
+        var fromDate = input.Month; var toDate = input.Month.AddMonths(1).AddDays(-1);
+        var name = string.IsNullOrWhiteSpace(input.Name) ? input.Month.ToString("MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture) : input.Name;
         return await WriteAsync(async () => {
             var ids = input.LotIds.Distinct().ToList();
             var lots = await db.ParkingLots.Where(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync();
             if (lots.Count != ids.Count) throw new BadRequestException("Invalid parking lot.");
             if (await (from x in db.AttendancePeriodLots join p in db.AttendancePeriods on x.AttendancePeriodId equals p.Id
-                where ids.Contains(x.ParkingLotId) && input.FromDate <= p.ToDate && p.FromDate <= input.ToDate select x.Id).AnyAsync())
-                throw new ConflictException("Attendance periods cannot overlap for the same lot.");
-            var period = new AttendancePeriod { Name = Name(input.Name), FromDate = input.FromDate, ToDate = input.ToDate, CreatedBy = scope.UserId, CreatedAt = Now };
+                where ids.Contains(x.ParkingLotId) && fromDate <= p.ToDate && p.FromDate <= toDate select x.Id).AnyAsync())
+                throw new ConflictException("This month already has an attendance period for one of these lots.");
+            var period = new AttendancePeriod { Name = Name(name), FromDate = fromDate, ToDate = toDate, CreatedBy = scope.UserId, CreatedAt = Now };
             db.AttendancePeriods.Add(period); await SaveWorkChangesAsync();
             foreach (var lot in lots) {
                 var zone = ParkingText.FindTimeZone(lot.TimeZoneId);
                 var row = new AttendancePeriodLot { AttendancePeriodId = period.Id, ParkingLotId = lot.Id, TimeZoneId = zone.Id,
-                    StartsAt = TimeZoneInfo.ConvertTimeToUtc(input.FromDate.ToDateTime(TimeOnly.MinValue), zone),
-                    EndsAt = TimeZoneInfo.ConvertTimeToUtc(input.ToDate.AddDays(1).ToDateTime(TimeOnly.MinValue), zone) };
+                    StartsAt = TimeZoneInfo.ConvertTimeToUtc(fromDate.ToDateTime(TimeOnly.MinValue), zone),
+                    EndsAt = TimeZoneInfo.ConvertTimeToUtc(toDate.AddDays(1).ToDateTime(TimeOnly.MinValue), zone) };
                 db.AttendancePeriodLots.Add(row); await SaveWorkChangesAsync(); PeriodEvent(row, "Created", null, null, input);
             }
             await SaveWorkChangesAsync(); return await PeriodModelAsync(period);
@@ -107,7 +110,7 @@ public partial class WorkSchedulingService
             foreach (var p in lots) {
                 var review = await BuildPeriodReviewAsync(p);
                 p.SnapshotJson = JsonSerializer.Serialize(review);
-                await CapturePayrollSourceAsync(p, review, false);
+                await CapturePayrollSourceAsync(p, review);
             }
             await SaveWorkChangesAsync(); return await PeriodModelAsync(period);
         });

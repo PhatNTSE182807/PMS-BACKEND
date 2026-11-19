@@ -31,10 +31,10 @@ public class WorkAttendanceTests
             identity.Users.Add(new ApplicationUser { Id = t.StaffUserId, Role = "Staff", IsActive = true });
             await identity.SaveChangesAsync();
             var service = new WorkSchedulingService(t.Db, identity, new LotScopeService(t.Db, t.Claims), t.Clock);
-            var template = await service.SaveTemplateAsync(t.Lot.Id, null, new WorkShiftTemplateInput { Name = "Morning", StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(16, 0), MinimumEntryStaff = 1 });
+            var template = await service.SaveTemplateAsync(t.Lot.Id, null, new WorkShiftTemplateInput { Name = "Morning", StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(16, 0), MinimumStaff = 1 });
             var day = new DateOnly(2026, 10, 20);
             var r = await service.CreateRosterAsync(t.Lot.Id, new CreateDutyRosterInput { Name = "Attendance", FromDate = day, ToDate = day.AddDays(1) });
-            r = await service.AssignFromCalendarAsync(t.Lot.Id, r.Id, new CalendarAssignmentInput { Revision = r.Revision, WorkDate = day, WorkShiftTemplateId = template.Id, EmployeeId = t.Db.Employees.Single(e => e.UserId == t.StaffUserId).Id, Position = "Entry" });
+            r = await service.AssignFromCalendarAsync(t.Lot.Id, r.Id, new CalendarAssignmentInput { Revision = r.Revision, WorkDate = day, WorkShiftTemplateId = template.Id, EmployeeId = t.Db.Employees.Single(e => e.UserId == t.StaffUserId).Id });
             if (publish) r = await service.PublishAsync(t.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
             t.ActAs(t.StaffUserId, "Staff");
             return new World { T = t, Identity = identity, Service = service, Roster = r };

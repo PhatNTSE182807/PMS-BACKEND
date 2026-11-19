@@ -21,7 +21,7 @@ public static partial class AutomatedMigration
                 CONSTRAINT FK_WorkRotationGroups_Lot FOREIGN KEY(ParkingLotId) REFERENCES dbo.ParkingLots(Id));
         IF OBJECT_ID('dbo.WorkRotationMembers','U') IS NULL
             CREATE TABLE dbo.WorkRotationMembers (
-                WorkRotationGroupId int NOT NULL, EmployeeId int NOT NULL, Position varchar(20) NOT NULL,
+                WorkRotationGroupId int NOT NULL, EmployeeId int NOT NULL,
                 PRIMARY KEY(WorkRotationGroupId,EmployeeId),
                 CONSTRAINT FK_WorkRotationMembers_Group FOREIGN KEY(WorkRotationGroupId) REFERENCES dbo.WorkRotationGroups(Id),
                 CONSTRAINT FK_WorkRotationMembers_Employee FOREIGN KEY(EmployeeId) REFERENCES dbo.Employees(Id));
@@ -30,14 +30,5 @@ public static partial class AutomatedMigration
                 Id int IDENTITY PRIMARY KEY, ParkingLotId int NOT NULL, Name nvarchar(100) NOT NULL,
                 StepsJson nvarchar(max) NOT NULL, Revision int NOT NULL,
                 CONSTRAINT FK_WorkRotationCycles_Lot FOREIGN KEY(ParkingLotId) REFERENCES dbo.ParkingLots(Id));
-        IF OBJECT_ID('dbo.DutyStandbyAssignments','U') IS NULL
-        BEGIN
-            CREATE TABLE dbo.DutyStandbyAssignments (
-                Id int IDENTITY PRIMARY KEY, DutyRosterId int NOT NULL, WorkDate date NOT NULL,
-                EmployeeId int NOT NULL, Source nvarchar(20) NOT NULL, IsCancelled bit NOT NULL,
-                CONSTRAINT FK_DutyStandbyAssignments_Roster FOREIGN KEY(DutyRosterId) REFERENCES dbo.DutyRosters(Id),
-                CONSTRAINT FK_DutyStandbyAssignments_Employee FOREIGN KEY(EmployeeId) REFERENCES dbo.Employees(Id));
-            CREATE INDEX IX_DutyStandbyAssignments_DutyRosterId_WorkDate ON dbo.DutyStandbyAssignments(DutyRosterId,WorkDate);
-        END;
         """;
 }

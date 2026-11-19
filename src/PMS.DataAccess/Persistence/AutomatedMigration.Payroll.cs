@@ -37,6 +37,5 @@ IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='UX_PayrollSlip_ManagerMonth'
 IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='UX_PayrollLine_Order' AND object_id=OBJECT_ID('dbo.PayrollLines')) CREATE UNIQUE INDEX UX_PayrollLine_Order ON dbo.PayrollLines(PayrollSlipId,Ordinal);
 IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='UX_PayrollAdjustment_Complaint' AND object_id=OBJECT_ID('dbo.PayrollAdjustments')) CREATE UNIQUE INDEX UX_PayrollAdjustment_Complaint ON dbo.PayrollAdjustments(SourceComplaintId) WHERE SourceComplaintId IS NOT NULL;
 IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='UX_PayrollAdjustment_Carry' AND object_id=OBJECT_ID('dbo.PayrollAdjustments')) CREATE UNIQUE INDEX UX_PayrollAdjustment_Carry ON dbo.PayrollAdjustments(SourceCarryId) WHERE SourceCarryId IS NOT NULL;
-IF COL_LENGTH('dbo.DutyStandbyAssignments','WasCalled') IS NULL ALTER TABLE dbo.DutyStandbyAssignments ADD WasCalled bit NOT NULL CONSTRAINT DF_Standby_WasCalled DEFAULT 0;
 """;
 }

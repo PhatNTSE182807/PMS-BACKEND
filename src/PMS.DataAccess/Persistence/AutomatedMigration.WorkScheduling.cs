@@ -13,11 +13,11 @@ public static partial class AutomatedMigration
             CREATE TABLE dbo.WorkShiftTemplates (
                 Id int IDENTITY PRIMARY KEY, ParkingLotId int NOT NULL,
                 Name nvarchar(100) NOT NULL, StartTime time NOT NULL, EndTime time NOT NULL,
-                MinimumEntryStaff int NOT NULL, MinimumExitStaff int NOT NULL, MinimumCounterStaff int NOT NULL,
+                MinimumStaff int NOT NULL,
                 IsActive bit NOT NULL, Revision int NOT NULL,
                 CONSTRAINT FK_WorkShiftTemplates_Lot FOREIGN KEY (ParkingLotId) REFERENCES dbo.ParkingLots(Id),
                 CONSTRAINT CK_WorkShiftTemplates_Hours CHECK (StartTime <> EndTime),
-                CONSTRAINT CK_WorkShiftTemplates_Minimum CHECK (MinimumEntryStaff >= 0 AND MinimumExitStaff >= 0 AND MinimumCounterStaff >= 0)
+                CONSTRAINT CK_WorkShiftTemplates_MinimumStaff CHECK (MinimumStaff >= 0)
             );
             CREATE INDEX IX_WorkShiftTemplates_ParkingLotId_IsActive ON dbo.WorkShiftTemplates(ParkingLotId, IsActive);
         END;
@@ -40,12 +40,12 @@ public static partial class AutomatedMigration
                 Id int IDENTITY PRIMARY KEY, DutyRosterId int NOT NULL, WorkShiftTemplateId int NOT NULL,
                 WorkDate date NOT NULL, Name nvarchar(100) NOT NULL, TimeZoneId nvarchar(100) NOT NULL,
                 StartTime time NOT NULL, EndTime time NOT NULL, StartsAt datetime2(3) NOT NULL, EndsAt datetime2(3) NOT NULL,
-                MinimumEntryStaff int NOT NULL, MinimumExitStaff int NOT NULL, MinimumCounterStaff int NOT NULL,
+                MinimumStaff int NOT NULL,
                 IsCancelled bit NOT NULL,
                 CONSTRAINT FK_DutyRosterShifts_Roster FOREIGN KEY (DutyRosterId) REFERENCES dbo.DutyRosters(Id),
                 CONSTRAINT FK_DutyRosterShifts_Template FOREIGN KEY (WorkShiftTemplateId) REFERENCES dbo.WorkShiftTemplates(Id),
                 CONSTRAINT CK_DutyRosterShifts_Hours CHECK (StartsAt < EndsAt),
-                CONSTRAINT CK_DutyRosterShifts_Minimum CHECK (MinimumEntryStaff >= 0 AND MinimumExitStaff >= 0 AND MinimumCounterStaff >= 0)
+                CONSTRAINT CK_DutyRosterShifts_MinimumStaff CHECK (MinimumStaff >= 0)
             );
             CREATE INDEX IX_DutyRosterShifts_DutyRosterId_WorkDate ON dbo.DutyRosterShifts(DutyRosterId, WorkDate);
         END;
@@ -53,10 +53,9 @@ public static partial class AutomatedMigration
         BEGIN
             CREATE TABLE dbo.DutyAssignments (
                 Id int IDENTITY PRIMARY KEY, DutyRosterShiftId int NOT NULL, EmployeeId int NOT NULL,
-                Position varchar(20) NOT NULL, Notes nvarchar(1000) NULL, IsCancelled bit NOT NULL,
+                Notes nvarchar(1000) NULL, IsCancelled bit NOT NULL,
                 CONSTRAINT FK_DutyAssignments_Shift FOREIGN KEY (DutyRosterShiftId) REFERENCES dbo.DutyRosterShifts(Id),
-                CONSTRAINT FK_DutyAssignments_Employee FOREIGN KEY (EmployeeId) REFERENCES dbo.Employees(Id),
-                CONSTRAINT CK_DutyAssignments_Position CHECK (Position IN ('Entry', 'Exit', 'Counter'))
+                CONSTRAINT FK_DutyAssignments_Employee FOREIGN KEY (EmployeeId) REFERENCES dbo.Employees(Id)
             );
             CREATE INDEX IX_DutyAssignments_EmployeeId_IsCancelled ON dbo.DutyAssignments(EmployeeId, IsCancelled);
         END;
@@ -96,5 +95,5 @@ public static partial class AutomatedMigration
             );
             CREATE UNIQUE INDEX IX_DutyRosterChangeLogs_DutyRosterId_Revision ON dbo.DutyRosterChangeLogs(DutyRosterId, Revision);
         END;
-        """ + SqlWorkRotation + SqlWorkRequests + SqlAttendancePeriods + SqlPayroll;
+        """ + SqlWorkRotation + SqlWorkRequests + SqlAttendancePeriods + SqlPayroll + SqlMinimumStaff + SqlSimplifyVacancies;
 }

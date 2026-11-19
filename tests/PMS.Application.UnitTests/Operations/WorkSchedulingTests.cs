@@ -33,11 +33,11 @@ public class WorkSchedulingTests
             return new Fixture { T = t, Identity = identity, Service = new WorkSchedulingService(t.Db, identity, new LotScopeService(t.Db, t.Claims), t.Clock) };
         }
         public Task<WorkShiftTemplate> Template(string name = "Night", int start = 22, int end = 6) =>
-            Service.SaveTemplateAsync(T.Lot.Id, null, new WorkShiftTemplateInput { Name = name, StartTime = new TimeOnly(start, 0), EndTime = new TimeOnly(end, 0), MinimumEntryStaff = 1, MinimumExitStaff = 1 });
+            Service.SaveTemplateAsync(T.Lot.Id, null, new WorkShiftTemplateInput { Name = name, StartTime = new TimeOnly(start, 0), EndTime = new TimeOnly(end, 0), MinimumStaff = 2 });
         public Task<DutyRosterModel> Roster() => Service.CreateRosterAsync(T.Lot.Id, new CreateDutyRosterInput { Name = "Week", FromDate = Day, ToDate = Day.AddDays(6) });
         public Task<DutyRosterModel> Shift(DutyRosterModel r, WorkShiftTemplate t, DateOnly? day = null) => Service.SaveShiftAsync(T.Lot.Id, r.Id, null, new RosterShiftInput { WorkShiftTemplateId = t.Id, WorkDate = day ?? Day, Revision = r.Revision });
-        public Task<DutyRosterModel> Assign(DutyRosterModel r, int? employee = null, int? shift = null, string position = "Entry", string reason = null) =>
-            Service.SaveAssignmentAsync(T.Lot.Id, r.Id, shift ?? r.Shifts.Last().Id, null, new DutyAssignmentInput { EmployeeId = employee ?? EmployeeId, Position = position, Revision = r.Revision, Reason = reason });
+        public Task<DutyRosterModel> Assign(DutyRosterModel r, int? employee = null, int? shift = null, string reason = null) =>
+            Service.SaveAssignmentAsync(T.Lot.Id, r.Id, shift ?? r.Shifts.Last().Id, null, new DutyAssignmentInput { EmployeeId = employee ?? EmployeeId, Revision = r.Revision, Reason = reason });
         public void Dispose() { T.Db.Dispose(); Identity.Dispose(); }
     }
 
@@ -55,7 +55,7 @@ public class WorkSchedulingTests
         f.T.ActAs(f.T.ManagerUserId, "Manager");
         r = await f.Service.PublishAsync(f.T.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
         r.Status.Should().Be("Published");
-        r.Shortages.Should().ContainSingle(x => x.Position == "Exit");
+        r.Shortages.Should().ContainSingle(x => x.Required == 2 && x.Assigned == 1);
         f.T.ActAs(f.T.StaffUserId, "Staff");
         var mine = await f.Service.MyScheduleAsync(Day.AddDays(1), Day.AddDays(1));
         mine.Should().ContainSingle();
@@ -71,11 +71,11 @@ public class WorkSchedulingTests
         var t = await f.Template();
         var r = await f.Assign(await f.Shift(await f.Roster(), t));
         r = await f.Service.PublishAsync(f.T.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
-        await f.Service.SaveTemplateAsync(f.T.Lot.Id, t.Id, new WorkShiftTemplateInput { Name = "Changed", StartTime = new TimeOnly(20, 0), EndTime = new TimeOnly(4, 0), MinimumEntryStaff = 9, Revision = t.Revision, IsActive = false });
+        await f.Service.SaveTemplateAsync(f.T.Lot.Id, t.Id, new WorkShiftTemplateInput { Name = "Changed", StartTime = new TimeOnly(20, 0), EndTime = new TimeOnly(4, 0), MinimumStaff = 9, Revision = t.Revision, IsActive = false });
         var saved = (await f.Service.RostersAsync(f.T.Lot.Id)).Single().Shifts.Single();
         saved.Name.Should().Be("Night");
         saved.StartTime.Should().Be(new TimeOnly(22, 0));
-        saved.MinimumEntryStaff.Should().Be(1);
+        saved.MinimumStaff.Should().Be(2);
         saved.Assignments.Should().ContainSingle();
     }
 
@@ -122,13 +122,13 @@ public class WorkSchedulingTests
     }
 
     [Fact]
-    public async Task Overnight_Overlap_Across_Rosters_And_Positions_Is_Rejected_But_Touching_Shifts_Are_Allowed()
+    public async Task Overnight_Overlap_Across_Rosters_Is_Rejected_But_Touching_Shifts_Are_Allowed()
     {
         using var f = await Fixture.CreateAsync();
         await f.Assign(await f.Shift(await f.Roster(), await f.Template()));
         var morning = await f.Template("Early", 5, 13);
         var r = await f.Shift(await f.Roster(), morning, Day.AddDays(1));
-        await FluentActions.Invoking(() => f.Assign(r, position: "Counter")).Should().ThrowAsync<BadRequestException>().WithMessage("*overlapping*");
+        await FluentActions.Invoking(() => f.Assign(r)).Should().ThrowAsync<BadRequestException>().WithMessage("*overlapping*");
         // A different roster at the exact end of the overnight shift is valid.
         var boundary = await f.Template("Morning", 6, 14);
         var next = await f.Shift(await f.Roster(), boundary, Day.AddDays(1));
@@ -136,12 +136,11 @@ public class WorkSchedulingTests
     }
 
     [Fact]
-    public async Task Cannot_Assign_One_Staff_To_Two_Positions_In_The_Same_Shift()
+    public async Task Cannot_Assign_One_Staff_Twice_To_The_Same_Shift()
     {
         using var f = await Fixture.CreateAsync();
         var r = await f.Assign(await f.Shift(await f.Roster(), await f.Template()));
-        await FluentActions.Invoking(() => f.Assign(r, position: "Exit")).Should().ThrowAsync<BadRequestException>();
-        await FluentActions.Invoking(() => f.Assign(r, position: "Unknown")).Should().ThrowAsync<BadRequestException>();
+        await FluentActions.Invoking(() => f.Assign(r)).Should().ThrowAsync<BadRequestException>();
     }
 
     [Fact]
@@ -172,10 +171,10 @@ public class WorkSchedulingTests
         f.T.Db.Employees.AddRange(second, unaffected);
         f.Identity.Users.AddRange(new ApplicationUser { Id = second.UserId, Role = "Staff", IsActive = true }, new ApplicationUser { Id = unaffected.UserId, Role = "Staff", IsActive = true });
         await f.T.Db.SaveChangesAsync(); await f.Identity.SaveChangesAsync();
-        r = await f.Assign(r, unaffected.Id, position: "Exit");
+        r = await f.Assign(r, unaffected.Id);
         r = await f.Service.PublishAsync(f.T.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
         var a = r.Shifts.Single().Assignments.Single(a => a.EmployeeId == f.EmployeeId);
-        var input = new DutyAssignmentInput { Revision = r.Revision, EmployeeId = second.Id, Position = "Entry" };
+        var input = new DutyAssignmentInput { Revision = r.Revision, EmployeeId = second.Id };
         await FluentActions.Invoking(() => f.Service.SaveAssignmentAsync(f.T.Lot.Id, r.Id, r.Shifts.Single().Id, a.Id, input))
             .Should().ThrowAsync<BadRequestException>().WithMessage("*reason*");
         input.Reason = "Replace unavailable Staff";
@@ -250,13 +249,13 @@ public class WorkSchedulingTests
         var result = await f.Service.AssignFromCalendarAsync(f.T.Lot.Id, r.Id, new CalendarAssignmentInput
         {
             Revision = r.Revision, WorkDate = Day, WorkShiftTemplateId = t.Id,
-            EmployeeId = f.EmployeeId, Position = "Entry", Notes = "  Gate A handover  "
+            EmployeeId = f.EmployeeId, Notes = "  Gate A handover  "
         });
         result.Revision.Should().Be(r.Revision + 1);
         var shift = result.Shifts.Single();
         shift.Assignments.Single().Notes.Should().Be("Gate A handover");
         shift.Assignments.Single().Status.Should().Be("Assigned");
-        shift.EntryAssigned.Should().Be(1);
+        shift.Assigned.Should().Be(1);
         (await f.Service.HistoryAsync(f.T.Lot.Id, r.Id)).Should().HaveCount(2);
     }
 
@@ -267,7 +266,7 @@ public class WorkSchedulingTests
         var t = await f.Template();
         var r = await f.Roster();
         await FluentActions.Invoking(() => f.Service.AssignFromCalendarAsync(f.T.Lot.Id, r.Id,
-            new CalendarAssignmentInput { Revision = r.Revision, WorkDate = Day, WorkShiftTemplateId = t.Id, EmployeeId = 999, Position = "Entry" }))
+            new CalendarAssignmentInput { Revision = r.Revision, WorkDate = Day, WorkShiftTemplateId = t.Id, EmployeeId = 999 }))
             .Should().ThrowAsync<BadRequestException>();
         f.T.Db.DutyRosterShifts.Should().BeEmpty();
         f.T.Db.DutyAssignments.Should().BeEmpty();
@@ -296,13 +295,13 @@ public class WorkSchedulingTests
         var target = r.Shifts.Last();
         var a = original.Assignments.Single();
         r = await f.Service.SaveAssignmentAsync(f.T.Lot.Id, r.Id, original.Id, a.Id, new DutyAssignmentInput {
-            Revision = r.Revision, EmployeeId = f.EmployeeId, Position = "Counter", TargetShiftId = target.Id, Notes = "Counter task" });
+            Revision = r.Revision, EmployeeId = f.EmployeeId, TargetShiftId = target.Id, Notes = "Counter task" });
         r.Shifts.First().Assignments.Should().BeEmpty();
         r.Shifts.Last().Assignments.Single().Id.Should().Be(a.Id);
-        r.Shifts.Last().CounterAssigned.Should().Be(1);
+        r.Shifts.Last().Assigned.Should().Be(1);
         r = await f.Service.PublishAsync(f.T.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
         r = await f.Service.SaveAssignmentAsync(f.T.Lot.Id, r.Id, target.Id, a.Id, new DutyAssignmentInput {
-            Revision = r.Revision, EmployeeId = f.EmployeeId, Position = "Counter", Notes = "Updated handover", Reason = "Handover instructions changed" });
+            Revision = r.Revision, EmployeeId = f.EmployeeId, Notes = "Updated handover", Reason = "Handover instructions changed" });
         f.T.Db.UserNotifications.Should().ContainSingle(n => n.Type == "RosterChanged" && n.UserId == f.T.StaffUserId);
         (await f.Service.HistoryAsync(f.T.Lot.Id, r.Id)).First().AfterJson.Should().Contain("Updated handover");
     }
@@ -320,7 +319,7 @@ public class WorkSchedulingTests
         await f.Service.PublishAsync(f.T.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
         f.T.ActAs(f.T.StaffUserId, "Staff");
         var shift = (await f.Service.MyScheduleAsync(Day, Day)).Single().Shifts.Single();
-        shift.EntryAssigned.Should().Be(2);
+        shift.Assigned.Should().Be(2);
         shift.Assignments.Should().ContainSingle(a => a.EmployeeId == f.EmployeeId);
         shift.Assignments.Should().NotContain(a => a.EmployeeId == other.Id);
     }
@@ -333,11 +332,11 @@ public class WorkSchedulingTests
         var r = await f.Shift(await f.Roster(), t);
         await f.Service.SaveTemplateAsync(f.T.Lot.Id, t.Id, new WorkShiftTemplateInput { Name = "New name", StartTime = new TimeOnly(20, 0), EndTime = new TimeOnly(4, 0), Revision = t.Revision });
         r = await f.Service.AssignFromCalendarAsync(f.T.Lot.Id, r.Id, new CalendarAssignmentInput {
-            Revision = r.Revision, WorkDate = Day, WorkShiftTemplateId = t.Id, EmployeeId = f.EmployeeId, Position = "Entry" });
+            Revision = r.Revision, WorkDate = Day, WorkShiftTemplateId = t.Id, EmployeeId = f.EmployeeId });
         r.Shifts.Should().ContainSingle(s => s.Name == "Night" && s.StartTime == new TimeOnly(22, 0));
         var other = await f.Shift(await f.Roster(), t);
         await FluentActions.Invoking(() => f.Service.SaveAssignmentAsync(f.T.Lot.Id, r.Id, r.Shifts.Single().Id, r.Shifts.Single().Assignments.Single().Id,
-            new DutyAssignmentInput { Revision = r.Revision, EmployeeId = f.EmployeeId, Position = "Entry", TargetShiftId = other.Shifts.Single().Id }))
+            new DutyAssignmentInput { Revision = r.Revision, EmployeeId = f.EmployeeId, TargetShiftId = other.Shifts.Single().Id }))
             .Should().ThrowAsync<NotFoundException>();
     }
 
@@ -349,6 +348,6 @@ public class WorkSchedulingTests
         var r = await f.Shift(await f.Roster(), await f.Template());
         var result = await f.Service.PublishAsync(f.T.Lot.Id, r.Id, new RosterMutationInput { Revision = r.Revision });
         result.Status.Should().Be("Published");
-        result.Shortages.Should().HaveCount(2);
+        result.Shortages.Should().ContainSingle(x => x.Required == 2 && x.Assigned == 0);
     }
 }

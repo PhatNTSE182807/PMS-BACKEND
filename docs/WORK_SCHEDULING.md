@@ -14,7 +14,15 @@ notification tables. Its guarded SQL adds five new tables: `WorkShiftTemplates`,
 `DutyRosterShifts`, `DutyAssignments`, `DutyRosterChangeLogs`. Repeating it preserves existing rows.
 Foreign keys restrict deletion; removing a dated shift or assignment marks its rows cancelled.
 
-A dated shift snapshots the template name, start/end times, staffing minima and lot time zone.
+Templates and dated shifts store a single `MinimumStaff` head count. Staff are not assigned to an
+Entry, Exit or Counter position: on the POS any Staff member handles check-in, check-out and
+payment. `AutomatedMigration.MinimumStaff.cs` upgrades older databases: it adds `MinimumStaff`,
+fills it with `MinimumEntryStaff + MinimumExitStaff + MinimumCounterStaff`, then drops the three
+old columns. The old `Position` columns on `DutyAssignments`, `WorkRotationMembers`,
+`WorkOpenShifts` and `WorkManagerCoverages` are kept for existing rows, made nullable and no
+longer read or written. The migration is guarded and can run any number of times.
+
+A dated shift snapshots the template name, start/end times, minimum staff and lot time zone.
 Changing or deactivating a template never changes existing dated shifts, including drafts.
 Editing a dated shift is an explicit action that applies the selected template's current values
 and revalidates all existing assignments. A date denotes the shift's start day; an earlier end
@@ -32,15 +40,19 @@ Assignment requires both an active Employee in the lot and an active Identity ac
 Staff. Publication checks these conditions again. The current `Employees.ParkingLotId` membership
 model is preserved; this phase does not introduce multiple-lot membership.
 
-Overlap checks use half-open actual time intervals `[start, end)`, across positions, adjacent days
+Overlap checks use half-open actual time intervals `[start, end)`, across adjacent days
 and all rosters, including drafts. Draft assignments therefore reserve a Staff member's time;
 remove them to release it. Consecutive shifts sharing only an endpoint are allowed in this phase.
 Generated rosters additionally validate minimum rest and maximum weekly hours, including manual
 changes before publication; see the rotation section below.
 
-Rosters cover at most 93 start dates; each staffing minimum is between 0 and 100. A roster can
-publish with zero assigned Staff as long as it contains at least one dated shift; all unfilled
-positions are returned as warnings. Dates without dated shifts have no staffing requirement.
+Rosters cover at most 93 start dates; `MinimumStaff` is between 0 and 100. A roster can
+publish with zero assigned Staff as long as it contains at least one dated shift; every
+understaffed shift is returned as a warning. Dates without dated shifts have no staffing requirement.
+
+Shortage rule: a dated shift is short when `assigned < MinimumStaff`, where `assigned` counts its
+active assignments not marked Absent plus recorded Manager coverage. Each understaffed shift
+yields one shortage entry (`required`, `assigned`); there is no per-position breakdown.
 
 Every mutation requires the latest revision. Stale revisions return HTTP 409. On SQL Server,
 mutations use a PmsDbContext transaction and a transaction-owned application lock shared by API
@@ -76,7 +88,7 @@ Manager API prefix: `/api/manager/lots/{lotId}/work-scheduling`.
 | PUT | `/rosters/{id}/shifts/{shiftId}` | Explicitly update a dated shift |
 | POST | `/rosters/{id}/shifts/{shiftId}/cancel` | Cancel a shift and its assignments |
 | POST | `/rosters/{id}/shifts/{shiftId}/assignments` | Assign Staff |
-| PUT | `/rosters/{id}/shifts/{shiftId}/assignments/{assignmentId}` | Replace Staff / position |
+| PUT | `/rosters/{id}/shifts/{shiftId}/assignments/{assignmentId}` | Replace Staff, move or edit notes |
 | POST | `/rosters/{id}/shifts/{shiftId}/assignments/{assignmentId}/cancel` | Remove an assignment |
 | POST | `/rosters/{id}/publish` | Publish and return shortage warnings |
 | GET | `/rosters/{id}/history` | Read retained before/after history |
@@ -150,7 +162,7 @@ incorrectly represent total coverage. A day without a visible personal assignmen
 as a missing lot-wide shift.
 
 The legend separates roster visibility (Draft/Published), active assignment status (Assigned),
-attendance and staffing shortages (assigned/minimum by position). An empty cell is not an absence.
+attendance and staffing shortages (one `assigned / minimum` figure per shift). An empty cell is not an absence.
 Approved leave and swapped originals have explicit retained calendar trails. Empty cells are
 never labelled leave or absence. Leave/swap/replacement workflows share this module; payroll
 remains outside this phase.
@@ -200,7 +212,7 @@ work is corrected using actual times. Admin has no implicit attendance-editing p
 Attendance commands require both attendance and roster revisions. The scheduling transaction/
 application lock is shared with attendance writers. Existing attendance history, or an elapsed
 tracked published start deadline, blocks cancellation, employee replacement, moving an assignment
-or changing its planned times. Notes and position remain editable through the published-history
+or changing its planned times. Notes remain editable through the published-history
 pipeline. Correcting attendance never silently rewrites the planned shift.
 
 | Method | Route | Permission |
@@ -250,7 +262,7 @@ creates/updates the same Draft; use the existing manual assignment/dated-shift c
 it before publication. Published rosters cannot be generation targets.
 
 `WorkRotationGroups` contains lot scope, active flag, revision and offset in days. Normalized
-`WorkRotationMembers` stores Employee and direct-work position; a Staff member belongs to at most
+`WorkRotationMembers` stores the Employee of each member; a Staff member belongs to at most
 one active group in a lot. `WorkRotationCycles` stores revisioned ordered blocks (template ID or
 Rest, number of days). The UI starts with block lengths 2/2/2/1; the Manager explicitly chooses
 Morning/Afternoon/Night templates from that lot. Neither names nor group offsets are assumed to
@@ -259,11 +271,11 @@ provide sufficient coverage. Cycle indices use date-only day numbers and positiv
 
 Generation is deterministic by date, group ID and employee ID; it is not an optimizer. Every
 template referenced in the cycle contributes an actual dated occurrence/minimum demand on each
-selected day, including days where all selected groups are resting. Group members keep their
-configured Entry/Exit/Counter position. Ineligible/overlapping/leave-conflicting candidates are
-excluded and explained; unmet template minima remain visible shortages. Shortages still allow
-publication. Preview also reports Staff without direct assignments in the selected range;
-this includes unselected Staff and people assigned only to standby.
+selected day, including days where all selected groups are resting. A member already assigned to
+that dated shift is not added twice. Ineligible/overlapping/leave-conflicting candidates are
+excluded and explained; shifts below `MinimumStaff` remain visible shortages. Shortages still allow
+publication. Preview also reports Staff without assignments in the selected range,
+including unselected Staff.
 
 Confirmed parameters: **minimum 60 minutes rest**, **maximum 48 planned hours per week**.
 Configuration keys `WorkRotation:MinimumRestHours=1` and `MaximumWeeklyHours=48` can override
@@ -292,7 +304,7 @@ Attendance rows/history are always protected. Other Drafts and every Published r
 and used for conflicts. Nothing is physically deleted from old scheduling or attendance data.
 Replacement never refreshes an existing occurrence's saved template snapshot silently.
 
-Preview returns separate Keep/Add/Replace and standby changes. Saving requires its fingerprint
+Preview returns separate Keep/Add/Replace changes. Saving requires its fingerprint
 and roster revision; the server recalculates the proposal from authoritative inputs inside the
 existing serializable scheduling transaction and application lock. Changes to groups, cycle,
 templates, Staff eligibility, leave inputs or relevant scheduling data require a new preview.
@@ -300,17 +312,9 @@ Repeated/stale save requests return 409 and cannot duplicate assignments. Rotati
 uses the existing roster revision/history pipeline. Configuration, rule values and group/cycle
 snapshots are recorded in the roster history; Staff projections omit these management details.
 
-`DutyStandbyAssignments` is separate from direct DutyAssignments. When enabled, generation
-rotates deterministically through the explicitly selected active group pool, choosing one person
-who has no direct work or approved leave anywhere in that whole local day. Overnight work ending
-that morning makes the person unavailable for daily standby. Existing standby is respected across
-rosters; missing eligible people are reported as standby shortages. Standby has no direct staffing
-count, planned work-hour sum or attendance/Absent record. The shared calendar renders a separate
-Standby group. Dated shift controls include add/edit/remove standby; manual edits/cancellations are
-protected on regeneration. Published standby changes use the existing reason/history/affected-user
-notification flow. Staff can see their own Published standby even when they have no direct shift.
-Confirmed replacement work releases conflicting standby with roster history and creates a new
-direct-work assignment. Standby allowances and payroll remain future work.
+There is no standby (on-call) duty. Rotation generation creates direct assignments only, and an
+understaffed shift is filled through a vacancy (see below). `AutomatedMigration.SimplifyVacancies.cs`
+drops the former `DutyStandbyAssignments` table on existing databases.
 
 ## Leave, swaps and replacement workflow
 
@@ -318,11 +322,11 @@ Staff submit requests from their own Published assignment details on the existin
 The Manager's existing Work schedules page and Staff's personal schedule include a scoped request
 board and leave balances. Pending requests have text markers on active cells and do not remove
 the original work. Approved leave and original swapped assignments remain visible as historical
-rows in the same shift/date group. Open positions are rendered in the shift/date staffing cell,
-including shifts with no employee rows. Manager can open missing positions, inspect eligible
-candidates, daily standby, claims and offer history. Staff see only their own requests/trails,
-targeted offers or public offers in their current lot; personal leave reasons are not disclosed
-through public vacancies or lot-wide realtime signals.
+rows in the same shift/date group. Open vacancies are rendered in the shift/date staffing cell,
+including shifts with no employee rows. Manager can open a vacancy on an understaffed shift, inspect eligible
+candidates, claims and vacancy history. Staff see their own requests/trails and every open vacancy
+in their current lot, plus vacancies they claimed; personal leave reasons are not disclosed
+through vacancies or lot-wide realtime signals.
 
 New additive tables: `WorkLeaveRequests`, `WorkLeaveBalances`, `WorkLeaveDays`, `WorkSwapRequests`,
 `WorkOpenShifts`, `WorkOpenShiftClaims`, `WorkManagerCoverages`, `WorkScheduleWorkflowEvents`.
@@ -337,29 +341,21 @@ Confirmed `WorkRequests` defaults:
 | --- | --- | --- |
 | PlannedNoticeHours | 24 | Planned leave at least 24 hours before start; otherwise Emergency |
 | AnnualPaidDays | 12 | Annual paid-day entitlement per Staff user |
-| TargetResponseMinutes | 120 | Proposed person / normal standby response window |
-| EmergencyStandbyMinutes | 60 | Standby response for work starting in less than 24 hours |
-| PublicClaimMinutes | 1440 | Maximum public offer duration: 24 hours |
-| CutoffHoursBeforeStart | 24 | Public offers stop 24 hours before planned start |
 
-The user selected the emergency policy: no direct proposed replacement when less than 24 hours
-remain; notify Manager and use the standby/replacement process. A public response window ends at
-the earliest of posted-at +24 hours, start -24 hours, or shift end. When already past cut-off,
-the process enters Manual after any applicable priority/standby response; no fictitious public
-waiting period is created. Exact deadline equality is expired. A targeted accepted claim stops
-its response timer while awaiting Manager confirmation; the shift end still expires it. Public
-claims remain confirmable by Manager after cut-off while the slot is still open; new public
-claims are blocked. The minutely job advances offers and expires undecided swaps at the first
-related shift start, idempotently. Pending emergency leave is not automatically expired, since
-the Manager may confirm it after the missed shift.
+There are no response timers. A leave request does not name a replacement; Staff only state the
+kind (Planned or Emergency) and a reason. The minutely `work-request-deadlines` job does plain
+expiry only, idempotently: it marks vacancies past their expiry as Expired (pending claims become
+Expired and claimants are notified) and expires undecided swaps at the first related shift start.
+It skips locked attendance. Pending emergency leave is not automatically expired, since the
+Manager may confirm it after the missed shift.
 
 Leave transitions: `Pending → Approved / Rejected / Cancelled`. Staff can cancel their own Pending
 request. Manager approval rechecks active membership, assignment state and attendance. Actual
 check-in/out requires attendance resolution before full-assignment leave; this phase does not
 infer partial-day leave. Approved leave records the original UTC interval and local start date,
-soft-cancels the original, and clears Absent with retained history. If direct staffing still
-meets the position minimum, no replacement search is required. Otherwise the vacancy links the
-original assignment and follows priority offers. A no-show also opens an uncovered position;
+soft-cancels the original, and clears Absent with retained history. If the shift still
+meets `MinimumStaff`, no replacement search is required. Otherwise the vacancy links the
+original assignment. A no-show also opens a vacancy when the shift is short;
 Absent assignments are retained but excluded from effective coverage counts.
 
 Paid leave is charged once per user/local start date, even for multiple assignments on that date;
@@ -376,31 +372,38 @@ Swap transitions: `AwaitingColleague → PendingManager → Approved / Rejected`
 Manager cannot bypass colleague consent. Both original assignments must still be Published,
 active and not started/clocked in. Eligibility is rechecked against other work, leave, rest and
 weekly hours with both originals excluded from the hypothetical swap. Approval soft-cancels
-both originals and creates two linked assignments at the respective original positions in one
-transaction, even across two rosters. Failure changes neither side. Conflicting standby is
-released in the same transaction with its own roster history.
+both originals and creates two linked assignments on the respective original shifts in one
+transaction, even across two rosters. Failure changes neither side.
 
-Open-position lifecycle: `Open → Filled / Closed / Expired`; priority stage is separate:
-`Proposed → Standby → Public → Manual`. Ineligible or unavailable priority candidates are skipped.
-Decline, withdrawal, Manager rejection or timeout advances a targeted offer. Public offers can
-have multiple claims; a claim is `Claimed → Confirmed / Rejected / Withdrawn / Expired` and never
-counts as coverage until Manager confirmation. Every confirmation checks current eligibility
-and remaining demand under the shared SQL lock. One winner creates one separate replacement;
-other pending claims are rejected and notified. Manual assignment follows cut-off/timeout.
-Only this Manual step can record an explicit weekly-hours exception with Manager reason and an
-overtime-review flag; overlap, approved leave, active membership and minimum rest remain required.
-Manager self-coverage has a separate record and contributes to its position's coverage without
-creating Staff attendance for the Manager. Closing an offer retains history and notifies pending
-claimants. Manual calendar assignment cannot bypass an existing open-position confirmation flow.
+Vacancy flow, one step: the Manager opens a vacancy (or approved leave / a no-show opens one on a
+short shift) → eligible Staff are notified and claim it → the Manager confirms one claim. At any
+time while it is open the Manager may instead assign Staff directly, cover the shift themselves,
+reject a claim or close the vacancy. There are no priority stages, targeted offers or response
+timers.
+
+Vacancy lifecycle: `Open → Filled / Closed / Expired`. A vacancy has a single expiry
+(`WorkOpenShifts.DeadlineAt`, exposed as `expiresAt`): the shift start. A vacancy opened after
+the shift has started (a no-show or emergency leave during the shift) expires at the shift end
+instead, so it can still be filled. No action is accepted once it has expired. A vacancy can have
+multiple claims; a claim is `Claimed → Confirmed / Rejected / Withdrawn / Expired` and never
+counts as coverage until Manager confirmation. A Staff member responds to a vacancy once.
+Every confirmation checks current eligibility and remaining demand (`MinimumStaff` minus current
+coverage) under the shared SQL lock. One winner creates one separate replacement; other pending
+claims are rejected and notified. Direct assignment can record an explicit weekly-hours exception
+with Manager reason and an overtime-review flag; overlap, approved leave, active membership and
+minimum rest remain required. Manager self-coverage has a separate record and counts toward the
+shift's coverage without creating Staff attendance for the Manager. Closing a vacancy retains
+history and notifies pending claimants. While a shift has an open vacancy, manual calendar assignment to it is refused; fill it
+through the vacancy instead.
 
 For replacement work confirmed after the planned shift has begun, the Staff start window opens
 at confirmation/tracking activation; Late and the missed-start deadline use +15/+30 minutes from
 that activation. Planned shift end and grace remain unchanged. This avoids inheriting the old
 Staff member's absence while preserving actual check-in times. Reopening an original absence
-closes outstanding offers and claims; a confirmed replacement must be resolved first. Recorded
+closes outstanding vacancies and claims; a confirmed replacement must be resolved first. Recorded
 coverage/pending requests protect affected schedule edits from silently invalidating their history.
 Dated occurrences with approved leave or swap originals cannot be rewritten or removed: the
-shared original shift snapshot is retained, as are its assignment positions and request links.
+shared original shift snapshot is retained, as are its assignments and request links.
 
 Notifications are committed with the request/assignment changes, then pushed through existing
 SignalR/Hangfire infrastructure. Calendar/POS/request queries refresh on the same scoped signal,
@@ -419,9 +422,9 @@ Routes under `/api/work-scheduling` (Staff/Manager with backend owner/lot checks
 | POST | `/leave-requests/{id}/actions` | Cancel / approve / reject with revision |
 | POST | `/swap-requests` | Propose a reciprocal swap |
 | POST | `/swap-requests/{id}/actions` | Accept / decline / cancel / approve / reject |
-| POST | `/lots/{lotId}/open-shifts` | Manager opens a missing Published position |
-| GET | `/open-shifts/{id}` | Authorized offer detail, claims and Manager candidates/history |
-| POST | `/open-shifts/{id}/actions` | Claim / decline / withdraw / confirm / reject claim / assign / ManagerCover / close |
+| POST | `/lots/{lotId}/open-shifts` | Manager opens a vacancy on an understaffed Published shift |
+| GET | `/open-shifts/{id}` | Authorized vacancy detail, claims and Manager candidates/history |
+| POST | `/open-shifts/{id}/actions` | Claim / Withdraw (Staff); Confirm / RejectClaim / Assign / ManagerCover / Close (Manager) |
 
 Admin balances use `GET /api/admin/work-scheduling/leave-balances?year=YYYY` and
 `PUT /api/admin/work-scheduling/leave-balances/{employeeId}/{year}` with revision, entitlement and
@@ -433,19 +436,17 @@ Additional Manager routes under `/api/manager/lots/{lotId}/work-scheduling`:
 | Method | Suffix | Purpose |
 | --- | --- | --- |
 | GET / POST | `/rotation-groups` | List / create scoped groups |
-| PUT | `/rotation-groups/{id}` | Edit membership, position, offset or deactivate with revision |
+| PUT | `/rotation-groups/{id}` | Edit membership, offset or deactivate with revision |
 | GET / POST | `/rotation-cycles` | List / create cycles |
 | PUT | `/rotation-cycles/{id}` | Edit named blocks with revision |
 | POST | `/rosters/{id}/rotation-preview` | Read-only preview and input fingerprint |
 | POST | `/rosters/{id}/rotation-apply` | Revalidate and apply to Draft atomically |
-| POST | `/rosters/{id}/standby` | Add manual daily standby |
-| PUT | `/rosters/{id}/standby/{standbyId}` | Edit standby; null employee cancels with retained history |
 
-The additive repeatable migration creates the four rotation/standby tables and metadata columns;
+The additive repeatable migration creates the three rotation tables and metadata columns;
 it does not reuse legacy Shift tables. Tests cover the default cycle, offsets/negative modulo,
 93-day/year-crossing ranges, weekly overnight boundaries, 60-minute rest, external Published
 conflicts, approved leave/provider availability, manual preservation, protected attendance,
-Staff privacy, standby-only notification/projection, stale previews and repeated requests.
+Staff privacy, stale previews and repeated requests.
 The isolated LocalDB test also saves group/cycle data, races two generation applications and
 repeats migration while preserving attendance/history and legacy data.
 
@@ -458,17 +459,18 @@ entries in a subsequent period. This module does not create payroll, salary amou
 
 Implementation choices for these requirements:
 
-- Admin creates a named, explicit inclusive date range and selects the included lots. Periods
-  cannot overlap for the same lot. Each lot stores its timezone and the corresponding half-open
-  UTC interval. The calendar's Day/Week/Month selector only controls display.
+- An attendance period is exactly one calendar month, so it matches one payroll month. Admin picks
+  the month (the name defaults to it, for example "November 2026") and the included lots. A lot has
+  at most one period per month. Each lot stores its timezone and the half-open UTC interval of that
+  local month. The calendar's Day/Week/Month selector only controls display.
 - Lot states are `Open → Confirmed → Locked`. Edits to related schedule, attendance, approvals,
   Manager days or carry adjustments invalidate a confirmation and retain its old snapshot in
   the audit trail. Confirming again requires the current lot revision. A period displays Confirmed
   when all included lots are confirmed; Admin alone locks all included lots atomically.
 - An Admin may close unconfirmed lots only after explicit acknowledgment and a required reason.
   This does not bypass unresolved attendance: unfinished/future shifts, unreviewed automatic
-  checkouts/untracked attendance, undecided overtime, pending leave/swaps and open replacement
-  offers prevent confirmation/locking. Late and recorded Absent remain visible and are acknowledged
+  checkouts/untracked attendance, undecided overtime, pending leave/swaps and open vacancies
+  prevent confirmation/locking. Late and recorded Absent remain visible and are acknowledged
   through the lot confirmation; they do not require fabricated times.
 - Original actual in/out comes from immutable Staff Started/Ended events. Corrections never replace
   those events. Missing historical clock events are **unknown**, including automatic checkout;
@@ -503,9 +505,9 @@ Implementation choices for these requirements:
 
 Frontend: Manager opens **Work schedules → Review attendance by period**, selects period/lot,
 filters anomalies on the same calendar and opens the existing assignment details. Summary totals
-cover all Published rosters in the explicit period, even when the selected roster/calendar view
+cover all Published rosters in the period's month, even when the selected roster/calendar view
 shows only part of it. A matching-assignment list opens records outside the current visible range.
-Admin opens **Facility Managers → Attendance periods and Manager workdays** to create periods,
+Admin opens **Facility Managers → Attendance periods and Manager workdays** to create a month's period,
 record Manager days and review the explicit lot list before locking. Queries use the existing
 realtime invalidation, reconnect refetch and polling; updates retain calendar filters and scroll.
 
@@ -529,7 +531,7 @@ All existing mutation routes remain subject to period guards; there is no direct
 Limits: overtime decisions currently approve/reject all overtime of an assignment, rather than
 selecting individual minute segments. Manager workdays are Work/Leave records for the currently
 assigned active Manager; no standard workday divisor, salary or inferred Manager hours are added.
-Periods are limited to 93 days, matching the existing roster review bounds. Review evidence is
+A period is one calendar month (at most 31 days). Review evidence is
 loaded in batches; large summaries/tables scroll. The existing SignalR event has polling fallback.
 
 Validation includes complete application regression tests, HTTP role/lock tests, isolated SQL

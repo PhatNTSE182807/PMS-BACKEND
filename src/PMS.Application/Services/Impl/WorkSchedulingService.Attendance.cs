@@ -96,7 +96,7 @@ public partial class WorkSchedulingService
         var pay = await PayReviewAsync(c, record);
         var state = DescribeAttendance(c.Assignment, c.Shift, c.Roster, c.StaffAvailable, record, Now);
         if (pay.Locked) state = state with { CanStart = false, CanEnd = false, CanReopen = false };
-        return new AttendanceDetailModel(c.Assignment.Id, c.Employee.Id, c.Employee.FullName, c.Shift.Name, c.Assignment.Position,
+        return new AttendanceDetailModel(c.Assignment.Id, c.Employee.Id, c.Employee.FullName, c.Shift.Name,
             c.Roster.ParkingLotId, c.Roster.Id, c.Roster.Name, c.Roster.Status, c.Roster.Revision,
             Utc(c.Shift.StartsAt), Utc(c.Shift.EndsAt), c.Shift.TimeZoneId,
             state,
@@ -295,7 +295,7 @@ public partial class WorkSchedulingService
                 var notices = await SaveAttendanceEventAsync(c, record, before, action, "System",
                     action == "Absent" ? "Start deadline passed without a check-in." : "End grace period elapsed; scheduled end used for review.");
                 if (action == "Absent" && now < c.Shift.EndsAt)
-                    await NewOpenShiftAsync(c.Shift, c.Assignment.Position, "Uncovered absence after the start deadline.", c.Assignment.Id, null, null, notices);
+                    await NewOpenShiftAsync(c.Shift, "Uncovered absence after the start deadline.", c.Assignment.Id, null, notices);
                 if (!pending.TryGetValue(c.Roster.ParkingLotId, out var list)) pending[c.Roster.ParkingLotId] = list = [];
                 list.AddRange(notices);
             }

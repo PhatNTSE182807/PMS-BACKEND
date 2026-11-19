@@ -102,37 +102,22 @@ public static class PayrollCalculator
                         new { Assignment = a, SourceId = source.Id, SourceHash = source.Hash });
                 }
             }
-            if (person.Role == "Staff") foreach (var standby in evidence.Standbys.Where(s => s.UserId == person.UserId && s.WorkDate >= month && s.WorkDate < next).GroupBy(x => x.WorkDate).Select(g => g.First())) {
-                var p = Profile(standby.WorkDate);
-                Add(new PayrollLine { Kind = "Standby", Description = "Standby allowance, earned whether called or not", SourcePeriodLotId = evidence.PeriodLotId,
-                    StandbyId = standby.Id, WorkDate = standby.WorkDate, Unit = "Day", Quantity = 1,
-                    UnitRate = Need(p.StandbyDailyAllowance, "daily standby allowance (zero is allowed)", p), Factor = 1 }, p,
-                    new { Standby = standby, SourceId = source.Id, SourceHash = source.Hash });
-            }
         }
         if (person.Role == "Manager" && sources.Any(s => s.Evidence.People.Any(p => p.UserId == person.UserId && p.Role == "Manager"))) {
-            var first = Profile(month);
-            var changes = profiles.Where(p => p.EffectiveFrom > month && p.EffectiveFrom < next).Select(p => p.EffectiveFrom).Append(month).Append(next).Distinct().OrderBy(x => x).ToList();
-            if (changes.Count > 2 && changes.Take(changes.Count - 1).Any(date => Profile(date).ManagerProration != "CalendarDays"))
-                throw new BadRequestException("Manager monthly salary changes mid-month: explicitly configure the agreed calendar-day proration policy; no split is guessed.");
-            for (var i = 0; i < changes.Count - 1; i++) {
-                var p = Profile(changes[i]);
-                Add(new PayrollLine { Kind = "MonthlyBase", Description = "Manager monthly base" + (changes.Count > 2 ? " · effective-date calendar-day split" : ""),
-                    SourcePeriodLotId = sources.First().Evidence.PeriodLotId, WorkDate = changes[i], Unit = "Month",
-                    Quantity = (decimal)(changes[i + 1].DayNumber - changes[i].DayNumber) / (next.DayNumber - month.DayNumber),
-                    UnitRate = Need(p.MonthlyRate, "monthly salary", p, true), Factor = 1 }, p,
-                    new { Manager = person, FromDate = changes[i], ToDate = changes[i + 1].AddDays(-1), Sources = sources.Select(x => new { x.Id, x.Hash }).ToList() });
-            }
+            // Fixed monthly salary: the profile effective on the first day of the month applies to the whole month.
+            var p = Profile(month);
+            var monthly = Need(p.MonthlyRate, "monthly salary", p, true);
+            Add(new PayrollLine { Kind = "MonthlyBase", Description = "Manager monthly salary",
+                SourcePeriodLotId = sources.First().Evidence.PeriodLotId, WorkDate = month, Unit = "Month", Quantity = 1,
+                UnitRate = monthly, Factor = 1 }, p,
+                new { Manager = person, FromDate = month, ToDate = last, Sources = sources.Select(x => new { x.Id, x.Hash }).ToList() });
             foreach (var group in sources.SelectMany(s => s.Evidence.ManagerDays.Select(d => (Source: s, Day: d)))
                 .Where(x => x.Day.ManagerUserId == person.UserId && x.Day.WorkDate >= month && x.Day.WorkDate < next).GroupBy(x => x.Day.WorkDate)) {
                 if (group.Select(x => x.Day.Kind).Distinct().Count() > 1) throw new BadRequestException("Conflicting locked Manager workday evidence.");
-                var item = group.First(); var day = item.Day; var p = Profile(day.WorkDate);
-                var deduct = day.Kind == "Absent";
-                if (day.Kind == "UnpaidLeave") {
-                    if (p.ManagerUnpaidLeavePolicy is not ("NoDeduction" or "DeductDaily")) throw new BadRequestException("Manager unpaid-leave treatment has not been configured.");
-                    deduct = p.ManagerUnpaidLeavePolicy == "DeductDaily";
-                }
-                var rate = deduct ? Need(p.MonthlyRate, "monthly salary", p, true) / Need(p.StandardWorkDays, "standard workdays", p, true) : 0;
+                var item = group.First(); var day = item.Day;
+                // Each locked Absent or unpaid-leave day deducts monthly salary / standard workdays; other days keep the salary.
+                var deduct = day.Kind is "Absent" or "UnpaidLeave";
+                var rate = deduct ? monthly / Need(p.StandardWorkDays, "standard workdays", p, true) : 0;
                 Add(new PayrollLine { Kind = deduct ? "ManagerAbsence" : "ManagerDay", Description = $"Admin recorded {day.Kind}" + (deduct ? " · daily salary deduction, no additional penalty" : " · monthly salary retained"),
                     SourcePeriodLotId = item.Source.Evidence.PeriodLotId, ManagerDayId = day.Id, WorkDate = day.WorkDate, Unit = "Day", Quantity = deduct ? -1 : 0,
                     UnitRate = rate, Factor = 1 }, p, new { ManagerDay = day, SourceId = item.Source.Id, SourceHash = item.Source.Hash });

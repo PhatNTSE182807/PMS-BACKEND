@@ -27,20 +27,20 @@ public class PayrollWorkflowTests
             identity.Users.AddRange(new ApplicationUser { Id = t.StaffUserId, Role = "Staff", IsActive = true }, new ApplicationUser { Id = t.ManagerUserId, Role = "Manager", IsActive = true }, new ApplicationUser { Id = "admin", Role = "Admin", IsActive = true });
             await identity.SaveChangesAsync(); var s = new WorkSchedulingService(t.Db, identity, new LotScopeService(t.Db, t.Claims), t.Clock);
             t.ActAs(t.ManagerUserId, "Manager");
-            var template = await s.SaveTemplateAsync(t.Lot.Id, null, new() { Name = "Frozen day", StartTime = new(8, 0), EndTime = new(16, 0), MinimumEntryStaff = 1 });
+            var template = await s.SaveTemplateAsync(t.Lot.Id, null, new() { Name = "Frozen day", StartTime = new(8, 0), EndTime = new(16, 0), MinimumStaff = 1 });
             var r = await s.CreateRosterAsync(t.Lot.Id, new() { Name = "Payroll evidence", FromDate = new(2026, 10, 30), ToDate = new(2026, 10, 30) });
-            r = await s.AssignFromCalendarAsync(t.Lot.Id, r.Id, new() { Revision = r.Revision, WorkDate = r.FromDate, WorkShiftTemplateId = template.Id, EmployeeId = t.Db.Employees.Single(e => e.UserId == t.StaffUserId).Id, Position = "Entry" });
+            r = await s.AssignFromCalendarAsync(t.Lot.Id, r.Id, new() { Revision = r.Revision, WorkDate = r.FromDate, WorkShiftTemplateId = template.Id, EmployeeId = t.Db.Employees.Single(e => e.UserId == t.StaffUserId).Id });
             r = await s.PublishAsync(t.Lot.Id, r.Id, new() { Revision = r.Revision });
             t.ActAs(t.StaffUserId, "Staff"); t.Clock.Now = new DateTimeOffset(r.Shifts.Single().StartsAt);
             var id = r.Shifts.Single().Assignments.Single().Id;
             await s.StartAssignmentAsync(id, new() { RosterRevision = r.Revision });
             t.Clock.Now = new DateTimeOffset(r.Shifts.Single().EndsAt); await s.EndAssignmentAsync(id, new() { Revision = 1, RosterRevision = r.Revision });
             t.Clock.Now = new(2026, 12, 2, 0, 0, 0, TimeSpan.Zero); t.ActAs("admin", "Admin");
-            var period = await s.CreateAttendancePeriodAsync(new() { Name = "October locked", FromDate = new(2026, 10, 1), ToDate = new(2026, 10, 31), LotIds = [t.Lot.Id] });
+            var period = await s.CreateAttendancePeriodAsync(new() { Name = "October locked", Month = new(2026, 10, 1), LotIds = [t.Lot.Id] });
             var p = PayrollCalculatorTests.StaffProfile(); p.UserId = t.StaffUserId;
             await s.SavePayrollProfileAsync(null, new() { UserId = p.UserId, Role = p.Role, EffectiveFrom = p.EffectiveFrom, HourlyRate = p.HourlyRate,
                 NightStart = p.NightStart, NightEnd = p.NightEnd, NightFactor = p.NightFactor, HolidayFactor = p.HolidayFactor, OvertimeFactor = p.OvertimeFactor,
-                StandbyDailyAllowance = p.StandbyDailyAllowance, Currency = p.Currency, MoneyDecimals = p.MoneyDecimals, RoundingMode = p.RoundingMode, Reason = "Arithmetic fixture, not a production default" });
+                Currency = p.Currency, MoneyDecimals = p.MoneyDecimals, RoundingMode = p.RoundingMode, Reason = "Arithmetic fixture, not a production default" });
             if (locked) await s.LockAttendancePeriodAsync(period.Id, new() { Revision = period.Revision, AcknowledgeUnconfirmed = true, Reason = "Verified fixture month" });
             return new() { T = t, Identity = identity, Service = s, Roster = r, Period = period, Template = template };
         }
@@ -51,10 +51,10 @@ public class PayrollWorkflowTests
         public async Task<PayrollSlip> Pay() { var p = await Approve(); T.Clock.Advance(TimeSpan.FromSeconds(1)); return (await Service.ActOnPayrollAsync(p.Id, "paid", new() { Revision = p.Revision, Reason = "External transfer verified", PaidAt = T.Clock.Now, TransactionReference = "TEST-TRANSFER-001" })).Slip; }
         public void Dispose() { T.Db.Dispose(); Identity.Dispose(); }
     }
-    [Fact] public async Task Calculation_Requires_Complete_Locked_Month_And_Sealed_Source()
+    [Fact] public async Task Calculation_Requires_The_Locked_Month()
     {
         using var w = await World.Create(false);
-        await FluentActions.Invoking(() => w.Draft()).Should().ThrowAsync<BadRequestException>().WithMessage("*locked attendance*");
+        await FluentActions.Invoking(() => w.Draft()).Should().ThrowAsync<BadRequestException>().WithMessage("*Lock this month*");
         (await w.Service.LockAttendancePeriodAsync(w.Period.Id, new() { Revision = 1, AcknowledgeUnconfirmed = true, Reason = "Verified" })).Status.Should().Be("Locked");
         w.T.Db.PayrollAttendanceSources.Should().ContainSingle();
         (await w.Draft()).Total.Should().Be(800);
@@ -126,7 +126,7 @@ public class PayrollWorkflowTests
     [Fact] public async Task Subsequent_Adjustment_Pays_An_Employee_With_No_New_Assignments_Without_Inventing_Hours()
     {
         using var w = await World.Create(); var paid = await w.Pay();
-        var period = await w.Service.CreateAttendancePeriodAsync(new() { Name = "November no work", FromDate = new(2026, 11, 1), ToDate = new(2026, 11, 30), LotIds = [w.T.Lot.Id] });
+        var period = await w.Service.CreateAttendancePeriodAsync(new() { Name = "November no work", Month = new(2026, 11, 1), LotIds = [w.T.Lot.Id] });
         await w.Service.LockAttendancePeriodAsync(period.Id, new() { Revision = 1, AcknowledgeUnconfirmed = true, Reason = "Verified no November assignments" });
         await w.Service.AddPayrollAdjustmentAsync(new() { UserId = w.T.StaffUserId, Role = "Staff", ParkingLotId = w.T.Lot.Id, PayMonth = new(2026, 11, 1),
             Kind = "Adjustment", Quantity = 1, UnitRate = 25, SourceSlipId = paid.Id, Reason = "October correction" });
@@ -134,18 +134,14 @@ public class PayrollWorkflowTests
         result.Single().Total.Should().Be(25);
         var detail = await w.Service.PayrollSlipAsync(result.Single().Id); detail.Lines.Should().ContainSingle(l => l.Kind == "Adjustment" && l.AssignmentId == null);
     }
-    [Fact] public async Task Legacy_Source_Requires_Explicit_Unknown_Standby_Classification_And_Does_Not_Edit_Locked_Review()
+    [Fact] public async Task Payroll_Needs_The_Month_Locked_As_One_Attendance_Period()
     {
         using var w = await World.Create();
-        var lot = w.T.Db.AttendancePeriodLots.Single(); var original = lot.SnapshotJson;
-        w.T.Db.PayrollAttendanceSources.RemoveRange(w.T.Db.PayrollAttendanceSources);
-        var standby = new DutyStandbyAssignment { DutyRosterId = w.Roster.Id, WorkDate = new(2026, 10, 30), EmployeeId = w.Roster.Shifts.Single().Assignments.Single().EmployeeId,
-            Source = "Manual", IsCancelled = true, WasCalled = false };
-        w.T.Db.DutyStandbyAssignments.Add(standby); await w.T.Db.SaveChangesAsync();
-        await FluentActions.Invoking(() => w.Service.SealPayrollSourceAsync(lot.Id, new() { Reason = "Verify legacy", ManagerUserId = w.T.ManagerUserId })).Should().ThrowAsync<BadRequestException>().WithMessage("*Legacy standby*");
-        await w.Service.SealPayrollSourceAsync(lot.Id, new() { Reason = "Admin verified earned standby from retained history", ManagerUserId = w.T.ManagerUserId, LegacyStandbyDecisions = new() { [standby.Id] = true } });
-        lot.SnapshotJson.Should().Be(original); w.T.Db.PayrollAttendanceSources.Should().ContainSingle();
-        (await w.Draft()).Total.Should().Be(830);
+        w.T.Db.PayrollAttendanceSources.Should().ContainSingle("locking the month takes the payroll snapshot");
+        await FluentActions.Invoking(() => w.Service.GeneratePayrollAsync(new() { ParkingLotId = w.T.Lot.Id, PayMonth = new(2026, 9, 1), Role = "Staff", Reason = "No September period" }))
+            .Should().ThrowAsync<BadRequestException>().WithMessage("*Lock this month*");
+        w.T.Db.PayrollAttendanceSources.RemoveRange(w.T.Db.PayrollAttendanceSources); await w.T.Db.SaveChangesAsync();
+        await FluentActions.Invoking(() => w.Draft()).Should().ThrowAsync<BadRequestException>().WithMessage("*no payroll snapshot*");
     }
     [Fact] public async Task Manager_Can_Read_Own_Published_Monthly_Slip_But_Not_Another_Manager_Even_At_The_Same_Lot()
     {

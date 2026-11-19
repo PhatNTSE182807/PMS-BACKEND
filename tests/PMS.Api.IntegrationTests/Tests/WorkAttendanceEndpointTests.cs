@@ -68,7 +68,7 @@ public class WorkAttendanceEndpointTests
         var r = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await managerClient.PostAsJsonAsync($"{root}/rosters",
             new { name = "Attendance roster", fromDate = "2026-11-16", toDate = "2026-11-17" }))).Result;
         r = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await managerClient.PostAsJsonAsync($"{root}/rosters/{r.Id}/calendar-assignments",
-            new { revision = r.Revision, workDate = "2026-11-16", workShiftTemplateId = template.Id, employeeId = employee.Id, position = "Entry" }))).Result;
+            new { revision = r.Revision, workDate = "2026-11-16", workShiftTemplateId = template.Id, employeeId = employee.Id }))).Result;
         r = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await managerClient.PostAsJsonAsync($"{root}/rosters/{r.Id}/publish", new { revision = r.Revision }))).Result;
         var id = r.Shifts.Single().Assignments.Single().Id;
         var url = $"/api/work-scheduling/assignments/{id}/attendance";
@@ -97,13 +97,14 @@ public class WorkAttendanceEndpointTests
         using var otherStaff = await factory.CreateClientWithRoleAsync("Staff");
         (await otherStaff.GetAsync(url)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        factory.Clock.Now = new DateTimeOffset(2026, 11, 18, 0, 0, 0, TimeSpan.Zero);
+        // A period is the whole calendar month, so it is reviewed after November has ended.
+        factory.Clock.Now = new DateTimeOffset(2026, 12, 2, 0, 0, 0, TimeSpan.Zero);
         using var admin = await factory.CreateClientWithRoleAsync("Admin");
         const string periodsUrl = "/api/work-scheduling/attendance-periods";
         (await staffClient.GetAsync($"{periodsUrl}?lotId={lot.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await managerClient.PostAsJsonAsync(periodsUrl, new { name = "Forbidden", fromDate = "2026-11-16", toDate = "2026-11-16", lotIds = new[] { lot.Id } })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await managerClient.PostAsJsonAsync(periodsUrl, new { name = "Forbidden", month = "2026-11-01", lotIds = new[] { lot.Id } })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         var period = (await ResponseHelper.GetApiResultAsync<PeriodModel>(await admin.PostAsJsonAsync(periodsUrl,
-            new { name = "Explicit attendance day", fromDate = "2026-11-16", toDate = "2026-11-16", lotIds = new[] { lot.Id } }))).Result;
+            new { name = "November attendance", month = "2026-11-01", lotIds = new[] { lot.Id } }))).Result;
         var reviewUrl = $"{periodsUrl}/{period.Id}/lots/{lot.Id}";
         (await admin.PutAsJsonAsync($"{periodsUrl}/manager-days/lots/{lot.Id}", new { managerUserId = manager.Id, workDate = "2026-11-16", kind = "Work", reason = "Admin verified Manager day" })).StatusCode.Should().Be(HttpStatusCode.OK);
         (await other.GetAsync(reviewUrl)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -116,7 +117,7 @@ public class WorkAttendanceEndpointTests
         (await managerClient.PostAsJsonAsync($"{reviewUrl}/confirm", new { revision = review.Lot.Revision, reason = "Verified all staff" })).StatusCode.Should().Be(HttpStatusCode.OK);
         var existing = r.Shifts.Single().Assignments.Single();
         (await managerClient.PutAsJsonAsync($"{root}/rosters/{r.Id}/shifts/{r.Shifts.Single().Id}/assignments/{id}",
-            new { revision = r.Revision, employeeId = existing.EmployeeId, position = "Entry", notes = "Changed after confirmation", reason = "Handover correction" })).StatusCode.Should().Be(HttpStatusCode.OK);
+            new { revision = r.Revision, employeeId = existing.EmployeeId, notes = "Changed after confirmation", reason = "Handover correction" })).StatusCode.Should().Be(HttpStatusCode.OK);
         review = (await ResponseHelper.GetApiResultAsync<AttendancePeriodReview>(await managerClient.GetAsync(reviewUrl))).Result;
         review.Lot.Status.Should().Be("Open");
         (await managerClient.PostAsJsonAsync($"{reviewUrl}/confirm", new { revision = review.Lot.Revision, reason = "Verified again" })).StatusCode.Should().Be(HttpStatusCode.OK);

@@ -43,7 +43,7 @@ public static partial class AutomatedMigration
         BEGIN
             CREATE TABLE dbo.WorkOpenShifts (Id int IDENTITY PRIMARY KEY, ParkingLotId int NOT NULL,
                 DutyRosterShiftId int NOT NULL, OriginalAssignmentId int NULL, LeaveRequestId int NULL, ProposedEmployeeId int NULL, TargetEmployeeId int NULL,
-                Position nvarchar(20) NOT NULL, Reason nvarchar(1000) NOT NULL, Status nvarchar(30) NOT NULL, Stage nvarchar(30) NOT NULL,
+                Reason nvarchar(1000) NOT NULL, Status nvarchar(30) NOT NULL,
                 DeadlineAt datetime2 NULL, Revision int NOT NULL, ReplacementAssignmentId int NULL, CreatedAt datetime2 NOT NULL,
                 FOREIGN KEY(DutyRosterShiftId) REFERENCES dbo.DutyRosterShifts(Id), FOREIGN KEY(OriginalAssignmentId) REFERENCES dbo.DutyAssignments(Id));
             CREATE INDEX IX_WorkOpenShifts_ParkingLotId_Status ON dbo.WorkOpenShifts(ParkingLotId,Status);
@@ -58,7 +58,7 @@ public static partial class AutomatedMigration
         IF OBJECT_ID('dbo.WorkManagerCoverages','U') IS NULL
         BEGIN
             CREATE TABLE dbo.WorkManagerCoverages (Id int IDENTITY PRIMARY KEY, WorkOpenShiftId int NOT NULL, DutyRosterShiftId int NOT NULL,
-                ManagerUserId nvarchar(450) NOT NULL, Position nvarchar(20) NOT NULL, Reason nvarchar(1000) NOT NULL, CreatedAt datetime2 NOT NULL,
+                ManagerUserId nvarchar(450) NOT NULL, Reason nvarchar(1000) NOT NULL, CreatedAt datetime2 NOT NULL,
                 FOREIGN KEY(WorkOpenShiftId) REFERENCES dbo.WorkOpenShifts(Id), FOREIGN KEY(DutyRosterShiftId) REFERENCES dbo.DutyRosterShifts(Id));
             CREATE UNIQUE INDEX IX_WorkManagerCoverages_WorkOpenShiftId ON dbo.WorkManagerCoverages(WorkOpenShiftId);
         END;

@@ -56,7 +56,7 @@ public class WorkSchedulingSqlTests
             await db.SaveChangesAsync();
             // Model-generated initial schema represents the existing tables; remove ONLY the empty new module tables
             // so the additive migration itself, rather than EnsureCreated, must create the module under test.
-            await db.Database.ExecuteSqlRawAsync("DROP TABLE dbo.PayrollLines, dbo.PayrollComplaints, dbo.PayrollAdjustments, dbo.PayrollAudits, dbo.PayrollSlips, dbo.PayrollAttendanceSources, dbo.PayrollProfiles, dbo.AttendanceCarryAdjustments, dbo.AttendancePeriodEvents, dbo.AttendanceOvertimeDecisions, dbo.ManagerWorkDays, dbo.AttendancePeriodLots, dbo.AttendancePeriods, dbo.WorkManagerCoverages, dbo.WorkOpenShiftClaims, dbo.WorkOpenShifts, dbo.WorkLeaveDays, dbo.WorkLeaveBalances, dbo.WorkLeaveRequests, dbo.WorkSwapRequests, dbo.WorkScheduleWorkflowEvents, dbo.DutyStandbyAssignments, dbo.WorkRotationMembers, dbo.WorkRotationGroups, dbo.WorkRotationCycles, dbo.DutyAttendanceEvents, dbo.DutyAttendances, dbo.DutyRosterChangeLogs, dbo.DutyAssignments, dbo.DutyRosterShifts, dbo.DutyRosters, dbo.WorkShiftTemplates");
+            await db.Database.ExecuteSqlRawAsync("DROP TABLE dbo.PayrollLines, dbo.PayrollComplaints, dbo.PayrollAdjustments, dbo.PayrollAudits, dbo.PayrollSlips, dbo.PayrollAttendanceSources, dbo.PayrollProfiles, dbo.AttendanceCarryAdjustments, dbo.AttendancePeriodEvents, dbo.AttendanceOvertimeDecisions, dbo.ManagerWorkDays, dbo.AttendancePeriodLots, dbo.AttendancePeriods, dbo.WorkManagerCoverages, dbo.WorkOpenShiftClaims, dbo.WorkOpenShifts, dbo.WorkLeaveDays, dbo.WorkLeaveBalances, dbo.WorkLeaveRequests, dbo.WorkSwapRequests, dbo.WorkScheduleWorkflowEvents, dbo.WorkRotationMembers, dbo.WorkRotationGroups, dbo.WorkRotationCycles, dbo.DutyAttendanceEvents, dbo.DutyAttendances, dbo.DutyRosterChangeLogs, dbo.DutyAssignments, dbo.DutyRosterShifts, dbo.DutyRosters, dbo.WorkShiftTemplates");
             await AutomatedMigration.EnsureWorkSchedulingTablesAsync(db);
             // Simulate upgrading the previous module version, which did not have assignment notes.
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE dbo.DutyAssignments DROP COLUMN Notes");
@@ -68,7 +68,7 @@ public class WorkSchedulingSqlTests
             await identity.SaveChangesAsync();
             var attendanceClock = new TestClock(new DateTimeOffset(2026, 11, 16, 14, 0, 0, TimeSpan.Zero));
             var service = new WorkSchedulingService(db, identity, new LotScopeService(db, claims), attendanceClock);
-            var template = await service.SaveTemplateAsync(lot.Id, null, new WorkShiftTemplateInput { Name = "Night", StartTime = new TimeOnly(22, 0), EndTime = new TimeOnly(6, 0), MinimumEntryStaff = 2 });
+            var template = await service.SaveTemplateAsync(lot.Id, null, new WorkShiftTemplateInput { Name = "Night", StartTime = new TimeOnly(22, 0), EndTime = new TimeOnly(6, 0), MinimumStaff = 2 });
             var day = new DateOnly(2026, 11, 16);
             async Task<DutyRosterModel> MakeRoster()
             {
@@ -81,7 +81,7 @@ public class WorkSchedulingSqlTests
                 await using var writer = new PmsDbContext(options);
                 await using var id = new DatabaseContext(new DbContextOptionsBuilder<DatabaseContext>().UseSqlServer(cs).Options, claims);
                 var svc = new WorkSchedulingService(writer, id, new LotScopeService(writer, claims), attendanceClock);
-                try { await svc.SaveAssignmentAsync(lot.Id, r.Id, r.Shifts.Single().Id, null, new DutyAssignmentInput { Revision = r.Revision, EmployeeId = employee.Id, Position = "Entry" }); return true; }
+                try { await svc.SaveAssignmentAsync(lot.Id, r.Id, r.Shifts.Single().Id, null, new DutyAssignmentInput { Revision = r.Revision, EmployeeId = employee.Id }); return true; }
                 catch (BadRequestException) { return false; }
             }
             var outcomes = await Task.WhenAll(Assign(first), Assign(second));
@@ -96,7 +96,7 @@ public class WorkSchedulingSqlTests
             (await db.DutyRosterChangeLogs.CountAsync(h => h.DutyRosterId == current.Id)).Should().Be(current.Revision);
             var assigned = current.Shifts.Single().Assignments.Single();
             current = await service.SaveAssignmentAsync(lot.Id, current.Id, current.Shifts.Single().Id, assigned.Id,
-                new DutyAssignmentInput { Revision = current.Revision, EmployeeId = employee.Id, Position = "Entry", Notes = "Saved handover", Reason = "Update handover" });
+                new DutyAssignmentInput { Revision = current.Revision, EmployeeId = employee.Id, Notes = "Saved handover", Reason = "Update handover" });
             await AutomatedMigration.EnsureWorkSchedulingTablesAsync(db);
             db.ChangeTracker.Clear();
             (await db.DutyAssignments.SingleAsync()).Notes.Should().Be("Saved handover");
@@ -121,7 +121,7 @@ public class WorkSchedulingSqlTests
             (await service.UpdateDueAttendanceAsync()).Should().Be(0);
             (await db.DutyAttendances.AsNoTracking().SingleAsync()).AutoEnded.Should().BeTrue();
             (await db.DutyAttendanceEvents.CountAsync()).Should().Be(2);
-            var group = await service.SaveRotationGroupAsync(lot.Id, null, new RotationGroupInput { Name = "SQL A", Members = [new(employee.Id, "Entry")] });
+            var group = await service.SaveRotationGroupAsync(lot.Id, null, new RotationGroupInput { Name = "SQL A", Members = [new(employee.Id)] });
             var cycle = await service.SaveRotationCycleAsync(lot.Id, null, new RotationCycleInput { Name = "SQL cycle", Steps = [new(template.Id, 1)] });
             var rotation = await service.CreateRosterAsync(lot.Id, new CreateDutyRosterInput { Name = "SQL rotation", FromDate = new DateOnly(2026, 11, 18), ToDate = new DateOnly(2026, 11, 19) });
             var generate = new RotationGenerationInput { Revision = rotation.Revision, FromDate = rotation.FromDate, ToDate = rotation.ToDate,
@@ -146,7 +146,7 @@ public class WorkSchedulingSqlTests
             var claimantB = new Employee { UserId = "claim-b", EmployeeCode = "CLAIM-B", FullName = "Claim B", Position = "Staff", Status = "Active", ParkingLotId = lot.Id };
             db.Employees.AddRange(claimantA, claimantB); await db.SaveChangesAsync();
             var requestRoster = await service.CreateRosterAsync(lot.Id, new CreateDutyRosterInput { Name = "SQL requests", FromDate = new DateOnly(2026, 11, 23), ToDate = new DateOnly(2026, 11, 23) });
-            requestRoster = await service.AssignFromCalendarAsync(lot.Id, requestRoster.Id, new CalendarAssignmentInput { Revision = requestRoster.Revision, WorkDate = requestRoster.FromDate, WorkShiftTemplateId = template.Id, EmployeeId = employee.Id, Position = "Entry" });
+            requestRoster = await service.AssignFromCalendarAsync(lot.Id, requestRoster.Id, new CalendarAssignmentInput { Revision = requestRoster.Revision, WorkDate = requestRoster.FromDate, WorkShiftTemplateId = template.Id, EmployeeId = employee.Id });
             requestRoster = await service.PublishAsync(lot.Id, requestRoster.Id, new RosterMutationInput { Revision = requestRoster.Revision });
             var originalId = requestRoster.Shifts.Single().Assignments.Single().Id;
             claims.GetUserId().Returns("staff"); claims.GetClaim(ClaimTypes.Role).Returns("Staff");
@@ -178,9 +178,12 @@ public class WorkSchedulingSqlTests
             await AutomatedMigration.EnsureWorkSchedulingTablesAsync(db);
             (await db.DutyAttendanceEvents.CountAsync()).Should().Be(2);
             db.ChangeTracker.Clear();
+            // One attendance period is the whole calendar month; review it after the month has ended.
+            attendanceClock.Now = new DateTimeOffset(2026, 12, 2, 0, 0, 0, TimeSpan.Zero);
+            await service.UpdateDueAttendanceAsync();
             claims.GetUserId().Returns("admin"); claims.GetClaim(ClaimTypes.Role).Returns("Admin");
             var period = await service.CreateAttendancePeriodAsync(new CreateAttendancePeriodInput {
-                Name = "SQL attendance lock", FromDate = day, ToDate = day, LotIds = [lot.Id] });
+                Name = "SQL attendance lock", Month = new DateOnly(day.Year, day.Month, 1), LotIds = [lot.Id] });
             claims.GetUserId().Returns("manager"); claims.GetClaim(ClaimTypes.Role).Returns("Manager");
             var detail = await service.AttendanceDetailAsync(assigned.Id);
             detail.PayReview.OriginalCheckInAt.Should().Be(new DateTime(2026, 11, 16, 14, 45, 0, DateTimeKind.Utc));
@@ -189,7 +192,8 @@ public class WorkSchedulingSqlTests
             await service.DecideOvertimeAsync(assigned.Id, new OvertimeDecisionInput {
                 Revision = detail.Attendance.Revision, RosterRevision = current.Revision, Approved = false, Reason = "Early start not approved" });
             var review = await service.ReviewPeriodAsync(period.Id, lot.Id);
-            review.Employees.Single().ScheduledHours.Should().Be(2);
+            // The whole month: the 8-hour night shift on the 16th plus 8 hours of approved leave on the 23rd.
+            review.Employees.Single(e => e.EmployeeId == employee.Id).ScheduledHours.Should().Be(16);
             review.Warnings.Should().BeEmpty();
             await service.ConfirmAttendancePeriodAsync(period.Id, lot.Id, new PeriodActionInput { Revision = review.Lot.Revision, Reason = "SQL verified hours" });
             async Task<bool> LockPeriod()
@@ -204,7 +208,7 @@ public class WorkSchedulingSqlTests
             (await Task.WhenAll(LockPeriod(), LockPeriod())).Count(x => x).Should().Be(1);
             db.ChangeTracker.Clear();
             var lockedReview = await service.ReviewPeriodAsync(period.Id, lot.Id);
-            lockedReview.Lot.Status.Should().Be("Locked"); lockedReview.Employees.Single().ApprovedHours.Should().Be(2);
+            lockedReview.Lot.Status.Should().Be("Locked"); lockedReview.Employees.Single(e => e.EmployeeId == employee.Id).ApprovedHours.Should().Be(8);
             await FluentActions.Invoking(() => service.AdjustAttendanceAsync(assigned.Id, new() {
                 Revision = detail.Attendance.Revision, RosterRevision = current.Revision, Reason = "Locked correction attempt",
                 CheckInAt = new DateTimeOffset(current.Shifts.Single().StartsAt), CheckOutAt = new DateTimeOffset(current.Shifts.Single().EndsAt) })).Should().ThrowAsync<ConflictException>();
@@ -212,18 +216,13 @@ public class WorkSchedulingSqlTests
             await AutomatedMigration.EnsureWorkSchedulingTablesAsync(db);
             (await db.AttendancePeriodLots.SingleAsync()).Status.Should().Be("Locked");
             (await db.ShiftTemplates.SingleAsync()).Name.Should().Be("Legacy preserved");
-            // Complete a payroll month from several independently locked attendance periods.
+            // Payroll for the month reads the one locked November period.
             // Explicit fixture rates only: night 8h × 100 × 1.5 + paid leave 8h × 100 = 2000.
-            attendanceClock.Now = new DateTimeOffset(2026, 12, 2, 0, 0, 0, TimeSpan.Zero);
             claims.GetUserId().Returns("admin"); claims.GetClaim(ClaimTypes.Role).Returns("Admin");
-            foreach (var range in new[] { (From: new DateOnly(2026, 11, 1), To: new DateOnly(2026, 11, 15)), (From: new DateOnly(2026, 11, 17), To: new DateOnly(2026, 11, 30)) }) {
-                var rest = await service.CreateAttendancePeriodAsync(new() { Name = "SQL remaining attendance", FromDate = range.From, ToDate = range.To, LotIds = [lot.Id] });
-                await service.LockAttendancePeriodAsync(rest.Id, new() { Revision = rest.Revision, AcknowledgeUnconfirmed = true, Reason = "SQL monthly payroll evidence" });
-            }
             foreach (var userId in new[] { "staff", "claim-a", "claim-b" })
                 await service.SavePayrollProfileAsync(null, new() { UserId = userId, Role = "Staff", EffectiveFrom = new(2026, 11, 1), HourlyRate = 100,
                     NightStart = new(22, 0), NightEnd = new(6, 0), NightFactor = 1.5m, HolidayFactor = 2, OvertimeFactor = 1.25m,
-                    StandbyDailyAllowance = 30, Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero", Reason = "Explicit SQL arithmetic fixture" });
+                    Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero", Reason = "Explicit SQL arithmetic fixture" });
             var payroll = await service.GeneratePayrollAsync(new() { ParkingLotId = lot.Id, PayMonth = new(2026, 11, 1), Role = "Staff", Reason = "SQL 2000 arithmetic check" });
             var staffSlip = payroll.Single(s => s.UserId == "staff"); staffSlip.Total.Should().Be(2000);
             var repeatedPayroll = await service.GeneratePayrollAsync(new() { ParkingLotId = lot.Id, PayMonth = new(2026, 11, 1), Role = "Staff", Reason = "Idempotent SQL retry" });

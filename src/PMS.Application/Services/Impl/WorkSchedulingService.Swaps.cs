@@ -56,15 +56,12 @@ public partial class WorkSchedulingService
                     var excluded = new[] { a.Assignment.Id, b.Assignment.Id };
                     await EnsureReplacementAsync(swap.ParkingLotId, b.Employee.Id, a.Shift, excluded);
                     await EnsureReplacementAsync(swap.ParkingLotId, a.Employee.Id, b.Shift, excluded);
-                    var standby = (await StandbyToReleaseAsync(swap.ParkingLotId, b.Employee.Id, a.Shift))
-                        .Concat(await StandbyToReleaseAsync(swap.ParkingLotId, a.Employee.Id, b.Shift)).DistinctBy(s => s.Id).ToList();
-                    var snapshots = await RequestSnapshotsAsync(standby.Select(s => s.DutyRosterId).Append(a.Roster.Id).Append(b.Roster.Id));
-                    foreach (var row in standby) { row.IsCancelled = true; row.Source = "Manual"; }
+                    var snapshots = await RequestSnapshotsAsync([a.Roster.Id, b.Roster.Id]);
                     foreach (var row in new[] { a, b }) { row.Assignment.IsCancelled = true; row.Assignment.IsManuallyEdited = true; row.Assignment.CancellationKind = "Swapped"; }
                     db.DutyAssignments.AddRange(
-                        new DutyAssignment { DutyRosterShiftId = a.Shift.Id, EmployeeId = b.Employee.Id, Position = a.Assignment.Position, Source = "Swap",
+                        new DutyAssignment { DutyRosterShiftId = a.Shift.Id, EmployeeId = b.Employee.Id, Source = "Swap",
                             OriginalAssignmentId = a.Assignment.Id, ReplacementReason = reason, AttendanceTrackingFrom = Now, IsManuallyEdited = true },
-                        new DutyAssignment { DutyRosterShiftId = b.Shift.Id, EmployeeId = a.Employee.Id, Position = b.Assignment.Position, Source = "Swap",
+                        new DutyAssignment { DutyRosterShiftId = b.Shift.Id, EmployeeId = a.Employee.Id, Source = "Swap",
                             OriginalAssignmentId = b.Assignment.Id, ReplacementReason = reason, AttendanceTrackingFrom = Now, IsManuallyEdited = true });
                     swap.Status = "Approved"; swap.DecisionReason = reason; await TouchRequestRostersAsync(snapshots, "SwapApproved", reason);
                 }
@@ -78,22 +75,12 @@ public partial class WorkSchedulingService
         });
     }
 
+    /// <summary>Expires vacancies past their expiry and pending swaps whose shift has started.</summary>
     public async Task<int> ProcessWorkRequestDeadlinesAsync()
     {
         var notices = new Dictionary<int, List<long>>();
         var count = await WriteAsync(async () => {
-            var changed = 0;
-            var slots = await (from o in db.WorkOpenShifts join s in db.DutyRosterShifts on o.DutyRosterShiftId equals s.Id
-                where o.Status == "Open" && ((o.DeadlineAt != null && o.DeadlineAt <= Now) || s.EndsAt <= Now)
-                orderby o.Id select o).Take(200).ToListAsync();
-            foreach (var slot in slots) {
-                var shift = await db.DutyRosterShifts.FindAsync(slot.DutyRosterShiftId);
-                if (await IsAttendanceLockedAsync(slot.ParkingLotId, shift.StartsAt, shift.EndsAt)) continue;
-                if (!notices.TryGetValue(slot.ParkingLotId, out var list)) notices[slot.ParkingLotId] = list = [];
-                await AdvanceOpenShiftAsync(slot, list);
-                if (slot.Status == "Expired") await RejectRemainingClaimsAsync(slot.Id, "Expired");
-                changed++;
-            }
+            var changed = await ExpireDueVacanciesAsync(notices);
             var swaps = await (from swap in db.WorkSwapRequests join a in db.DutyAssignments on swap.AssignmentId equals a.Id
                 join s in db.DutyRosterShifts on a.DutyRosterShiftId equals s.Id
                 join b in db.DutyAssignments on swap.OtherAssignmentId equals b.Id join t in db.DutyRosterShifts on b.DutyRosterShiftId equals t.Id

@@ -4,7 +4,7 @@ namespace PMS.Application.Models.WorkScheduling;
 public record PayrollInterval(DateTime Start, DateTime End, string Kind);
 public record PayrollPerson(string UserId, int? EmployeeId, string Name, string Role);
 public record PayrollAssignmentEvidence(int AssignmentId, int EmployeeId, string UserId, string StaffName,
-    string ShiftName, string Position, DateOnly WorkDate, string TimeZoneId, DateTime PlannedStart, DateTime PlannedEnd,
+    string ShiftName, DateOnly WorkDate, string TimeZoneId, DateTime PlannedStart, DateTime PlannedEnd,
     int AttendanceRevision, DateTime? ActualStart, DateTime? ActualEnd, bool Late, bool AutoEnded,
     string AttendanceStatus, IReadOnlyList<PayrollInterval> Intervals, int? LeaveRequestId, bool IsPaidLeave,
     string AttendanceHistoryJson, string OvertimeHistoryJson)
@@ -15,16 +15,14 @@ public record PayrollAssignmentEvidence(int AssignmentId, int EmployeeId, string
     public RosterShiftModel ShiftSnapshot { get; init; }
     public AttendanceModel Attendance { get; init; }
 }
-public record PayrollStandbyEvidence(int Id, int EmployeeId, string UserId, string StaffName, DateOnly WorkDate, bool WasCalled);
 public record PayrollHoliday(DateOnly Date, string Name);
 public record PayrollEvidence(int Version, int PeriodLotId, int LotId, string LotName, string TimeZoneId,
     DateOnly FromDate, DateOnly ToDate, DateTime StartsAt, DateTime EndsAt,
     IReadOnlyList<PayrollPerson> People, IReadOnlyList<PayrollAssignmentEvidence> Assignments,
-    IReadOnlyList<PayrollStandbyEvidence> Standbys, IReadOnlyList<ManagerWorkDayModel> ManagerDays,
+    IReadOnlyList<ManagerWorkDayModel> ManagerDays,
     IReadOnlyList<PayrollHoliday> Holidays, IReadOnlyList<AttendanceCarryAdjustment> CarryAdjustments);
 public class PayrollProfileInput : PayrollProfile { }
 public class PayrollGenerateInput { public DateOnly PayMonth { get; set; } public int ParkingLotId { get; set; } public string Role { get; set; } public string UserId { get; set; } public string Reason { get; set; } }
-public class SealPayrollSourceInput { public string Reason { get; set; } public string ManagerUserId { get; set; } public Dictionary<int, bool> LegacyStandbyDecisions { get; set; } = []; }
 public class PayrollActionInput
 {
     public int Revision { get; set; }

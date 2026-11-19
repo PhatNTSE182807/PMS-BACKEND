@@ -17,7 +17,6 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
     WorkAttendanceOptions attendanceOptions = null, WorkRotationRules rotationRules = null, IApprovedWorkLeaveSource approvedLeaveSource = null,
     WorkRequestOptions requestOptions = null)
 {
-    private static readonly string[] Positions = ["Entry", "Exit", "Counter"];
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
     private async Task EnsureManagerAsync(int lotId)
@@ -40,8 +39,8 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
         {
             var name = Name(input.Name);
             if (input.StartTime == input.EndTime) throw new BadRequestException("Start and end times must differ; a shift must be shorter than 24 hours.");
-            if (new[] { input.MinimumEntryStaff, input.MinimumExitStaff, input.MinimumCounterStaff }.Any(n => n < 0 || n > 100))
-                throw new BadRequestException("Minimum staffing must be between 0 and 100 per position.");
+            if (input.MinimumStaff is < 0 or > 100)
+                throw new BadRequestException("Minimum staff must be between 0 and 100.");
             if (await db.WorkShiftTemplates.AnyAsync(t => t.ParkingLotId == lotId && t.Id != id && t.Name == name))
                 throw new BadRequestException("A shift template with this name already exists at this lot.");
             var t = id.HasValue
@@ -53,9 +52,7 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
             t.Name = name;
             t.StartTime = input.StartTime;
             t.EndTime = input.EndTime;
-            t.MinimumEntryStaff = input.MinimumEntryStaff;
-            t.MinimumExitStaff = input.MinimumExitStaff;
-            t.MinimumCounterStaff = input.MinimumCounterStaff;
+            t.MinimumStaff = input.MinimumStaff;
             t.IsActive = input.IsActive;
             await SaveWorkChangesAsync();
             return t;
@@ -132,7 +129,7 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
             }
             else db.DutyRosterShifts.Add(s);
             foreach (var a in await db.DutyAssignments.Where(a => a.DutyRosterShiftId == s.Id && !a.IsCancelled).ToListAsync())
-                await ValidateAssignmentAsync(lotId, s, a.EmployeeId, a.Position, a.Id);
+                await ValidateAssignmentAsync(lotId, s, a.EmployeeId, a.Id);
         });
 
     public Task<DutyRosterModel> RemoveShiftAsync(int lotId, int rosterId, int shiftId, RosterMutationInput input) =>
@@ -159,20 +156,17 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
                     ?? throw new NotFoundException("Assignment not found.")
                 : new DutyAssignment { DutyRosterShiftId = s.Id, AttendanceTrackingFrom = Now };
             if (input.TargetShiftId.HasValue) s = await FindShiftAsync(r.Id, input.TargetShiftId.Value);
-            if (!assignmentId.HasValue || a.EmployeeId != input.EmployeeId || a.DutyRosterShiftId != s.Id || a.Position != input.Position)
-                await EnsureNoOpenSlotBypassAsync(r, s.Id, input.Position);
+            if (!assignmentId.HasValue || a.EmployeeId != input.EmployeeId || a.DutyRosterShiftId != s.Id)
+                await EnsureNoOpenSlotBypassAsync(r, s.Id);
             if (assignmentId.HasValue && (a.EmployeeId != input.EmployeeId || a.DutyRosterShiftId != s.Id))
             {
                 await EnsureAttendanceScheduleEditableAsync(a.Id);
                 a.AttendanceTrackingFrom = Now;
             }
-            await ValidateAssignmentAsync(lotId, s, input.EmployeeId, input.Position, assignmentId);
-            if (assignmentId.HasValue && a.Position != input.Position) await EnsureNoPendingRequestAsync(a.Id);
-            if (assignmentId.HasValue && a.Position != input.Position && a.Source == "Replacement") await EnsureAttendanceScheduleEditableAsync(a.Id);
+            await ValidateAssignmentAsync(lotId, s, input.EmployeeId, assignmentId);
             if (assignmentId.HasValue) a.IsManuallyEdited = true;
             a.DutyRosterShiftId = s.Id;
             a.EmployeeId = input.EmployeeId;
-            a.Position = input.Position;
             a.Notes = Notes(input.Notes);
             if (!assignmentId.HasValue) db.DutyAssignments.Add(a);
         });
@@ -183,15 +177,15 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
         {
             var notes = Notes(input.Notes);
             var s = await CalendarShiftAsync(lotId, r, input.ShiftId, input.WorkDate, input.WorkShiftTemplateId);
-            await EnsureNoOpenSlotBypassAsync(r, s.Id, input.Position);
-            await ValidateAssignmentAsync(lotId, s, input.EmployeeId, input.Position, null);
+            await EnsureNoOpenSlotBypassAsync(r, s.Id);
+            await ValidateAssignmentAsync(lotId, s, input.EmployeeId, null);
             if (s.Id == 0)
             {
                 db.DutyRosterShifts.Add(s);
                 await SaveWorkChangesAsync();
             }
             db.DutyAssignments.Add(new DutyAssignment { DutyRosterShiftId = s.Id, EmployeeId = input.EmployeeId,
-                Position = input.Position, Notes = notes, AttendanceTrackingFrom = Now });
+                Notes = notes, AttendanceTrackingFrom = Now });
         });
 
     public async Task<IReadOnlyList<RosterStaffModel>> EligibleStaffAsync(int lotId, int rosterId,
@@ -240,7 +234,7 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
         return new DutyRosterShift { DutyRosterId = rosterId, WorkShiftTemplateId = t.Id, WorkDate = date,
             Name = t.Name, TimeZoneId = zone.Id, StartTime = t.StartTime, EndTime = t.EndTime,
             StartsAt = TimeZoneInfo.ConvertTimeToUtc(localStart, zone), EndsAt = TimeZoneInfo.ConvertTimeToUtc(localEnd, zone),
-            MinimumEntryStaff = t.MinimumEntryStaff, MinimumExitStaff = t.MinimumExitStaff, MinimumCounterStaff = t.MinimumCounterStaff };
+            MinimumStaff = t.MinimumStaff };
     }
 
     private static string Notes(string notes) => notes?.Trim().Length > 1000
@@ -271,7 +265,7 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
             if (shifts.Count == 0) throw new BadRequestException("Add at least one dated shift before publishing.");
             foreach (var s in shifts)
                 foreach (var a in await db.DutyAssignments.Where(a => a.DutyRosterShiftId == s.Id && !a.IsCancelled).ToListAsync())
-                    await ValidateAssignmentAsync(lotId, s, a.EmployeeId, a.Position, a.Id);
+                    await ValidateAssignmentAsync(lotId, s, a.EmployeeId, a.Id);
             r.Status = "Published";
             r.PublishedAt = Now;
         });
@@ -303,10 +297,6 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
                                   && r.Status == "Published" && !l.IsDeleted && e.ParkingLotId == r.ParkingLotId
                                   && s.WorkDate >= earliestDate && s.WorkDate <= to
                                select r.Id).Distinct().ToListAsync();
-        rosterIds.AddRange(await (from s in db.DutyStandbyAssignments join r in db.DutyRosters on s.DutyRosterId equals r.Id
-            join e in db.Employees on s.EmployeeId equals e.Id join l in db.ParkingLots on r.ParkingLotId equals l.Id
-            where employeeIds.Contains(s.EmployeeId) && !s.IsCancelled && r.Status == "Published" && !l.IsDeleted
-                && e.ParkingLotId == r.ParkingLotId && s.WorkDate >= @from && s.WorkDate <= to select r.Id).Distinct().ToListAsync());
         rosterIds.AddRange(await (from a in db.DutyAssignments join s in db.DutyRosterShifts on a.DutyRosterShiftId equals s.Id
             join r in db.DutyRosters on s.DutyRosterId equals r.Id join e in db.Employees on a.EmployeeId equals e.Id
             where employeeIds.Contains(e.Id) && e.ParkingLotId == r.ParkingLotId && r.Status == "Published" && !s.IsCancelled
@@ -326,8 +316,7 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
                     Trail = s.Trail.Where(t => employeeIds.Contains(t.EmployeeId)).ToList(),
                     OpenShifts = s.OpenShifts.Where(o => visibleSlotIds.Contains(o.Id)).ToList(), ManagerCoverage = [] })
                 .Where(s => (s.Assignments.Count > 0 || s.Trail.Count > 0 || s.OpenShifts.Count > 0) && s.WorkDate >= from.AddDays(-1)).ToList();
-            var standbys = model.Standbys.Where(s => employeeIds.Contains(s.EmployeeId) && s.WorkDate >= from && s.WorkDate <= to).ToList();
-            if (shifts.Count > 0 || standbys.Count > 0) result.Add(model with { Shifts = shifts, Shortages = [], Standbys = standbys, RotationIssues = [], RotationConfigurationJson = null });
+            if (shifts.Count > 0) result.Add(model with { Shifts = shifts, Shortages = [], RotationIssues = [], RotationConfigurationJson = null });
         }
         return result.OrderBy(r => r.FromDate).ToList();
     }
@@ -385,9 +374,8 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
         return result;
     }
 
-    private async Task ValidateAssignmentAsync(int lotId, DutyRosterShift shift, int employeeId, string position, int? excludeId)
+    private async Task ValidateAssignmentAsync(int lotId, DutyRosterShift shift, int employeeId, int? excludeId)
     {
-        if (!Positions.Contains(position)) throw new BadRequestException("Position must be Entry, Exit or Counter.");
         var e = await db.Employees.AsNoTracking().SingleOrDefaultAsync(e => e.Id == employeeId && e.ParkingLotId == lotId && e.Status == "Active")
             ?? throw new BadRequestException("Staff must be active and assigned to this lot.");
         if (!await identity.Users.AnyAsync(u => u.Id == e.UserId && u.Role == "Staff" && u.IsActive))
@@ -419,7 +407,7 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
                                  where ids.Contains(a.DutyRosterShiftId) && !a.IsCancelled
                                  select new { a.DutyRosterShiftId, Assignment = a, e.UserId,
                                      Available = e.Status == "Active" && e.ParkingLotId == r.ParkingLotId,
-                                     Model = new AssignmentModel(a.Id, e.Id, e.FullName, a.Position, a.Notes) { Source = a.Source, IsManuallyEdited = a.IsManuallyEdited } }).ToListAsync();
+                                     Model = new AssignmentModel(a.Id, e.Id, e.FullName, a.Notes) { Source = a.Source, IsManuallyEdited = a.IsManuallyEdited } }).ToListAsync();
         var assignmentIds = assignments.Select(a => a.Assignment.Id).ToList();
         var attendance = await db.DutyAttendances.AsNoTracking().Where(a => assignmentIds.Contains(a.DutyAssignmentId)).ToDictionaryAsync(a => a.DutyAssignmentId);
         var userIds = assignments.Select(a => a.UserId).Distinct().ToList();
@@ -427,19 +415,15 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
         var now = Now;
         var lockedPeriods = await db.AttendancePeriodLots.AsNoTracking().Where(p => p.ParkingLotId == r.ParkingLotId && p.Status == "Locked").ToListAsync();
         var models = shifts.Select(s => new RosterShiftModel(s.Id, s.WorkShiftTemplateId, s.WorkDate, s.Name, s.TimeZoneId,
-            s.StartTime, s.EndTime, Utc(s.StartsAt), Utc(s.EndsAt), s.MinimumEntryStaff, s.MinimumExitStaff, s.MinimumCounterStaff,
+            s.StartTime, s.EndTime, Utc(s.StartsAt), Utc(s.EndsAt), s.MinimumStaff,
             assignments.Where(a => a.DutyRosterShiftId == s.Id).Select(a => a.Model with {
                 Attendance = DescribeAttendance(a.Assignment, s, r, a.Available && activeUsers.Contains(a.UserId), attendance.GetValueOrDefault(a.Assignment.Id), now)
             }).ToList())
             {
                 AttendanceLocked = lockedPeriods.Any(p => s.StartsAt < p.EndsAt && p.StartsAt < s.EndsAt),
-                EntryAssigned = assignments.Count(a => a.DutyRosterShiftId == s.Id && a.Model.Position == "Entry" && DescribeAttendance(a.Assignment, s, r, a.Available && activeUsers.Contains(a.UserId), attendance.GetValueOrDefault(a.Assignment.Id), now).Status != "Absent"),
-                ExitAssigned = assignments.Count(a => a.DutyRosterShiftId == s.Id && a.Model.Position == "Exit" && DescribeAttendance(a.Assignment, s, r, a.Available && activeUsers.Contains(a.UserId), attendance.GetValueOrDefault(a.Assignment.Id), now).Status != "Absent"),
-                CounterAssigned = assignments.Count(a => a.DutyRosterShiftId == s.Id && a.Model.Position == "Counter" && DescribeAttendance(a.Assignment, s, r, a.Available && activeUsers.Contains(a.UserId), attendance.GetValueOrDefault(a.Assignment.Id), now).Status != "Absent")
+                Assigned = assignments.Count(a => a.DutyRosterShiftId == s.Id && DescribeAttendance(a.Assignment, s, r, a.Available && activeUsers.Contains(a.UserId), attendance.GetValueOrDefault(a.Assignment.Id), now).Status != "Absent")
             }).ToList();
-        var shortages = models.SelectMany(s => Positions.Select((p, i) => new ShortageModel(s.Id, s.WorkDate, s.Name, p,
-            new[] { s.MinimumEntryStaff, s.MinimumExitStaff, s.MinimumCounterStaff }[i], s.Assignments.Count(a => a.Position == p))))
-            .Where(x => x.Assigned < x.Required).ToList();
+        var shortages = Shortages(models);
         var model = new DutyRosterModel(r.Id, r.ParkingLotId, r.Name, r.FromDate, r.ToDate, r.Status, r.Revision,
             r.PublishedAt.HasValue ? Utc(r.PublishedAt.Value) : null, models, shortages) {
                 AttendanceLockedDates = (await (from p in db.AttendancePeriods join l in db.AttendancePeriodLots on p.Id equals l.AttendancePeriodId
@@ -447,7 +431,6 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
                     select new { p.FromDate, p.ToDate }).ToListAsync())
                     .SelectMany(p => Enumerable.Range(Math.Max(r.FromDate.DayNumber, p.FromDate.DayNumber),
                         Math.Min(r.ToDate.DayNumber, p.ToDate.DayNumber) - Math.Max(r.FromDate.DayNumber, p.FromDate.DayNumber) + 1).Select(DateOnly.FromDayNumber)).Distinct().OrderBy(x => x).ToList(),
-                Standbys = await StandbysAsync(r.Id),
                 RotationConfigurationJson = r.RotationConfigurationJson,
                 RotationIssues = r.HasRotation ? await ValidateRotationRosterAsync(r) : []
             };
@@ -460,8 +443,7 @@ public partial class WorkSchedulingService(PmsDbContext db, DatabaseContext iden
             BeforeJson = before == null ? null : JsonSerializer.Serialize(before), AfterJson = JsonSerializer.Serialize(after) });
 
     private static Dictionary<int, string> StaffSignatures(DutyRosterModel r) => r.Shifts
-        .SelectMany(s => s.Assignments.Select(a => new { a.EmployeeId, Signature = JsonSerializer.Serialize(new { s.Id, s.Name, s.StartsAt, s.EndsAt, a.Position, a.Notes }) }))
-        .Concat(r.Standbys.Select(s => new { s.EmployeeId, Signature = $"Standby:{s.Id}:{s.WorkDate:yyyy-MM-dd}" }))
+        .SelectMany(s => s.Assignments.Select(a => new { a.EmployeeId, Signature = JsonSerializer.Serialize(new { s.Id, s.Name, s.StartsAt, s.EndsAt, a.Notes }) }))
         .GroupBy(x => x.EmployeeId).ToDictionary(g => g.Key, g => string.Join(";", g.Select(x => x.Signature).OrderBy(x => x)));
 
     private async Task<T> WriteAsync<T>(Func<Task<T>> operation)

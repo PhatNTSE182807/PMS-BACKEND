@@ -48,7 +48,7 @@ public class PayrollEndpointTests
         var root = $"/api/manager/lots/{lot.Id}/work-scheduling";
         var template = (await ResponseHelper.GetApiResultAsync<WorkShiftTemplate>(await m.PostAsJsonAsync($"{root}/templates", new { name = "Salary source day", startTime = "08:00:00", endTime = "16:00:00", isActive = true }))).Result;
         var roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters", new { name = "Source roster", fromDate = "2026-10-30", toDate = "2026-10-30" }))).Result;
-        roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters/{roster.Id}/calendar-assignments", new { revision = roster.Revision, workDate = "2026-10-30", workShiftTemplateId = template.Id, employeeId = employee.Id, position = "Entry" }))).Result;
+        roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters/{roster.Id}/calendar-assignments", new { revision = roster.Revision, workDate = "2026-10-30", workShiftTemplateId = template.Id, employeeId = employee.Id }))).Result;
         roster = (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(await m.PostAsJsonAsync($"{root}/rosters/{roster.Id}/publish", new { revision = roster.Revision }))).Result;
         var assignmentId = roster.Shifts.Single().Assignments.Single().Id; var attendanceUrl = $"/api/work-scheduling/assignments/{assignmentId}/attendance";
         factory.Clock.Now = new(2026, 10, 30, 1, 0, 0, TimeSpan.Zero);
@@ -56,9 +56,9 @@ public class PayrollEndpointTests
         factory.Clock.Now = new(2026, 10, 30, 9, 0, 0, TimeSpan.Zero);
         (await owner.PostAsJsonAsync($"{attendanceUrl}/end", new { revision = 1, rosterRevision = roster.Revision })).StatusCode.Should().Be(HttpStatusCode.OK);
         factory.Clock.Now = new(2026, 11, 2, 0, 0, 0, TimeSpan.Zero);
-        var period = (await ResponseHelper.GetApiResultAsync<PeriodModel>(await admin.PostAsJsonAsync("/api/work-scheduling/attendance-periods", new { name = "Payroll October", fromDate = "2026-10-01", toDate = "2026-10-31", lotIds = new[] { lot.Id } }))).Result;
+        var period = (await ResponseHelper.GetApiResultAsync<PeriodModel>(await admin.PostAsJsonAsync("/api/work-scheduling/attendance-periods", new { name = "Payroll October", month = "2026-10-01", lotIds = new[] { lot.Id } }))).Result;
         (await admin.PostAsJsonAsync($"/api/work-scheduling/attendance-periods/{period.Id}/lock", new { revision = 1, acknowledgeUnconfirmed = true, reason = "Verified full month" })).StatusCode.Should().Be(HttpStatusCode.OK);
-        var profile = new { userId = staff.Id, role = "Staff", effectiveFrom = "2026-01-01", hourlyRate = 100, nightStart = "22:00:00", nightEnd = "06:00:00", nightFactor = 1.5m, holidayFactor = 2, overtimeFactor = 1.25m, standbyDailyAllowance = 30, currency = "VND", moneyDecimals = 2, roundingMode = "AwayFromZero", reason = "Explicit arithmetic fixture, not a production default" };
+        var profile = new { userId = staff.Id, role = "Staff", effectiveFrom = "2026-01-01", hourlyRate = 100, nightStart = "22:00:00", nightEnd = "06:00:00", nightFactor = 1.5m, holidayFactor = 2, overtimeFactor = 1.25m, currency = "VND", moneyDecimals = 2, roundingMode = "AwayFromZero", reason = "Explicit arithmetic fixture, not a production default" };
         (await m.PostAsJsonAsync("/api/payroll/profiles", profile)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await admin.PostAsJsonAsync("/api/payroll/profiles", profile)).StatusCode.Should().Be(HttpStatusCode.OK);
         var generate = new { parkingLotId = lot.Id, payMonth = "2026-10-01", role = "Staff", reason = "8 hours × 100 = 800" };

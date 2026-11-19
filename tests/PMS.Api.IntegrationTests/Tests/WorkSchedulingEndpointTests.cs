@@ -72,7 +72,7 @@ public class WorkSchedulingEndpointTests
         }
         using var managerClient = Client(manager); using var staffClient = Client(staff);
         var root = $"/api/manager/lots/{lot.Id}/work-scheduling";
-        var templateResponse = await managerClient.PostAsJsonAsync($"{root}/templates", new { name = "Night", startTime = "22:00:00", endTime = "06:00:00", minimumEntryStaff = 2, isActive = true });
+        var templateResponse = await managerClient.PostAsJsonAsync($"{root}/templates", new { name = "Night", startTime = "22:00:00", endTime = "06:00:00", minimumStaff = 2, isActive = true });
         templateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var template = (await ResponseHelper.GetApiResultAsync<WorkShiftTemplate>(templateResponse)).Result;
         var rosterResponse = await managerClient.PostAsJsonAsync($"{root}/rosters", new { name = "Week", fromDate = "2026-11-16", toDate = "2026-11-22" });
@@ -85,7 +85,7 @@ public class WorkSchedulingEndpointTests
             return (await ResponseHelper.GetApiResultAsync<DutyRosterModel>(response)).Result;
         }
         r = await Post($"{root}/rosters/{r.Id}/shifts", new { revision = r.Revision, workShiftTemplateId = template.Id, workDate = "2026-11-16" });
-        r = await Post($"{root}/rosters/{r.Id}/shifts/{r.Shifts.Single().Id}/assignments", new { revision = r.Revision, employeeId = employee.Id, position = "Entry" });
+        r = await Post($"{root}/rosters/{r.Id}/shifts/{r.Shifts.Single().Id}/assignments", new { revision = r.Revision, employeeId = employee.Id });
         const string mine = "/api/staff/work-schedule?from=2026-11-17&to=2026-11-17";
         var hidden = await ResponseHelper.GetApiResultAsync<List<DutyRosterModel>>(await staffClient.GetAsync(mine));
         hidden.Result.Should().BeEmpty();
@@ -96,9 +96,9 @@ public class WorkSchedulingEndpointTests
         var shift = r.Shifts.Single();
         var assignment = shift.Assignments.Single();
         var updatePath = $"{root}/rosters/{r.Id}/shifts/{shift.Id}/assignments/{assignment.Id}";
-        (await managerClient.PutAsJsonAsync(updatePath, new { revision = r.Revision, employeeId = employee.Id, position = "Counter" })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await managerClient.PutAsJsonAsync(updatePath, new { revision = r.Revision - 1, employeeId = employee.Id, position = "Counter", reason = "Move to counter" })).StatusCode.Should().Be(HttpStatusCode.Conflict);
-        var changed = await managerClient.PutAsJsonAsync(updatePath, new { revision = r.Revision, employeeId = employee.Id, position = "Counter", reason = "Move to counter" });
+        (await managerClient.PutAsJsonAsync(updatePath, new { revision = r.Revision, employeeId = employee.Id, notes = "Counter desk" })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await managerClient.PutAsJsonAsync(updatePath, new { revision = r.Revision - 1, employeeId = employee.Id, notes = "Counter desk", reason = "Move to counter" })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var changed = await managerClient.PutAsJsonAsync(updatePath, new { revision = r.Revision, employeeId = employee.Id, notes = "Counter desk", reason = "Move to counter" });
         changed.StatusCode.Should().Be(HttpStatusCode.OK);
         var history = await ResponseHelper.GetApiResultAsync<List<DutyRosterChangeLog>>(await managerClient.GetAsync($"{root}/rosters/{r.Id}/history"));
         history.Result.First().Reason.Should().Be("Move to counter");
@@ -108,7 +108,7 @@ public class WorkSchedulingEndpointTests
         (await ResponseHelper.GetApiResultAsync<List<RosterStaffModel>>(available)).Result.Should().ContainSingle(e => e.EmployeeId == employee.Id);
         current = await Post($"{root}/rosters/{r.Id}/calendar-assignments", new {
             revision = current.Revision, workDate = "2026-11-18", workShiftTemplateId = template.Id,
-            employeeId = employee.Id, position = "Entry", notes = "Gate B task", reason = "Add coverage" });
+            employeeId = employee.Id, notes = "Gate B task", reason = "Add coverage" });
         current.Shifts.Should().HaveCount(2);
         current.Shifts.Last().Assignments.Single().Notes.Should().Be("Gate B task");
         (await staffClient.GetAsync($"{root}/rosters/{r.Id}/eligible-staff?shiftId={shift.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -117,7 +117,7 @@ public class WorkSchedulingEndpointTests
         (await other.GetAsync($"{root}/rosters")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await staffClient.GetAsync($"{root}/rosters/{r.Id}/history")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        var groupResponse = await managerClient.PostAsJsonAsync($"{root}/rotation-groups", new { name = "HTTP A", offsetDays = 0, members = new[] { new { employeeId = employee.Id, position = "Entry" } } });
+        var groupResponse = await managerClient.PostAsJsonAsync($"{root}/rotation-groups", new { name = "HTTP A", offsetDays = 0, members = new[] { new { employeeId = employee.Id } } });
         groupResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var group = (await ResponseHelper.GetApiResultAsync<RotationGroupModel>(groupResponse)).Result;
         var cycleResponse = await managerClient.PostAsJsonAsync($"{root}/rotation-cycles", new { name = "HTTP cycle", steps = new[] { new { templateId = template.Id, days = 1 } } });

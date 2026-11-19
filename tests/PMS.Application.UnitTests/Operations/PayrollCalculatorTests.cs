@@ -15,17 +15,17 @@ public class PayrollCalculatorTests
     public static PayrollProfile StaffProfile(DateOnly? effective = null) => new() {
         Id = 1, UserId = "staff", Role = "Staff", EffectiveFrom = effective ?? new(2026, 1, 1), HourlyRate = 100,
         NightStart = new(22, 0), NightEnd = new(6, 0), NightFactor = 1.5m, HolidayFactor = 2, OvertimeFactor = 1.25m,
-        StandbyDailyAllowance = 30, Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero", Revision = 1
+        Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero", Revision = 1
     };
     public static PayrollPerson Staff = new("staff", 1, "Staff arithmetic fixture", "Staff");
     public static PayrollAssignmentEvidence Assignment(DateTime start, DateTime end, string kind = "Regular", int id = 10) =>
-        new(id, 1, "staff", Staff.Name, "Frozen night", "Entry", DateOnly.FromDateTime(start.AddHours(7)), "SE Asia Standard Time", start, end, 2, start, end,
+        new(id, 1, "staff", Staff.Name, "Frozen night", DateOnly.FromDateTime(start.AddHours(7)), "SE Asia Standard Time", start, end, 2, start, end,
             false, false, "Completed", [new(start, end, kind)], null, false, "[]", "[]");
-    public static PayrollSourceBundle Source(IReadOnlyList<PayrollAssignmentEvidence> assignments, IReadOnlyList<PayrollStandbyEvidence> standbys = null,
+    public static PayrollSourceBundle Source(IReadOnlyList<PayrollAssignmentEvidence> assignments,
         IReadOnlyList<PayrollHoliday> holidays = null, IReadOnlyList<ManagerWorkDayModel> days = null) => new(1, "frozen-hash",
         new PayrollEvidence(1, 1, 1, "Arithmetic lot", "SE Asia Standard Time", new(2026, 10, 1), new(2026, 10, 31),
             new DateTime(2026, 9, 30, 17, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 31, 17, 0, 0, DateTimeKind.Utc),
-            new[] { Staff }.Concat((days ?? []).Select(d => new PayrollPerson(d.ManagerUserId, null, d.ManagerName, "Manager"))).DistinctBy(p => p.UserId).ToList(), assignments, standbys ?? [], days ?? [], holidays ?? [], []));
+            new[] { Staff }.Concat((days ?? []).Select(d => new PayrollPerson(d.ManagerUserId, null, d.ManagerName, "Manager"))).DistinctBy(p => p.UserId).ToList(), assignments, days ?? [], holidays ?? [], []));
     static DateTime U(int day, int hour, int minute = 0) => new(2026, 10, day, hour, minute, 0, DateTimeKind.Utc);
     static PayrollCalculation Calc(PayrollSourceBundle source, params PayrollProfile[] profiles) => PayrollCalculator.Calculate(new(2026, 10, 1), Staff, [source], profiles.Length == 0 ? [StaffProfile()] : profiles, []);
 
@@ -65,11 +65,6 @@ public class PayrollCalculatorTests
         var result = Calc(Source([row], holidays: [new(new(2026, 10, 2), "Fixture holiday")]));
         result.Total.Should().Be(800); result.Lines.Should().OnlyContain(l => l.Factor == 1 && l.Kind == "PaidLeave" && l.LeaveRequestId == 42);
     }
-    [Fact] public void Standby_Is_Paid_When_Not_Called_And_Does_Not_Create_Worked_Hours()
-    {
-        var result = Calc(Source([], [new(7, 1, "staff", Staff.Name, new(2026, 10, 2), false)]));
-        result.Total.Should().Be(30); result.Lines.Single().Unit.Should().Be("Day"); result.Lines.Single().AssignmentId.Should().BeNull();
-    }
     [Fact] public void Late_Has_No_Penalty_And_Absent_Has_No_Extra_Debit()
     {
         var row = Assignment(U(2, 1, 20), U(2, 9)) with { Late = true };
@@ -106,17 +101,18 @@ public class PayrollCalculatorTests
         var row = Assignment(U(31, 15), U(31, 23));
         Calc(Source([row])).Total.Should().Be(300);
     }
-    [Fact] public void Manager_Rate_Change_Is_Blocked_Until_Proration_Is_Explicit_And_Line_Rounding_Is_Visible()
+    [Fact] public void Manager_Salary_Uses_The_Profile_On_The_First_Day_And_Deducts_Absent_And_Unpaid_Days()
     {
         var manager = new PayrollPerson("manager", 2, "Manager fixture", "Manager");
-        var first = new PayrollProfile { Id = 1, UserId = "manager", Role = "Manager", EffectiveFrom = new(2026, 1, 1), MonthlyRate = 2600, Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero" };
-        var second = new PayrollProfile { Id = 2, UserId = "manager", Role = "Manager", EffectiveFrom = new(2026, 10, 16), MonthlyRate = 5200, Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero" };
-        var source = Source([], days: [new(1, 1, "manager", manager.Name, new(2026, 10, 2), "Work", "Verified", 1)]);
-        FluentActions.Invoking(() => PayrollCalculator.Calculate(new(2026, 10, 1), manager, [source], [first, second], [])).Should().Throw<BadRequestException>().WithMessage("*mid-month*");
-        first.ManagerProration = second.ManagerProration = "CalendarDays";
+        var first = new PayrollProfile { Id = 1, UserId = "manager", Role = "Manager", EffectiveFrom = new(2026, 1, 1), MonthlyRate = 2600, StandardWorkDays = 26, Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero" };
+        var second = new PayrollProfile { Id = 2, UserId = "manager", Role = "Manager", EffectiveFrom = new(2026, 10, 16), MonthlyRate = 5200, StandardWorkDays = 26, Currency = "VND", MoneyDecimals = 2, RoundingMode = "AwayFromZero" };
+        var source = Source([], days: [new(1, 1, "manager", manager.Name, new(2026, 10, 2), "Work", "Verified", 1),
+            new(2, 1, "manager", manager.Name, new(2026, 10, 20), "Absent", "Verified", 1), new(3, 1, "manager", manager.Name, new(2026, 10, 21), "UnpaidLeave", "Verified", 1)]);
         var result = PayrollCalculator.Calculate(new(2026, 10, 1), manager, [source], [first, second], []);
-        // Explicit calendar-day split, per-line rounding: round(2600×15/31,2) + round(5200×16/31,2).
-        result.Total.Should().Be(1258.06m + 2683.87m);
+        // The October 1 profile applies to the whole month: 2600 − 2 × 2600/26. The October 16 raise starts next month.
+        result.Total.Should().Be(2400);
+        result.Lines.Should().ContainSingle(l => l.Kind == "MonthlyBase" && l.Quantity == 1 && l.ProfileId == 1);
+        result.Lines.Count(l => l.Kind == "ManagerAbsence").Should().Be(2);
     }
     [Fact] public void Former_Manager_Receiving_Only_A_Correction_Does_Not_Get_Another_Monthly_Base()
     {

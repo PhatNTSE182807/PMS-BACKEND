@@ -35,7 +35,7 @@ public record AttendanceModel(string Status, int Revision, DateTime? CheckInAt, 
 public record AttendanceEventModel(long Id, int Revision, string Action, string ActorName, string Reason,
     DateTime CreatedAt, string BeforeJson, string AfterJson);
 
-public record AttendanceDetailModel(int AssignmentId, int EmployeeId, string StaffName, string ShiftName, string Position,
+public record AttendanceDetailModel(int AssignmentId, int EmployeeId, string StaffName, string ShiftName,
     int ParkingLotId, int RosterId, string RosterName, string RosterStatus, int RosterRevision,
     DateTime PlannedStart, DateTime PlannedEnd, string TimeZoneId, AttendanceModel Attendance,
     IReadOnlyList<AttendanceEventModel> History)

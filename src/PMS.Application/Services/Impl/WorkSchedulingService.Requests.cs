@@ -99,14 +99,10 @@ public partial class WorkSchedulingService
             await EnsureNoPendingRequestAsync(c.Assignment.Id); await EnsureNoActualWorkAsync(c.Assignment.Id);
             if (Now >= c.Shift.EndsAt) throw new BadRequestException("Submit leave before the assignment ends.");
             var planned = c.Shift.StartsAt - Now >= TimeSpan.FromHours(RequestRules.PlannedNoticeHours);
-            if (!planned && input.ProposedEmployeeId.HasValue) throw new BadRequestException("For emergency leave, notify the Manager; direct proposals are disabled.");
             if (input.Kind != (planned ? "Planned" : "Emergency"))
                 throw new BadRequestException(planned ? "Use planned leave at least 24 hours before the shift." : "Use emergency leave within 24 hours of the shift.");
-            if (input.ProposedEmployeeId.HasValue && (input.ProposedEmployeeId == c.Employee.Id
-                || !(await AvailableSchedulingStaffAsync(c.Roster.ParkingLotId)).Any(e => e.EmployeeId == input.ProposedEmployeeId)))
-                throw new BadRequestException("Choose another active Staff member at this lot.");
             var leave = new WorkLeaveRequest { ParkingLotId = c.Roster.ParkingLotId, DutyAssignmentId = c.Assignment.Id, EmployeeId = c.Employee.Id,
-                ProposedEmployeeId = input.ProposedEmployeeId, Kind = input.Kind, Reason = RequestReason(input.Reason), LeaveDate = c.Shift.WorkDate,
+                Kind = input.Kind, Reason = RequestReason(input.Reason), LeaveDate = c.Shift.WorkDate,
                 StartsAt = c.Shift.StartsAt, EndsAt = c.Shift.EndsAt, CreatedAt = Now };
             db.WorkLeaveRequests.Add(leave); await SaveWorkChangesAsync();
             await WorkflowEventAsync(leave.ParkingLotId, "Leave", leave.Id, "Submitted", null, leave, leave.Reason,
@@ -147,8 +143,8 @@ public partial class WorkSchedulingService
                     notices.AddRange(await SaveAttendanceEventAsync(context, attendance, priorAttendance, "LeaveApproved", scope.UserId, reason));
                 }
                 await SaveWorkChangesAsync();
-                if (Now < c.Shift.EndsAt && await PositionShortageAsync(c.Shift, c.Assignment.Position) > 0)
-                    await NewOpenShiftAsync(c.Shift, c.Assignment.Position, reason, c.Assignment.Id, id, leave.ProposedEmployeeId, notices);
+                if (Now < c.Shift.EndsAt && await StaffShortageAsync(c.Shift) > 0)
+                    await NewOpenShiftAsync(c.Shift, reason, c.Assignment.Id, id, notices);
                 await TouchRequestRostersAsync(snapshots, "LeaveApproved", reason);
             }
             else if (input.Action == "Reject") leave.Status = "Rejected";
