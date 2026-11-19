@@ -565,6 +565,8 @@ public class PaymentService(
 
             var (userId, id, lotId, slotId) = (reservation.UserId, reservation.Id, reservation.ParkingLotId, reservation.SlotId);
             inventory.Queue(() => notifier?.ReservationChangedAsync(userId, id, lotId, ReservationStatus.Confirmed, slotId) ?? Task.CompletedTask);
+            // A booking moves the bay's "booked later" flag on the public map
+            inventory.TouchSlot(lotId, slotId);
             return "Applied";
         }
 

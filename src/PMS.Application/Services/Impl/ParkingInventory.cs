@@ -17,12 +17,16 @@ public class ParkingInventory(
     PmsDbContext pmsContext,
     ILotRealtimeNotifier lotNotifier = null,
     IParkingRealtimeNotifier notifier = null,
-    IUserNotificationPublisher fillAlerts = null)
+    IUserNotificationPublisher fillAlerts = null,
+    ILayoutService layouts = null)
 {
     /// <summary>One gate per slot id: holds of the same slot never interleave inside this API process.</summary>
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> SlotGates = new();
 
     private readonly List<Func<Task>> _pushes = [];
+
+    /// <summary>Bays and zones changed per lot since the last flush: their new state is pushed once, after the save.</summary>
+    private readonly Dictionary<int, (HashSet<int> Slots, HashSet<int> Zones)> _touched = [];
 
     /// <summary>
     /// Runs <paramref name="action"/> while no other request of this process works on the same slots.
@@ -191,6 +195,7 @@ public class ParkingInventory(
         var (a, o, t) = (counter.AvailableSpaces, counter.OccupiedSpaces, counter.TotalCapacity);
         if (notifier != null)
             _pushes.Add(() => notifier.ZoneCounterChangedAsync(lotId, zoneId, a, o, t));
+        Touch(lotId, null, zoneId);
 
         TrackFillLevel(counter);
     }
@@ -251,11 +256,27 @@ public class ParkingInventory(
     /// <summary>Queues a push to run after SaveChanges.</summary>
     public void Queue(Func<Task> push) => _pushes.Add(push);
 
+    /// <summary>The bay's live state (e.g. its "booked later" flag) changed without a status change: push it on flush.</summary>
+    public void TouchSlot(int lotId, int? slotId)
+    {
+        if (slotId != null) Touch(lotId, slotId, null);
+    }
+
+    private void Touch(int lotId, int? slotId, int? zoneId)
+    {
+        if (!_touched.TryGetValue(lotId, out var touched))
+            _touched[lotId] = touched = ([], []);
+        if (slotId is { } slot) touched.Slots.Add(slot);
+        if (zoneId is { } zone) touched.Zones.Add(zone);
+    }
+
     /// <summary>Sends the queued pushes (after a successful save). Failures never break the request.</summary>
     public async Task FlushAsync()
     {
         var pushes = _pushes.ToList();
         _pushes.Clear();
+        var touched = _touched.ToList();
+        _touched.Clear();
         foreach (var push in pushes)
         {
             try
@@ -265,6 +286,22 @@ public class ParkingInventory(
             catch
             {
                 // Real-time is best effort; clients poll as a fallback
+            }
+        }
+
+        if (lotNotifier == null || layouts == null) return;
+        // One patch per lot and save, read after the save: a burst of changes reaches the maps as one message
+        foreach (var (lotId, (slots, zones)) in touched)
+        {
+            try
+            {
+                var changes = await layouts.GetLiveChangesAsync(lotId, slots, zones);
+                if (changes.Cells.Count > 0 || changes.ZoneCounters.Count > 0)
+                    await lotNotifier.LotLiveChangedAsync(changes);
+            }
+            catch
+            {
+                // Best effort as above: the map reloads the plan on its next sync
             }
         }
     }
@@ -282,5 +319,6 @@ public class ParkingInventory(
         var (id, status) = (slot.Id, slot.Status);
         if (lotNotifier != null)
             _pushes.Add(() => lotNotifier.SlotStatusChangedAsync(lotId, id, status));
+        Touch(lotId, id, slot.ZoneId);
     }
 }

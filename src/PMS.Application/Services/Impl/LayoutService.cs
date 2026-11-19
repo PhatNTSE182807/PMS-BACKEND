@@ -178,6 +178,51 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
         };
     }
 
+    public async Task<LotLiveChangesModel> GetLiveChangesAsync(int lotId, IReadOnlyCollection<int> slotIds, IReadOnlyCollection<int> zoneIds)
+    {
+        var at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        // Inactive bays are not on the plan; a client that misses a bay reloads the plan
+        var slots = slotIds.Count == 0
+            ? []
+            : await pmsContext.Slots.AsNoTracking()
+                .Where(s => slotIds.Contains(s.Id) && s.IsActive && s.Zone.ParkingLotId == lotId)
+                .Select(s => new { s.Id, s.ZoneId, s.Status })
+                .ToListAsync();
+        var zoneSet = zoneIds.Concat(slots.Select(s => s.ZoneId)).ToHashSet();
+        var parked = await ParkedVehiclesAsync(lotId);
+        var parkedInSlot = parked.Where(p => p.SlotId != null)
+            .GroupBy(p => p.SlotId.Value)
+            .ToDictionary(g => g.Key, g => g.First().Vehicle);
+        var ids = slots.Select(s => s.Id).ToList();
+        // Same rule as the 2D plan
+        var bookedLater = ids.Count == 0
+            ? []
+            : (await pmsContext.Reservations.AsNoTracking()
+                .Where(r => r.ParkingLotId == lotId && r.SlotId != null && ids.Contains(r.SlotId.Value)
+                            && (r.Status == ReservationStatus.PendingDeposit || r.Status == ReservationStatus.Confirmed))
+                .Select(r => r.SlotId!.Value)
+                .ToListAsync()).ToHashSet();
+
+        var counters = (await ZoneAvailabilityAsync(lotId)).Where(c => zoneSet.Contains(c.ZoneId)).ToList();
+        foreach (var counter in counters)
+            counter.WalkIns = parked.Where(p => p.SlotId == null && p.ZoneId == counter.ZoneId).Select(p => p.Vehicle).ToList();
+
+        return new LotLiveChangesModel
+        {
+            ParkingLotId = lotId,
+            At = at,
+            Cells = slots.Select(s => new LotLiveCellModel
+            {
+                SlotId = s.Id,
+                Status = s.Status,
+                VehicleColor = parkedInSlot.GetValueOrDefault(s.Id)?.VehicleColor,
+                ParkedVehicleTypeCode = parkedInSlot.GetValueOrDefault(s.Id)?.VehicleTypeCode,
+                BookedLater = s.Status == Available && bookedLater.Contains(s.Id)
+            }).ToList(),
+            ZoneCounters = counters
+        };
+    }
+
     /* Helpers -------------------------------------------------------- */
 
     /// <summary>Colour and type of every vehicle with an open session in the lot, oldest entry first.</summary>

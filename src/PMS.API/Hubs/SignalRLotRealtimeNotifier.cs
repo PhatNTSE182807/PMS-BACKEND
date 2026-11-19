@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using PMS.Application.Models.Layout;
 using PMS.Application.Services;
 
 namespace PMS.API.Hubs;
@@ -14,6 +15,9 @@ public class SignalRLotRealtimeNotifier(IHubContext<LotHub> hub) : ILotRealtimeN
 
     public Task LayoutChangedAsync(int lotId) =>
         hub.Clients.Group(LotHub.Group(lotId)).SendAsync("LayoutChanged", new { lotId });
+
+    public Task LotLiveChangedAsync(LotLiveChangesModel changes) =>
+        hub.Clients.Group(LotHub.Group(changes.ParkingLotId)).SendAsync("LotLiveChanged", changes);
 
     public Task LotPriceChangedAsync(int lotId, string state, string message) =>
         hub.Clients.Group(LotHub.Group(lotId)).SendAsync("LotPriceChanged", new { lotId, state, message });
