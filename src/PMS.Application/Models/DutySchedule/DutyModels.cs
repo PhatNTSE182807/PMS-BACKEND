@@ -7,10 +7,6 @@ public class DutyOptions
     public bool RequireShiftForPos { get; set; } = true;
     /// <summary>A shift can be started this many minutes before it begins.</summary>
     public int EarlyStartMinutes { get; set; } = 30;
-    /// <summary>No check-in this many minutes after the start: the Staff is absent.</summary>
-    public int AbsentAfterMinutes { get; set; } = 30;
-    /// <summary>A shift not ended this many minutes after its end is ended at the scheduled time.</summary>
-    public int EndGraceMinutes { get; set; } = 15;
     /// <summary>Calendar days of leave per person and month, over all their requests.</summary>
     public int MaxLeaveDaysPerMonth { get; set; } = 7;
     /// <summary>Paid leave days per year when an Admin has not set another number.</summary>
@@ -67,7 +63,8 @@ public class DutyCellModel
     public bool LeavePending { get; init; }
     /// <summary>"Working", "Completed", "Absent" or null (only the person themselves and the Manager).</summary>
     public string AttendanceStatus { get; init; }
-    public bool IsAutoEnded { get; init; }
+    /// <summary>Started after the shift began.</summary>
+    public bool IsLate { get; init; }
     public DateTime? CheckInAt { get; init; }
     public DateTime? CheckOutAt { get; init; }
     public bool IsPast { get; init; }
@@ -111,7 +108,7 @@ public class DutyShiftModel
     public DateTime StartsAt { get; init; }
     public DateTime EndsAt { get; init; }
     public string AttendanceStatus { get; init; }
-    public bool IsAutoEnded { get; init; }
+    public bool IsLate { get; init; }
     public DateTime? CheckInAt { get; init; }
     public DateTime? CheckOutAt { get; init; }
 }
@@ -123,22 +120,10 @@ public class DutyStatusModel
     /// <summary>Checked in to a shift that has not ended: the POS is open.</summary>
     public bool OnShift { get; init; }
     public bool CanStart { get; init; }
-    public bool CanEnd { get; init; }
     /// <summary>The shift being worked, or the one whose start window is open.</summary>
     public DutyShiftModel Current { get; init; }
     public DutyShiftModel Next { get; init; }
     public string EmploymentType { get; init; }
-}
-
-public class DutyAttendanceInput
-{
-    public DateOnly Date { get; set; }
-    public int Slot { get; set; }
-    public int EmployeeId { get; set; }
-    /// <summary>Both empty: absent.</summary>
-    public DateTime? CheckInAt { get; set; }
-    public DateTime? CheckOutAt { get; set; }
-    public string Reason { get; set; }
 }
 
 public class LeaveRequestInput

@@ -572,6 +572,8 @@ public class GateService(
                 });
                 var (userId, id, lotId, slotId) = (reservation.UserId, reservation.Id, reservation.ParkingLotId, reservation.SlotId);
                 inventory.Queue(() => notifier?.ReservationChangedAsync(userId, id, lotId, ReservationStatus.CheckedIn, slotId) ?? Task.CompletedTask);
+                // A booking moves the bay's "booked later" flag on the public map
+                inventory.TouchSlot(lotId, slotId);
             }
         }
 
@@ -739,6 +741,8 @@ public class GateService(
                 refunded = await paymentService.RefundDepositAsync(reservation, quote.DepositRefund, $"Deposit remainder refund {reservation.ReservationCode}", "System");
                 var (userId, id, lotId, slotId) = (reservation.UserId, reservation.Id, reservation.ParkingLotId, reservation.SlotId);
                 inventory.Queue(() => notifier?.ReservationChangedAsync(userId, id, lotId, ReservationStatus.Completed, slotId) ?? Task.CompletedTask);
+                // A booking moves the bay's "booked later" flag on the public map
+                inventory.TouchSlot(lotId, slotId);
             }
         }
 

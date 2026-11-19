@@ -17,4 +17,10 @@ public interface ILayoutService
 
     /// <summary>2D fallback; detail is "slots" (every cell) or "zones" (one block per zone).</summary>
     Task<Layout2DResponseModel> Get2DAsync(int lotId, string detail);
+
+    /// <summary>
+    /// The live state of some bays and zones of a lot, shaped like the 2D plan (status, vehicle paint, booked later,
+    /// zone counters with their walk-ins). Pushed after a save so open maps patch themselves.
+    /// </summary>
+    Task<LotLiveChangesModel> GetLiveChangesAsync(int lotId, IReadOnlyCollection<int> slotIds, IReadOnlyCollection<int> zoneIds);
 }

@@ -6,7 +6,7 @@ using PMS.Application.Services.Impl;
 
 namespace PMS.API.Controllers;
 
-/// <summary>The lot's Manager: duty board (4 shifts a day), replacements, leave decisions and attendance corrections.</summary>
+/// <summary>The lot's Manager: duty board (4 shifts a day), emergency replacements and leave decisions.</summary>
 [Route("api/manager/lots/{lotId:int}/duty")]
 [Authorize(Roles = "Manager")]
 public class ManagerDutyController(DutyScheduleService duty) : ApiController
@@ -26,11 +26,6 @@ public class ManagerDutyController(DutyScheduleService duty) : ApiController
     public async Task<IActionResult> SetCell(int lotId, DutyCellInput input) =>
         Ok(ApiResult<DutyWeekModel>.Success(await duty.SetCellAsync(lotId, input)));
 
-    /// <summary>Records the real check-in / check-out of a shift, or an absence, with a reason.</summary>
-    [HttpPut("attendance")]
-    public async Task<IActionResult> Attendance(int lotId, DutyAttendanceInput input) =>
-        Ok(ApiResult<DutyWeekModel>.Success(await duty.AdjustAttendanceAsync(lotId, input)));
-
     /// <summary>Leave requests of the lot: waiting ones first, with the shifts that need someone else.</summary>
     [HttpGet("leave-requests")]
     public async Task<IActionResult> Leave(int lotId) =>
@@ -47,7 +42,7 @@ public class ManagerDutyController(DutyScheduleService duty) : ApiController
         Ok(ApiResult<IReadOnlyList<LeaveRequestModel>>.Success(await duty.RejectLeaveAsync(lotId, id, input)));
 }
 
-/// <summary>The signed-in Staff member: their lot's duty board, starting and ending shifts, leave.</summary>
+/// <summary>The signed-in Staff member: their lot's duty board, starting a shift (it ends by itself at its end), leave.</summary>
 [Route("api/staff/duty")]
 [Authorize(Roles = "Staff")]
 public class StaffDutyController(DutyScheduleService duty) : ApiController
@@ -63,10 +58,6 @@ public class StaffDutyController(DutyScheduleService duty) : ApiController
     /// <summary>Checks in to the shift that is open now (from 30 minutes before it starts).</summary>
     [HttpPost("shifts/start")]
     public async Task<IActionResult> Start() => Ok(ApiResult<DutyStatusModel>.Success(await duty.StartShiftAsync()));
-
-    /// <summary>Checks out of the current shift.</summary>
-    [HttpPost("shifts/end")]
-    public async Task<IActionResult> End() => Ok(ApiResult<DutyStatusModel>.Success(await duty.EndShiftAsync()));
 
     /// <summary>The Staff's leave requests and paid leave left this year.</summary>
     [HttpGet("leave")]

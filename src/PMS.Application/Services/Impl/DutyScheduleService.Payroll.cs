@@ -66,7 +66,6 @@ public partial class DutyScheduleService
         return to > from ? (int)Math.Floor((to - from).TotalMinutes) : 0;
     }
 
-    private static string HoursText(int minutes) => $"{minutes / 60}h{minutes % 60:00}";
 
     private async Task<PaySlip> CalculateAsync(Payee payee, DateOnly month)
     {
@@ -147,14 +146,16 @@ public partial class DutyScheduleService
 
     private decimal AddHours(List<PayLineModel> lines, string kind, string label, List<DutyShiftAttendance> shifts, Dictionary<int, LotInfo> lots)
     {
-        var minutes = shifts.Sum(s => PaidMinutes(lots[s.ParkingLotId], s));
-        if (minutes == 0) return 0;
-        var amount = Round(minutes * pay.HourlyRate / 60);
+        // Paid in whole hours: each shift counts the full hours worked inside it
+        int Hours(DutyShiftAttendance s) => PaidMinutes(lots[s.ParkingLotId], s) / 60;
+        var hours = shifts.Sum(Hours);
+        if (hours == 0) return 0;
+        var amount = hours * pay.HourlyRate;
         lines.Add(new PayLineModel
         {
-            Kind = kind, Label = $"{label} ({HoursText(minutes)})", Quantity = Math.Round(minutes / 60m, 2), UnitAmount = pay.HourlyRate, Amount = amount,
-            Details = shifts.OrderBy(s => s.WorkDate).ThenBy(s => s.Slot)
-                .Select(s => $"{s.WorkDate:yyyy-MM-dd} {DutySlots.Label(s.Slot)} ({HoursText(PaidMinutes(lots[s.ParkingLotId], s))})").ToList(),
+            Kind = kind, Label = $"{label} ({hours}h)", Quantity = hours, UnitAmount = pay.HourlyRate, Amount = amount,
+            Details = shifts.Where(s => Hours(s) > 0).OrderBy(s => s.WorkDate).ThenBy(s => s.Slot)
+                .Select(s => $"{s.WorkDate:yyyy-MM-dd} {DutySlots.Label(s.Slot)} ({Hours(s)}h)").ToList(),
         });
         return amount;
     }
@@ -335,8 +336,8 @@ public partial class DutyScheduleService
     {
         if (!pay.AllowSimulation) throw new ForbiddenException("Payday simulation is turned off.");
         var me = await MePayeeAsync();
-        if (input.OvertimeHours is < 0 or > 200 || input.OvertimeHours * 2 != Math.Floor(input.OvertimeHours * 2))
-            throw new BadRequestException("Overtime hours must be between 0 and 200, in steps of 0.5.");
+        if (input.OvertimeHours is < 0 or > 200)
+            throw new BadRequestException("Overtime hours must be a whole number between 0 and 200.");
         var lines = new List<PayLineModel>();
         var includeBase = input.IncludeBase && me.Kind != EmploymentTypes.Backup;
         if (includeBase)
@@ -347,7 +348,7 @@ public partial class DutyScheduleService
         if (input.OvertimeHours > 0)
             lines.Add(new PayLineModel
             {
-                Kind = me.Kind == EmploymentTypes.Backup ? "Hours" : "ExtraHours", Label = $"{(me.Kind == EmploymentTypes.Backup ? "Hours worked" : "Overtime")} ({input.OvertimeHours:0.#}h, simulated)",
+                Kind = me.Kind == EmploymentTypes.Backup ? "Hours" : "ExtraHours", Label = $"{(me.Kind == EmploymentTypes.Backup ? "Hours worked" : "Overtime")} ({input.OvertimeHours}h, simulated)",
                 Quantity = input.OvertimeHours, UnitAmount = pay.HourlyRate, Amount = Round(input.OvertimeHours * pay.HourlyRate),
             });
         if (lines.Count == 0) throw new BadRequestException("Choose the base salary or enter some overtime hours.");
