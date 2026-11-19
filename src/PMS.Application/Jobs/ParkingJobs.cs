@@ -295,6 +295,8 @@ public class ParkingJobs(
     {
         var (userId, id, lotId, status, slotId) = (r.UserId, r.Id, r.ParkingLotId, r.Status, r.SlotId);
         inventory.Queue(() => notifier?.ReservationChangedAsync(userId, id, lotId, status, slotId) ?? Task.CompletedTask);
+        // A booking moves the bay's "booked later" flag on the public map
+        inventory.TouchSlot(lotId, slotId);
     }
 
     private async Task SaveAndFlushAsync()

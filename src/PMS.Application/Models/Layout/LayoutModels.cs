@@ -261,3 +261,34 @@ public class Layout2DZoneBlockModel
 
     public int Free { get; set; }
 }
+
+/// <summary>
+/// Pushed on the public lot channel after a change is saved: the new state of the bays and zones it touched, so the
+/// map patches itself instead of reloading the whole 2D plan. Never a plate.
+/// </summary>
+public class LotLiveChangesModel
+{
+    public int ParkingLotId { get; set; }
+
+    /// <summary>When the state was read (Unix ms, UTC): a client drops an older push for the same bay or zone.</summary>
+    public long At { get; set; }
+
+    public List<LotLiveCellModel> Cells { get; set; } = [];
+
+    /// <summary>Free / total per zone with the walk-ins counted there.</summary>
+    public List<ZoneAvailabilityModel> ZoneCounters { get; set; } = [];
+}
+
+/// <summary>The live part of a 2D cell (<see cref="Layout2DCellModel"/>).</summary>
+public class LotLiveCellModel
+{
+    public int SlotId { get; set; }
+
+    public string Status { get; set; }
+
+    public string VehicleColor { get; set; }
+
+    public string ParkedVehicleTypeCode { get; set; }
+
+    public bool BookedLater { get; set; }
+}
