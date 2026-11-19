@@ -12,9 +12,9 @@ namespace PMS.Application.Jobs;
 public sealed record ParkingJobRun(int ExpiredReservations, int NoShows, int Reminders, int CancelledEntries, int ReleasedPaymentRequests, int CheckedPayments, int RetriedRefunds);
 
 /// <summary>
-/// Timed parking work run by Hangfire (registered in PMS.API): deposit deadlines (BR-06), no-shows (BR-05),
-/// reminders (FR-RSV-10), vehicles that turned around at the barrier, abandoned payment requests,
-/// pending gateway payments (BR-11, FR-PAY-08), refund retries (FR-PAY-10) and overdue vehicles (BR-20).
+/// Timed parking work run by Hangfire (registered in PMS.API): deposit deadlines, no-shows,
+/// reminders, vehicles that turned around at the barrier, abandoned payment requests,
+/// pending gateway payments, refund retries and overdue vehicles.
 /// </summary>
 public class ParkingJobs(
     PmsDbContext pmsContext,
@@ -50,6 +50,8 @@ public class ParkingJobs(
             var expired = await ExpireUnpaidReservationsAsync();
             // Booked bays taken by a walk-in: settle the ones that need no Staff before any no-show is marked
             if (bookedBays != null) await bookedBays.SweepAsync();
+            // Vehicles that stayed past their booking are towed before the next booking may check in
+            if (bookedBays != null) await bookedBays.TowOverstaysAsync();
             var noShows = await MarkNoShowsAsync();
             // Bookings made ahead lock their bay shortly before arrival
             await reservations.ActivateDueHoldsAsync();
@@ -83,6 +85,7 @@ public class ParkingJobs(
         {
             var expired = await ExpireUnpaidReservationsAsync();
             if (bookedBays != null) await bookedBays.SweepAsync();
+            if (bookedBays != null) await bookedBays.TowOverstaysAsync();
             var noShows = await MarkNoShowsAsync();
             await reservations.ActivateDueHoldsAsync();
             if (walkIns != null) await walkIns.CheckOutDueAsync();
@@ -94,7 +97,7 @@ public class ParkingJobs(
         }
     }
 
-    /// <summary>BR-06 / 4.2.5: the deposit was not paid in time → Expired, slot back to Available.</summary>
+    /// <summary>The deposit was not paid in time → Expired, slot back to Available.</summary>
     public async Task<int> ExpireUnpaidReservationsAsync()
     {
         var due = await pmsContext.Reservations
@@ -110,7 +113,7 @@ public class ParkingJobs(
         return due.Count;
     }
 
-    /// <summary>FR-RSV-05 / BR-05: not checked in before the hold ended → No-show, slot free, deposit kept.</summary>
+    /// <summary>Not checked in before the hold ended → No-show, slot free, deposit kept.</summary>
     public async Task<int> MarkNoShowsAsync()
     {
         // A booking whose bay a walk-in took is the lot's fault, never a no-show: its case cancels and compensates it
@@ -131,7 +134,7 @@ public class ParkingJobs(
         return due.Count;
     }
 
-    /// <summary>FR-RSV-10: before the arrival time and before the hold ends.</summary>
+    /// <summary>Before the arrival time and before the hold ends.</summary>
     public async Task<int> SendRemindersAsync()
     {
         var rules = options.Reservations;
@@ -248,7 +251,7 @@ public class ParkingJobs(
     }
 
     /// <summary>
-    /// FR-OPS-16 / BR-20: alert the lot (and the owner) once a vehicle is overdue; past the abandoned
+    /// Alert the lot (and the owner) once a vehicle is overdue; past the abandoned
     /// threshold open an incident (SessionViolation "Abandoned").
     /// </summary>
     public async Task<int> FlagOverdueSessionsAsync()

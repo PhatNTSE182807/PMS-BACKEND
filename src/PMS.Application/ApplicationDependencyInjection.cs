@@ -31,12 +31,16 @@ public static class ApplicationDependencyInjection
         services.AddScoped<IUserProfileService, UserProfileService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IEmployeeAccountService, EmployeeAccountService>();
+        // Duty board, shift attendance, leave and payroll ("WorkSchedule" and "Payroll" settings)
+        services.AddScoped<DutyScheduleService>();
+        services.AddScoped<DutyJobs>();
+        services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection("WorkSchedule").Get<PMS.Application.Models.DutySchedule.DutyOptions>() ?? new());
+        services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection("Payroll").Get<PMS.Application.Models.DutySchedule.PayrollOptions>() ?? new());
         services.AddScoped<ILayoutService, LayoutService>();
         services.AddScoped<IParkingLotService, ParkingLotService>();
         services.AddScoped<IZoneService, ZoneService>();
         services.AddScoped<ISlotService, SlotService>();
         services.AddScoped<IClaimService, ClaimService>();
-        services.AddScoped<ITemplateService, TemplateService>();
         services.AddScoped<IGoogleTokenValidator, GoogleTokenValidator>();
         services.AddScoped<LotJobs>();
 

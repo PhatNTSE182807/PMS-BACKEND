@@ -5,7 +5,7 @@ using PMS.Application.Models.Pricing;
 namespace PMS.Application.Services;
 
 /// <summary>
-/// Service interface for managing pricing rules and tariffs for parking lots (SRS section 5, BR-09, BR-22).
+/// Service interface for managing pricing rules and tariffs for parking lots.
 /// Scope is restricted to the lots the Manager manages (or all lots for Admin).
 /// </summary>
 public interface IPricingRuleService

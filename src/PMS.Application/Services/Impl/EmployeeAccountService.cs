@@ -53,13 +53,6 @@ public class EmployeeAccountService(
         return await ManagerResponseAsync(user);
     }
 
-    public async Task<EmployeeAccountResponseModel> SetManagerStatusAsync(string managerId, bool isActive)
-    {
-        var user = await FindAccountAsync(managerId, ManagerRole);
-        await SetActiveAsync(user, isActive, isActive ? "Active" : "Inactive");
-        return await ManagerResponseAsync(user);
-    }
-
     public async Task<EmployeeAccountResponseModel> AssignManagerLotsAsync(string managerId, AssignParkingLotsModel model)
     {
         var user = await FindAccountAsync(managerId, ManagerRole);
@@ -111,12 +104,6 @@ public class EmployeeAccountService(
     }
 
     /* Manager -> Staff ---------------------------------------------- */
-
-    public async Task<IEnumerable<AssignedParkingLotModel>> GetManagedLotsAsync(string managerId)
-    {
-        var lots = await ManagedLotsQuery(managerId).OrderBy(p => p.Name).ToListAsync();
-        return lots.Select(ToLotModel).ToList();
-    }
 
     public async Task<IEnumerable<AssignedParkingLotModel>> GetStaffLotsAsync(string staffId)
     {
@@ -188,6 +175,7 @@ public class EmployeeAccountService(
             ?? throw new NotFoundException("Employee record was not created.");
         employee.ParkingLotId = lot.Id;
         employee.HireDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        employee.EmploymentType = EmploymentTypeOrDefault(model.EmploymentType);
         await pmsContext.SaveChangesAsync();
 
         var user = await userManager.FindByIdAsync(staffId)
@@ -199,6 +187,12 @@ public class EmployeeAccountService(
     {
         var (user, employee, lot) = await FindManagedStaffAsync(managerId, staffId);
         await UpdateDetailsAsync(user, model);
+        if (!string.IsNullOrWhiteSpace(model.EmploymentType))
+        {
+            employee.EmploymentType = EmploymentTypeOrDefault(model.EmploymentType);
+            employee.UpdatedAt = DateTime.UtcNow;
+            await pmsContext.SaveChangesAsync();
+        }
         return ToResponse(user, employee, [lot]);
     }
 
@@ -230,6 +224,13 @@ public class EmployeeAccountService(
     }
 
     /* Helpers -------------------------------------------------------- */
+
+    private static string EmploymentTypeOrDefault(string value) => value?.Trim() switch
+    {
+        null or "" or "FullTime" => "FullTime",
+        "Backup" => "Backup",
+        _ => throw new BadRequestException("Employment type must be FullTime or Backup."),
+    };
 
     private IQueryable<ParkingLot> ManagedLotsQuery(string managerId) =>
         pmsContext.ParkingLots.Where(p => p.ManagerUserId == managerId && !p.IsDeleted);
@@ -367,6 +368,7 @@ public class EmployeeAccountService(
         IsActive = user.IsActive,
         Status = employee?.Status ?? (user.IsActive ? "Active" : "Inactive"),
         CreatedAt = employee?.CreatedAt,
+        EmploymentType = user.Role == StaffRole ? employee?.EmploymentType ?? "FullTime" : null,
         ParkingLots = lots.Where(p => p != null).Select(ToLotModel).ToList()
     };
 }

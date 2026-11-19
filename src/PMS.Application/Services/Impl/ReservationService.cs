@@ -70,10 +70,12 @@ public class ReservationService(
 
             // A booking close to arrival locks the bay now; one further ahead only books its time window
             var holdNow = instant || ShouldHoldNow(arrival);
-            var slot = await LoadSlotForLotAsync(model.SlotId, lot.Id, mustBeFreeNow: holdNow);
+            var slot = await LoadSlotForLotAsync(model.SlotId, lot.Id, mustBeFreeNow: holdNow, arrival: instant ? null : arrival);
             if (!ParkingInventory.Compatible(types, slot.VehicleTypeId, vehicle.VehicleTypeId))
                 throw new BadRequestException("This slot is for another vehicle type.");
             await EnsureSlotFreeForAsync(slot.Id, arrival, departure, null);
+            // The vehicle in the bay is expected to leave before arrival: the hold job locks the bay once it has gone
+            holdNow = holdNow && await LockableNowAsync(slot);
 
             if (holdNow)
                 await inventory.HoldAsync(slot, lot.Id);
@@ -155,7 +157,7 @@ public class ReservationService(
             var holdNow = ShouldHoldNow(arrival);
             var slotChanged = targetSlotId != oldSlotId;
             var slot = await LoadSlotForLotAsync(targetSlotId, reservation.ParkingLotId,
-                mustBeFreeNow: holdNow && (slotChanged || reservation.SlotHeldAt == null));
+                mustBeFreeNow: holdNow && (slotChanged || reservation.SlotHeldAt == null), arrival: arrival);
             if (!ParkingInventory.Compatible(types, slot.VehicleTypeId, reservation.VehicleTypeId ?? slot.VehicleTypeId))
                 throw new BadRequestException("This slot is for another vehicle type.");
             await EnsureSlotFreeForAsync(slot.Id, arrival, departure, reservation.Id);
@@ -172,7 +174,8 @@ public class ReservationService(
                 reservation.SlotId = slot.Id;
                 reservation.ZoneId = slot.ZoneId;
             }
-            if (holdNow && reservation.SlotHeldAt == null)
+            // A bay whose vehicle is still leaving is locked later by the hold job
+            if (holdNow && reservation.SlotHeldAt == null && await LockableNowAsync(slot))
             {
                 await inventory.HoldAsync(slot, reservation.ParkingLotId);
                 reservation.SlotHeldAt = Now;
@@ -432,7 +435,7 @@ public class ReservationService(
     }
 
     /// <summary>
-    /// BR-07: at most N bookings in progress per account, and one per vehicle. The vehicle is matched by
+    /// At most N bookings in progress per account, and one per vehicle. The vehicle is matched by
     /// plate, so the same car added twice (or to two accounts) still gets only one booking.
     /// </summary>
     private async Task EnsureBookingLimitsAsync(int customerId, Vehicle vehicle)
@@ -486,7 +489,7 @@ public class ReservationService(
     private decimal DepositFor(string vehicleTypeCode) =>
         Rules.DepositByVehicleType.TryGetValue(vehicleTypeCode, out var amount) ? amount : Rules.DefaultDeposit;
 
-    /// <summary>BR-04: full refund up to H minutes before arrival, nothing after.</summary>
+    /// <summary>Full refund up to H minutes before arrival, nothing after.</summary>
     private decimal RefundIfCancelledNow(Reservation reservation) =>
         reservation.Status == ReservationStatus.Confirmed && Now <= reservation.StartTime.Add(-options.CancelRefundTime)
             ? reservation.DepositAmount - reservation.RefundAmount
@@ -494,9 +497,12 @@ public class ReservationService(
 
     /// <summary>
     /// The bay of the lot. When the booking locks it right away it must be free now; a booking for
-    /// later only needs a bay that is in service (it may be occupied until then).
+    /// later only needs a bay that is in service (it may be occupied until then). Team rule (2026-11-17): a booking
+    /// close to arrival may also take a bay whose vehicle is expected to leave in time (see <see cref="BayForecast"/>),
+    /// e.g. 15:30 in a bay booked until 15:00; it is locked once that vehicle has gone. <paramref name="arrival"/> null
+    /// means the bay is needed right now (a motorbike claim).
     /// </summary>
-    private async Task<Slot> LoadSlotForLotAsync(int slotId, int lotId, bool mustBeFreeNow)
+    private async Task<Slot> LoadSlotForLotAsync(int slotId, int lotId, bool mustBeFreeNow, DateTime? arrival = null)
     {
         var slot = await pmsContext.Slots.Include(s => s.Zone).FirstOrDefaultAsync(s => s.Id == slotId)
                    ?? throw new NotFoundException("Slot not found.");
@@ -504,13 +510,49 @@ public class ReservationService(
             throw new BadRequestException("The slot is not in this lot.");
         if (!slot.IsActive || slot.Status == SlotStatus.Maintenance)
             throw new ConflictException("This slot is out of service.");
-        if (mustBeFreeNow && slot.Status != SlotStatus.Available)
-            throw new ConflictException("This slot is no longer available.");
+        // Penalty bays are kept for towed vehicles: nobody books them
+        if (slot.Kind == SlotKind.Penalty)
+            throw new BadRequestException("This is a penalty bay and cannot be booked. Pick another bay.");
+        if (mustBeFreeNow && await BlockedForAsync(slot, lotId, arrival))
+        {
+            // An arrival inside the hold window needs a free bay now. When the whole lot is full for this vehicle
+            // type, say so: a later arrival can still be booked (the bay only needs to be free by then).
+            var types = await new ParkingInventory(pmsContext).VehicleTypesAsync();
+            var anyFree = (await pmsContext.Slots.AsNoTracking()
+                    .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available)
+                    .Select(s => s.VehicleTypeId)
+                    .Distinct()
+                    .ToListAsync())
+                .Any(typeId => ParkingInventory.Compatible(types, typeId, slot.VehicleTypeId));
+            throw new ConflictException(anyFree
+                ? "This bay is not free at that time: a vehicle is still in it, or it was just taken. Pick a later arrival or another bay."
+                : $"This parking lot is full for this vehicle type right now. Pick an arrival more than {(Rules.HoldAheadMinutes >= 60 ? $"{Rules.HoldAheadMinutes / 60.0:0.#} hours" : $"{Rules.HoldAheadMinutes} minutes")} from now, or another lot.");
+        }
         return slot;
     }
 
     /// <summary>
-    /// NFR-15 over time: no other booking of the bay overlaps the new window. A window runs from the arrival to the
+    /// True when the bay cannot be promised for <paramref name="arrival"/> (null: right now): a vehicle is in it (or still
+    /// at the entry lane on its way to it) and is not expected to have left by then. A bay held for another booking with
+    /// nobody in it yet is not blocked here; the overlap check of the booking windows decides then.
+    /// </summary>
+    private async Task<bool> BlockedForAsync(Slot slot, int lotId, DateTime? arrival)
+    {
+        var parked = await BayForecast.ParkedAsync(pmsContext, lotId, slot.Id);
+        if (slot.Status == SlotStatus.Available && parked.Count == 0)
+            return false;
+        if (arrival is not { } at || slot.Status is not (SlotStatus.Available or SlotStatus.Occupied or SlotStatus.Reserved))
+            return true;
+        return !parked.All(v => BayForecast.FreeFrom(v, options.TurnoverTime, Now) is { } free && free <= at);
+    }
+
+    /// <summary>True when the bay can be locked for a booking right now: free, with no vehicle in it or on its way.</summary>
+    private async Task<bool> LockableNowAsync(Slot slot) =>
+        slot.Status == SlotStatus.Available
+        && !await pmsContext.ParkingSessions.AnyAsync(s => s.SlotId == slot.Id && SessionStatus.Open.Contains(s.Status));
+
+    /// <summary>
+    /// No double booking over time: no other booking of the bay overlaps the new window. A window runs from the arrival to the
     /// departure plus the turnover gap (30 minutes), so a booking of 1:00 to 3:00 lets the next one arrive from 3:30;
     /// pay-as-you-go is open-ended.
     /// </summary>
@@ -526,12 +568,68 @@ public class ReservationService(
 
         foreach (var other in others)
         {
-            var otherFrom = other.StartTime;
-            DateTime? otherTo = other.BookingMode == BookingMode.Scheduled ? other.DepartureTime?.Add(gap) : null;
-            var overlaps = (to == null || otherFrom < to) && (otherTo == null || from < otherTo);
-            if (overlaps)
+            if (Overlaps(from, to, other.StartTime, other.DepartureTime, other.BookingMode, gap))
                 throw new ConflictException("This bay is already booked for part of that time. Pick another time or bay.");
         }
+    }
+
+    /// <summary>
+    /// True when the window <paramref name="from"/>..<paramref name="to"/> (to: departure plus the gap, null when
+    /// open-ended) meets another booking's window; a pay-as-you-go booking runs on with no end.
+    /// </summary>
+    private static bool Overlaps(DateTime from, DateTime? to, DateTime otherFrom, DateTime? otherDeparture, string otherMode, TimeSpan gap)
+    {
+        DateTime? otherTo = otherMode == BookingMode.Scheduled ? otherDeparture?.Add(gap) : null;
+        return (to == null || otherFrom < to) && (otherTo == null || from < otherTo);
+    }
+
+    public async Task<IReadOnlyList<BayForecastModel>> GetBayForecastAsync(int lotId, DateTimeOffset arrivalTime, DateTimeOffset? departureTime)
+    {
+        var now = ToUtcMinute(Now);
+        var arrival = ToUtcMinute(arrivalTime);
+        if (arrival < now)
+            arrival = now;
+        DateTime? departure = departureTime is { } d && ToUtcMinute(d) > arrival ? ToUtcMinute(d) : null;
+        var gap = options.TurnoverTime;
+        var to = departure?.Add(gap);
+
+        var slots = await pmsContext.Slots.AsNoTracking()
+            .Where(s => s.Zone.ParkingLotId == lotId)
+            .Select(s => new { s.Id, s.IsActive, ZoneActive = s.Zone.IsActive, s.Status, s.Kind })
+            .ToListAsync();
+        var bookings = (await pmsContext.Reservations.AsNoTracking()
+                .Where(r => r.ParkingLotId == lotId && r.SlotId != null && ReservationStatus.Active.Contains(r.Status))
+                .Select(r => new { SlotId = r.SlotId!.Value, r.StartTime, r.DepartureTime, r.BookingMode })
+                .ToListAsync())
+            .ToLookup(r => r.SlotId);
+        var parked = (await BayForecast.ParkedAsync(pmsContext, lotId)).ToLookup(v => v.SlotId);
+        // A booking further ahead than the hold window may take an occupied bay, as before (Staff handle it if it stays)
+        var closeToArrival = ShouldHoldNow(arrival);
+
+        return slots.Select(slot =>
+        {
+            if (slot.Kind == SlotKind.Penalty)
+                return Forecast(slot.Id, BayForecastState.Penalty, false);
+            if (!slot.IsActive || !slot.ZoneActive || slot.Status == SlotStatus.Maintenance)
+                return Forecast(slot.Id, BayForecastState.OutOfService, false);
+
+            // Whether a vehicle parked now is still in the bay at arrival (no planned exit, or one after it): the map
+            // draws a car only then, whatever booking also covers that time
+            var vehicles = parked[slot.Id].ToList();
+            var parkedThen = vehicles.Any(v => v.ExpectedLeave is not { } leave || (leave < Now ? Now : leave) > arrival);
+            if (bookings[slot.Id].Any(b => Overlaps(arrival, to, b.StartTime, b.DepartureTime, b.BookingMode, gap)))
+                return new BayForecastModel { SlotId = slot.Id, State = BayForecastState.Booked, Bookable = false, ParkedThen = parkedThen };
+
+            if (vehicles.Count == 0)
+                return Forecast(slot.Id, BayForecastState.Free, true);
+            var frees = vehicles.Select(v => BayForecast.FreeFrom(v, gap, Now)).ToList();
+            if (frees.All(f => f != null && f <= arrival))
+                return new BayForecastModel { SlotId = slot.Id, State = BayForecastState.FreeingUp, Bookable = true, FreeFrom = Utc(frees.Max()!.Value) };
+            return new BayForecastModel { SlotId = slot.Id, State = BayForecastState.Occupied, Bookable = !closeToArrival, ParkedThen = parkedThen };
+        }).ToList();
+
+        static BayForecastModel Forecast(int slotId, string state, bool bookable) =>
+            new() { SlotId = slotId, State = state, Bookable = bookable };
     }
 
     /// <summary>
@@ -560,11 +658,16 @@ public class ReservationService(
             if (await pmsContext.ParkingSessions.AnyAsync(s => s.SlotId == reservation.SlotId && s.ReservationId != reservation.Id
                                                                && SessionStatus.Open.Contains(s.Status)))
                 continue;
+            // An earlier booking still holds the bay (booked back to back): wait for it instead of moving away
+            if (await pmsContext.Reservations.AnyAsync(r => r.SlotId == reservation.SlotId && r.Id != reservation.Id && r.SlotHeldAt != null
+                                                            && ReservationStatus.Active.Contains(r.Status)))
+                continue;
 
             // The booked bay first, then free bays of the same lot that fit the vehicle
             var candidates = new List<int> { reservation.SlotId!.Value };
             candidates.AddRange(await pmsContext.Slots.AsNoTracking()
-                .Where(s => s.Zone.ParkingLotId == reservation.ParkingLotId && s.IsActive && s.Status == SlotStatus.Available && s.Id != reservation.SlotId)
+                .Where(s => s.Zone.ParkingLotId == reservation.ParkingLotId && s.IsActive && s.Status == SlotStatus.Available && s.Id != reservation.SlotId
+                            && s.Kind != SlotKind.Penalty)
                 .OrderBy(s => s.ZoneId == reservation.ZoneId ? 0 : 1).ThenBy(s => s.Id)
                 .Select(s => s.Id)
                 .Take(50)

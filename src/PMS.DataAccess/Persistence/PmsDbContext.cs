@@ -1435,6 +1435,13 @@ public partial class PmsDbContext : DbContext
             entity.Property(e => e.LastUpdatedAt)
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())");
+            // Added by AutomatedMigration (AddedColumns); existing rows start at Available
+            entity.Property(e => e.AlertLevel)
+                .IsRequired()
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("Available");
+            entity.Property(e => e.AlertChangedAt).HasPrecision(3);
 
             entity.HasIndex(e => e.ZoneId).IsUnique();
         });

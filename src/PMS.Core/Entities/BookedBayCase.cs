@@ -3,7 +3,7 @@ using System;
 namespace PMS.DataAccess.Persistence.Entities;
 
 /// <summary>
-/// A walk-in parked in the bay of a confirmed booking (BR-08). Opened as soon as the walk-in is recorded in that bay;
+/// A walk-in parked in the bay of a confirmed booking. Opened as soon as the walk-in is recorded in that bay;
 /// the lot's Staff either move the booking to another free bay of its type, or, when none is left, cancel it with the
 /// deposit refunded and a compensation paid into the customer's XXIV wallet. Closed on its own when the walk-in
 /// leaves first or the booking ends another way. Never deleted.
@@ -27,6 +27,12 @@ public class BookedBayCase
 
     /// <summary>Bay the booking was moved to (Reassigned).</summary>
     public int? NewSlotId { get; set; }
+
+    /// <summary>Bay the offending vehicle was towed to (Relocated): a penalty bay, or a walk-in bay when every penalty bay was taken.</summary>
+    public int? RelocatedToSlotId { get; set; }
+
+    /// <summary>Penalty the offending vehicle owes at check-out (Relocated).</summary>
+    public decimal PenaltyFee { get; set; }
 
     /// <summary>Deposit refunded to the wallet (Compensated).</summary>
     public decimal DepositRefunded { get; set; }

@@ -16,7 +16,7 @@ namespace PMS.API;
 
 public static class ApiDependencyInjection
 {
-    /// <summary>Rate limit for the public 3D layout channel (SRS FR-3D-08).</summary>
+    /// <summary>Rate limit for the public 3D layout channel.</summary>
     public const string PublicLayoutRateLimit = "public-layout";
 
     /// <summary>Rate limit for the forgot / reset password endpoints, which send emails and check tokens.</summary>
@@ -109,6 +109,11 @@ public static class ApiDependencyInjection
         app.UseHangfireDashboard("/hangfire");
 
         var jobs = app.Services.GetRequiredService<IRecurringJobManager>();
+        // Duty board: absences and forgotten check-outs; on the 1st, last month's payslips for the Admins
+        jobs.AddOrUpdate<DutyJobs>(DutyJobs.AttendanceJobId, j => j.RunAttendanceAsync(), Cron.Minutely());
+        jobs.AddOrUpdate<DutyJobs>(DutyJobs.PayrollJobId, j => j.PreparePayrollAsync(), Cron.Hourly());
+        jobs.RemoveIfExists("work-attendance-deadlines");
+        jobs.RemoveIfExists("work-request-deadlines");
         jobs.AddOrUpdate<LotJobs>(LotJobs.ReopenDueLotsJobId, j => j.ReopenDueLotsAsync(), Cron.Minutely());
         jobs.AddOrUpdate<LotJobs>(LotJobs.CleanupCredentialsJobId, j => j.CleanupExpiredCredentialsAsync(), Cron.Daily(3));
         // BR-26: vehicle paper photos are deleted 30 days after the final decision

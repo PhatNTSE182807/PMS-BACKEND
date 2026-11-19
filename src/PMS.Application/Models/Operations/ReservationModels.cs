@@ -1,6 +1,6 @@
 namespace PMS.Application.Models.Operations;
 
-/// <summary>Book a slot picked on the 3D model (FR-RSV-02).</summary>
+/// <summary>Book a slot picked on the 3D model.</summary>
 public class CreateReservationModel
 {
     public int ParkingLotId { get; set; }
@@ -25,7 +25,7 @@ public class CreateReservationModel
     public bool PayDeposit { get; set; } = true;
 }
 
-/// <summary>Change the arrival time and/or the slot before the change deadline (FR-RSV-03).</summary>
+/// <summary>Change the arrival time and/or the slot before the change deadline.</summary>
 public class UpdateReservationModel
 {
     public DateTimeOffset? ArrivalTime { get; set; }
@@ -87,7 +87,7 @@ public class ReservationResponseModel
     /// <summary>The bay is marked Reserved for this booking now (it is locked shortly before arrival).</summary>
     public bool IsSlotHeld { get; set; }
 
-    /// <summary>BR-02: check-in window.</summary>
+    /// <summary>Check-in window.</summary>
     public DateTime CheckInFrom { get; set; }
 
     public DateTime CheckInUntil { get; set; }
@@ -103,7 +103,7 @@ public class ReservationResponseModel
     /// <summary>The same hold in seconds (a simulated hold can be shorter than a minute).</summary>
     public int HoldSeconds { get; set; }
 
-    /// <summary>Pay the deposit before this or the reservation expires (BR-06).</summary>
+    /// <summary>Pay the deposit before this or the reservation expires.</summary>
     public DateTime? DepositDueAt { get; set; }
 
     public decimal RefundAmount { get; set; }
@@ -116,12 +116,12 @@ public class ReservationResponseModel
 
     public DateTime? ConfirmedAt { get; set; }
 
-    /// <summary>The arrival time / slot can still be changed (FR-RSV-03).</summary>
+    /// <summary>The arrival time / slot can still be changed.</summary>
     public bool CanChange { get; set; }
 
     public bool CanCancel { get; set; }
 
-    /// <summary>What a cancellation now would refund (BR-04).</summary>
+    /// <summary>What a cancellation now would refund.</summary>
     public decimal RefundIfCancelledNow { get; set; }
 
     /// <summary>The open deposit payment, if one was started.</summary>
@@ -158,7 +158,7 @@ public class GateReservationLookupModel
     public string OpenSessionCode { get; set; }
 }
 
-/// <summary>Signed reservation QR (FR-RSV-04, NFR-16); the app renders <see cref="QrPayload"/> as a QR code.</summary>
+/// <summary>Signed reservation QR; the app renders <see cref="QrPayload"/> as a QR code.</summary>
 public class ReservationQrModel
 {
     public long ReservationId { get; set; }
@@ -170,4 +170,49 @@ public class ReservationQrModel
     public DateTime ValidFrom { get; set; }
 
     public DateTime ValidUntil { get; set; }
+}
+
+/// <summary>
+/// What a bay of the lot is expected to be during the window a customer is about to book (team rule of 2026-11-17):
+/// the 3D model draws these instead of the live status, so a bay booked until 15:00 shows as bookable from 15:30.
+/// </summary>
+public class BayForecastModel
+{
+    public int SlotId { get; set; }
+
+    /// <summary>Free, FreeingUp, Booked, Occupied, OutOfService or Penalty (see BayForecastState).</summary>
+    public string State { get; set; }
+
+    /// <summary>True when the window can be booked in this bay.</summary>
+    public bool Bookable { get; set; }
+
+    /// <summary>FreeingUp: when the vehicle in the bay now is expected to be gone (UTC).</summary>
+    public DateTime? FreeFrom { get; set; }
+
+    /// <summary>
+    /// A vehicle parked in the bay now is still expected there at the arrival time. A bay Booked for that time by a
+    /// booking whose vehicle has not checked in yet is false: the map draws no car there.
+    /// </summary>
+    public bool ParkedThen { get; set; }
+}
+
+/// <summary>Expected states of a bay for a booking window.</summary>
+public static class BayForecastState
+{
+    /// <summary>Nothing in the bay now and no booking overlaps the window.</summary>
+    public const string Free = "Free";
+
+    /// <summary>A vehicle is in the bay now but is expected to leave before the window starts.</summary>
+    public const string FreeingUp = "FreeingUp";
+
+    /// <summary>Another booking overlaps the window (turnover gap included).</summary>
+    public const string Booked = "Booked";
+
+    /// <summary>A vehicle with no planned exit, or one leaving too late, is in the bay.</summary>
+    public const string Occupied = "Occupied";
+
+    public const string OutOfService = "OutOfService";
+
+    /// <summary>Kept for towed vehicles; never booked.</summary>
+    public const string Penalty = "Penalty";
 }

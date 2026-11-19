@@ -13,7 +13,11 @@ namespace PMS.Application.Services.Impl;
 /// the context and the matching pushes are queued; call <see cref="FlushAsync"/> after SaveChanges.
 /// Counter rule: a held (Reserved) or parked bay is not available; Occupied counts vehicles inside.
 /// </summary>
-public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotNotifier = null, IParkingRealtimeNotifier notifier = null)
+public class ParkingInventory(
+    PmsDbContext pmsContext,
+    ILotRealtimeNotifier lotNotifier = null,
+    IParkingRealtimeNotifier notifier = null,
+    IUserNotificationPublisher fillAlerts = null)
 {
     /// <summary>One gate per slot id: holds of the same slot never interleave inside this API process.</summary>
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> SlotGates = new();
@@ -23,7 +27,7 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
     /// <summary>
     /// Runs <paramref name="action"/> while no other request of this process works on the same slots.
     /// Across processes the Slot RowVersion and the unique index IX_Reservations_SlotId_Held keep the
-    /// first holder the winner (NFR-15); losers get a <see cref="ConflictException"/>.
+    /// first holder the winner; losers get a <see cref="ConflictException"/>.
     /// </summary>
     public static async Task<T> WithSlotLockAsync<T>(IEnumerable<int> slotIds, Func<Task<T>> action)
     {
@@ -64,7 +68,7 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
         var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
         var free = await pmsContext.Slots.AsNoTracking()
             .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available
-                        && !occupied.Contains(s.Id))
+                        && s.Kind != SlotKind.Penalty && !occupied.Contains(s.Id))
             .ToListAsync();
         if (vehicleTypeId is { } typeId)
         {
@@ -150,7 +154,10 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
             await AdjustCounterAsync(zoneId.Value, lotId, available: heldBefore ? 0 : -1, occupied: +1);
     }
 
-    /// <summary>The vehicle left (or a ghost session was closed): the bay and the space come back.</summary>
+    /// <summary>
+    /// The vehicle left (or a ghost session was closed): the bay and the space come back. A vehicle in a penalty bay
+    /// gave its space back to the zone when it was towed there, so only the bay comes back.
+    /// </summary>
     public async Task LeaveAsync(int? zoneId, int? slotId, int lotId)
     {
         if (slotId != null)
@@ -162,13 +169,15 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
                 zoneId ??= slot.ZoneId;
                 QueueSlot(lotId, slot);
             }
+            if (slot?.Kind == SlotKind.Penalty)
+                return;
         }
 
         if (zoneId != null)
             await AdjustCounterAsync(zoneId.Value, lotId, available: +1, occupied: -1);
     }
 
-    /// <summary>Moves a zone counter, kept within 0..capacity (BR-19: a forced entry may leave it off by one).</summary>
+    /// <summary>Moves a zone counter, kept within 0..capacity (a forced entry may leave it off by one).</summary>
     public async Task AdjustCounterAsync(int zoneId, int lotId, int available, int occupied)
     {
         var counter = pmsContext.ZoneCounters.Local.FirstOrDefault(c => c.ZoneId == zoneId)
@@ -182,6 +191,33 @@ public class ParkingInventory(PmsDbContext pmsContext, ILotRealtimeNotifier lotN
         var (a, o, t) = (counter.AvailableSpaces, counter.OccupiedSpaces, counter.TotalCapacity);
         if (notifier != null)
             _pushes.Add(() => notifier.ZoneCounterChangedAsync(lotId, zoneId, a, o, t));
+
+        TrackFillLevel(counter);
+    }
+
+    /// <summary>
+    /// Moves the zone's saved fill alert level along with its counter and, when the zone just became almost full,
+    /// full, or has space again, queues the Staff / Manager notice (sent after SaveChanges, by <see cref="FlushAsync"/>).
+    /// The level is saved with the counter, so the same alert is never sent twice.
+    /// </summary>
+    private void TrackFillLevel(ZoneCounter counter)
+    {
+        var previous = ZoneFillLevel.Normalize(counter.AlertLevel);
+        var next = ZoneFillLevel.NextAlertLevel(previous, counter.TotalCapacity, counter.AvailableSpaces);
+        if (next == previous) return;
+
+        var changedAt = DateTime.UtcNow;
+        counter.AlertLevel = next;
+        counter.AlertChangedAt = changedAt;
+
+        var notice = ZoneFillLevel.NoticeFor(previous, next);
+        var zoneId = counter.ZoneId;
+        if (notice != null && fillAlerts != null)
+            _pushes.Add(() =>
+            {
+                fillAlerts.ZoneFillChanged(zoneId, notice, changedAt);
+                return Task.CompletedTask;
+            });
     }
 
     /// <summary>Zones of the lot with their counter and the vehicle type of their bays.</summary>

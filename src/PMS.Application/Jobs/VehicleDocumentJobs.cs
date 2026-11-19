@@ -10,7 +10,7 @@ namespace PMS.Application.Jobs;
 
 /// <summary>
 /// Background work on vehicle papers, run by Hangfire (see PMS.API): the daily deletion of photos
-/// 30 days after the final decision, and of drafts abandoned for as long (BR-26).
+/// 30 days after the final decision, and of drafts abandoned for as long.
 /// </summary>
 public class VehicleDocumentJobs(
     PmsDbContext pmsContext,
@@ -20,7 +20,7 @@ public class VehicleDocumentJobs(
     public const string PurgeDocumentsJobId = "purge-vehicle-documents";
 
     /// <summary>
-    /// BR-26: deletes the photos of checks decided more than RetentionDays ago (the result row stays),
+    /// Deletes the photos of checks decided more than RetentionDays ago (the result row stays),
     /// and drafts abandoned for as long. Returns the number of files deleted.
     /// </summary>
     public async Task<int> PurgeExpiredDocumentsAsync()

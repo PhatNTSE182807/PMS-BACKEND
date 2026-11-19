@@ -12,6 +12,7 @@ namespace PMS.API.Controllers;
 [Authorize(Roles = "Admin,Manager")]
 public class ZonesController(IZoneService zoneService) : ApiController
 {
+    /// <summary>Lists zones, all or of one lot.</summary>
     [HttpGet]
     public async Task<IActionResult> GetAllAsync([FromQuery] int? lotId = null)
     {
@@ -19,14 +20,15 @@ public class ZonesController(IZoneService zoneService) : ApiController
             await zoneService.GetAllAsync(lotId)));
     }
 
+    /// <summary>Zones of one lot.</summary>
     [HttpGet("/api/lots/{lotId:int}/zones")]
-    [HttpGet("/api/parking-lots/{lotId:int}/zones")]
     public async Task<IActionResult> GetByLotIdAsync(int lotId)
     {
         return Ok(ApiResult<IEnumerable<ZoneResponseModel>>.Success(
             await zoneService.GetByLotIdAsync(lotId)));
     }
 
+    /// <summary>One zone.</summary>
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetByIdAsync(int id)
     {
@@ -36,6 +38,7 @@ public class ZonesController(IZoneService zoneService) : ApiController
 
     // Zones are generated from the lot's ready-made model (LotTemplates); there is no create or delete.
     // Only an Admin adjusts a zone (name, reservation share); Managers do not configure lots.
+    /// <summary>Updates a zone's configuration: name, zone type, floor and capacity.</summary>
     [HttpPut("{id:int}")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateZoneModel model)

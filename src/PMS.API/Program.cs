@@ -43,6 +43,10 @@ await AutomatedMigration.MigrateAsync(scope.ServiceProvider);
 
 var pmsContext = scope.ServiceProvider.GetRequiredService<PmsDbContext>();
 await PMS.Application.Helpers.ParkingLotDataSeed.SeedParkingLotsAsync(pmsContext);
+// Penalty bays for lots built from a template before they existed, or with fewer than their model now has
+// Normal bays a model gained since a lot was built (the Wide deck went from 50 to 52 a level)
+await PMS.Application.Helpers.LotTemplates.AddMissingStandardBaysAsync(pmsContext);
+await PMS.Application.Helpers.LotTemplates.AddMissingPenaltyBaysAsync(pmsContext);
 
 // Demo accounts and parking data for manual testing, when "Seed:DemoData" is true (docs/DEMO_DATA.md)
 await PMS.Application.Helpers.DemoData.DemoDataSeed.SeedIfEnabledAsync(scope.ServiceProvider);

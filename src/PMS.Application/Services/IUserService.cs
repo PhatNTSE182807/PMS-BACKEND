@@ -9,8 +9,6 @@ public interface IUserService
 {
     Task<CreateUserResponseModel> CreateAsync(CreateUserModel createUserModel);
 
-    Task<CreateUserResponseModel> CreateInternalUserAsync(CreateInternalUserModel createInternalUserModel);
-
     Task<CreateUserResponseModel> CreateManagerAsync(CreateEmployeeAccountModel model);
 
     Task<CreateUserResponseModel> CreateStaffAsync(CreateEmployeeAccountModel model);
@@ -23,11 +21,7 @@ public interface IUserService
 
     Task<LoginResponseModel> LoginWithGoogleAsync(GoogleLoginModel model);
 
-    Task<IEnumerable<UserResponseModel>> GetAllAsync(string role = null, bool? isActive = null, string searchTerm = null);
-
     Task<IEnumerable<UserResponseModel>> GetInternalUsersAsync(string role = null, bool? isActive = null, string searchTerm = null);
-
-    Task<UserResponseModel> GetByIdAsync(string id);
 
     Task<bool> UpdateUserStatusAsync(string currentUserId, string targetUserId, bool isActive);
 

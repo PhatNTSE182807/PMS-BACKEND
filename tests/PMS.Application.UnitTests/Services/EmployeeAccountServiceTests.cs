@@ -128,16 +128,6 @@ public class EmployeeAccountServiceTests
     }
 
     [Fact]
-    public async Task SetManagerStatusAsync_Should_Deactivate_And_Keep_Lots()
-    {
-        var result = await _sut.SetManagerStatusAsync(ManagerId, false);
-
-        result.IsActive.Should().BeFalse();
-        result.Status.Should().Be("Inactive");
-        result.ParkingLots.Should().ContainSingle();
-    }
-
-    [Fact]
     public async Task AssignManagerLotsAsync_Should_Assign_Free_Lots_And_Release_The_Others()
     {
         var result = await _sut.AssignManagerLotsAsync(ManagerId, new AssignParkingLotsModel { ParkingLotIds = [3] });
@@ -188,14 +178,6 @@ public class EmployeeAccountServiceTests
     }
 
     /* Manager -> Staff */
-
-    [Fact]
-    public async Task GetManagedLotsAsync_Should_Return_Only_The_Managers_Lots()
-    {
-        var result = await _sut.GetManagedLotsAsync(ManagerId);
-
-        result.Should().ContainSingle().Which.Id.Should().Be(1);
-    }
 
     [Fact]
     public async Task GetStaffLotsAsync_Should_Return_The_Staffs_Own_Lot()

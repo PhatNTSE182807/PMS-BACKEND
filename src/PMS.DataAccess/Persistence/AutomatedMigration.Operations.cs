@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 namespace PMS.DataAccess.Persistence;
 
 /// <summary>
-/// Tables for reservations, gate sessions and payments (SRS section 8). Each statement only runs when
+/// Tables for reservations, gate sessions and payments. Each statement only runs when
 /// the table, column or index is missing, so it is safe on databases created from the full script.
 /// </summary>
 public static partial class AutomatedMigration
@@ -32,6 +32,10 @@ public static partial class AutomatedMigration
         ("Reservations", "BookingMode", "[varchar](20) NULL"),
         ("Reservations", "DepartureTime", "[datetime2](3) NULL"),
         ("Reservations", "SlotHeldAt", "[datetime2](3) NULL"),
+
+        // Zone fill alerts (almost full / full / space again) sent to the lot's Staff and Manager
+        ("ZoneCounters", "AlertLevel", "[varchar](20) NOT NULL DEFAULT 'Available'"),
+        ("ZoneCounters", "AlertChangedAt", "[datetime2](3) NULL"),
 
         ("ParkingSessions", "SessionType", "[varchar](20) NULL"),
         ("ParkingSessions", "VehicleTypeId", "[int] NULL"),
@@ -97,8 +101,42 @@ public static partial class AutomatedMigration
         ("Payments", "UpdatedAt", "[datetime2](3) NULL"),
 
         // Compensation when a walk-in took a booked bay and no other bay was free (BR-08, team addition)
-        ("PricingRules", "BookedBayCompensation", "[decimal](18,2) NOT NULL DEFAULT 0")
+        ("PricingRules", "BookedBayCompensation", "[decimal](18,2) NOT NULL DEFAULT 0"),
+
+        // Penalty bays: towing a vehicle out of a booked bay (team rule of 2026-11-15)
+        ("Slots", "Kind", "[varchar](20) NOT NULL DEFAULT 'Standard'"),
+        ("PricingRules", "PenaltyFee", "[decimal](18,2) NOT NULL DEFAULT 0"),
+        ("ParkingSessions", "PenaltyReason", "[varchar](20) NULL"),
+        ("ParkingSessions", "PenaltyFee", "[decimal](18,2) NOT NULL DEFAULT 0"),
+        ("ParkingSessions", "RelocatedAt", "[datetime2](3) NULL"),
+        ("ParkingSessions", "RelocatedFromSlotId", "[int] NULL"),
+        ("BookedBayCases", "RelocatedToSlotId", "[int] NULL"),
+        ("BookedBayCases", "PenaltyFee", "[decimal](18,2) NOT NULL DEFAULT 0")
     ];
+
+    /// <summary>
+    /// Once per database: pricing rules get the default penalty for a towed vehicle (cars 200,000 VND, motorbikes
+    /// 50,000 VND). A marker in SystemSettings stops it running again, so a Manager who later sets 0 keeps that choice.
+    /// </summary>
+    private static async Task SetPenaltyFeeDefaultsAsync(PmsDbContext pmsContext)
+    {
+        await pmsContext.Database.ExecuteSqlRawAsync($@"
+            IF NOT EXISTS (SELECT 1 FROM [dbo].[SystemSettings] WHERE [SettingKey] = N'Migration.PenaltyFeeDefaults')
+            BEGIN
+                UPDATE r SET [PenaltyFee] =
+                    CASE WHEN t.[Code] LIKE 'CAR%' THEN {Entities.PricingRule.DefaultCarPenalty:0}
+                         WHEN t.[Code] = 'MOTORBIKE' THEN {Entities.PricingRule.DefaultMotorbikePenalty:0}
+                         ELSE r.[PenaltyFee] END
+                FROM [dbo].[PricingRules] r
+                JOIN [dbo].[VehicleTypes] t ON t.[Id] = r.[VehicleTypeId]
+                WHERE r.[PenaltyFee] = 0;
+
+                INSERT INTO [dbo].[SystemSettings] ([SettingKey], [SettingValue], [ValueType], [Category], [Description], [UpdatedAt])
+                VALUES (N'Migration.PenaltyFeeDefaults', N'done', 'string', N'Migration',
+                        N'Penalty fee defaults for towed vehicles (cars 200,000 VND, motorbikes 50,000 VND) applied to existing pricing rules.',
+                        SYSUTCDATETIME());
+            END");
+    }
 
     /// <summary>
     /// Once per database: pricing rules that still have no booked bay compensation get the defaults (cars

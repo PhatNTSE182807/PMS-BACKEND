@@ -146,8 +146,8 @@ public class ParkingLotService(
                 z.Name,
                 Counter = z.ZoneCounter,
                 TypeCode = z.Slots.Where(s => s.IsActive).Select(s => s.VehicleType.Code).FirstOrDefault(),
-                SlotTotal = z.Slots.Count(s => s.IsActive),
-                SlotFree = z.Slots.Count(s => s.IsActive && s.Status == SlotStatus.Available)
+                SlotTotal = z.Slots.Count(s => s.IsActive && s.Kind != SlotKind.Penalty),
+                SlotFree = z.Slots.Count(s => s.IsActive && s.Kind != SlotKind.Penalty && s.Status == SlotStatus.Available)
             })
             .ToListAsync();
 
@@ -278,9 +278,11 @@ public class ParkingLotService(
                     vType = z.Name.Contains("Motorbike", StringComparison.OrdinalIgnoreCase) ? "MOTORBIKE" : "CAR";
                 }
 
-                var maintenance = z.Slots.Count(s => s.IsActive && s.Status == SlotStatus.Maintenance);
-                var total = z.ZoneCounter?.TotalCapacity ?? z.Slots.Count(s => s.IsActive);
-                var occupied = z.ZoneCounter?.OccupiedSpaces ?? z.Slots.Count(s => s.IsActive && (s.Status == SlotStatus.Occupied || s.Status == SlotStatus.Reserved));
+                // Penalty bays are not capacity (towed vehicles only)
+                var bays = z.Slots.Where(s => s.IsActive && s.Kind != SlotKind.Penalty).ToList();
+                var maintenance = bays.Count(s => s.Status == SlotStatus.Maintenance);
+                var total = z.ZoneCounter?.TotalCapacity ?? bays.Count;
+                var occupied = z.ZoneCounter?.OccupiedSpaces ?? bays.Count(s => s.Status == SlotStatus.Occupied || s.Status == SlotStatus.Reserved);
                 var available = Math.Max(0, total - occupied - maintenance);
 
                 zoneDetails.Add((z, vType, total, occupied, available, maintenance));
@@ -334,8 +336,13 @@ public class ParkingLotService(
             var zoneDtos = zoneDetails.Select(zd =>
             {
                 var usable = Math.Max(0, zd.Total - zd.Maintenance);
-                var rate = usable > 0 ? (double)zd.Occupied * 100 / usable : 0;
-                var zStatus = rate > 90 ? "FULL" : rate >= 70 ? "WARNING" : "AVAILABLE";
+                // Same thresholds as the customer labels and the Staff / Manager fill alerts
+                var zStatus = ZoneFillLevel.Live(usable, usable - zd.Occupied) switch
+                {
+                    ZoneFillLevel.Full => "FULL",
+                    ZoneFillLevel.AlmostFull => "WARNING",
+                    _ => "AVAILABLE"
+                };
 
                 return new ZoneCapacityDetailModel
                 {
@@ -594,7 +601,7 @@ public class ParkingLotService(
             UpdatedAt = p.UpdatedAt,
             CreatedBy = p.CreatedBy,
             TotalZones = p.Zones?.Count ?? 0,
-            TotalSlots = p.Zones?.Sum(z => z.Slots?.Count ?? 0) ?? 0
+            TotalSlots = p.Zones?.Sum(z => z.Slots?.Count(s => s.Kind != SlotKind.Penalty) ?? 0) ?? 0
         };
     }
 }

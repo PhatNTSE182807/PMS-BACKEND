@@ -43,7 +43,7 @@ can empty that folder at the same time.
 Demo passwords: Managers **`Manager123@`**, Staff **`Staff123@`**, customers **`Demo@123`**. Demo
 Managers and Staff that still had `Demo@123` from an older seed are moved to their new password on the
 next start. Internal accounts sign in with the username,
-customers with the email (either works). Emails use `example.com`, so no mail is ever delivered.
+customers with the email (either works). Emails use `gmail.com` (since 2026-11-17; accounts seeded with `example.com` are moved on the next start). These are real-looking addresses: password-reset and other mails may be sent to them.
 
 The Admin comes from the base seed: `systemadmin` / `admin@gmail.com`, password `Admin123@`.
 
@@ -62,25 +62,37 @@ The Admin comes from the base seed: `systemadmin` / `admin@gmail.com`, password 
 | `staff.fsoft2` | Võ Hoàng Nam | Staff | Fsoft | |
 | `staff.conghoa1` | Phan Thị Mai | Staff | Cong Hoa | |
 | `staff.conghoa2` | Bùi Đức Anh | Staff | Cong Hoa | **deactivated**: sign-in is refused |
+| `staff.fptu3` … `staff.fptu5` | Đỗ Thị Lan, Ngô Văn Hùng, Hồ Thị Thu | Staff (full-time) | FPT University | |
+| `staff.fsoft3` … `staff.fsoft5` | Mai Quốc Khánh, Tạ Thị Ngọc, Châu Minh Trí | Staff (full-time) | Fsoft | |
+| `staff.conghoa3` … `staff.conghoa6` | Lâm Thị Yến, Dương Văn Phúc, Kiều Thị Hạnh, Tôn Thất Vinh | Staff (full-time) | Cong Hoa | |
+| `backup.fptu1` … `backup.fptu5` | | Staff (backup) | FPT University | paid by the hour, only on shifts the Manager gives them |
+| `backup.fsoft1` … `backup.fsoft5` | | Staff (backup) | Fsoft | |
+| `backup.conghoa1` … `backup.conghoa5` | | Staff (backup) | Cong Hoa | |
+
+Every operating lot has five active full-time Staff and a weekly duty pattern (starting this week's Monday):
+each full-time Staff works one 6-hour shift a day with one day off, so all 28 shifts of the week are covered.
+The 4 shifts cover the whole day, so **someone is always on shift**: open the Manager's Work schedule to see who
+(the Staff on the current shift can start it and use the POS; the others see Off duty). Staff hired from
+`staff.fptu3` on joined on the 1st, four months ago, so they can ask for leave at once.
 
 ### Customers
 
 | Email | Name | Wallet | Vehicles (papers) | Use it to test |
 | --- | --- | --- | --- | --- |
-| `an.nguyen@example.com` | Nguyễn Văn An | ≥ 200,000 | 51K-123.45 car, 51H-678.90 7-seat, 59X1-234.56 motorbike (all approved) | parked car paid in the app; booking arriving now; the 2-booking limit |
-| `binh.tran@example.com` | Trần Thị Bình | ≥ 200,000 | 30G-555.88 car (approved) | check-out of a booking: deposit deducted |
-| `cuong.le@example.com` | Lê Hoàng Cường | none | 51F-246.80 car (waiting for Staff), 59T2-135.79 motorbike (draft: Citizen ID photo missing) | finishing an upload; Staff approving papers; first wallet top-up |
-| `dung.pham@example.com` | Phạm Thu Dung | 100,000 | 43A-246.13 car (approved), 43A-777.99 7-seat (waiting: owner on the paper differs), 29A-111.22 (rejected, removed) | booking with a deposit from the wallet; Staff rejecting papers; the rejection notice |
-| `em.vo@example.com` | Võ Minh Em | 50,000 | 51G-999.01 car (approved) | lost ticket; wallet too low for the fine |
-| `giang.hoang@example.com` | Hoàng Gia Giang | ≥ 200,000 | 51L-202.02 car (approved) | exit window after paying in the app |
-| `hai.do@example.com` | Đỗ Thanh Hải | ≥ 200,000 | 59C1-468.02 motorbike, 51A-864.20 car (approved) | check-out request from the app; long history |
-| `khoa.mai@example.com` | Mai Đăng Khoa | none | none, no Citizen ID | a brand-new account: profile first, then a vehicle |
+| `an.nguyen@gmail.com` | Nguyễn Văn An | ≥ 200,000 | 51K-123.45 car, 51H-678.90 7-seat, 59X1-234.56 motorbike (all approved) | parked car paid in the app; booking arriving now; the 2-booking limit |
+| `binh.tran@gmail.com` | Trần Thị Bình | ≥ 200,000 | 30G-555.88 car (approved) | check-out of a booking: deposit deducted |
+| `cuong.le@gmail.com` | Lê Hoàng Cường | none | 51F-246.80 car (waiting for Staff), 59T2-135.79 motorbike (draft: Citizen ID photo missing) | finishing an upload; Staff approving papers; first wallet top-up |
+| `dung.pham@gmail.com` | Phạm Thu Dung | 100,000 | 43A-246.13 car (approved), 43A-777.99 7-seat (waiting: owner on the paper differs), 29A-111.22 (rejected, removed) | booking with a deposit from the wallet; Staff rejecting papers; the rejection notice |
+| `em.vo@gmail.com` | Võ Minh Em | 50,000 | 51G-999.01 car (approved) | lost ticket; wallet too low for the fine |
+| `giang.hoang@gmail.com` | Hoàng Gia Giang | ≥ 200,000 | 51L-202.02 car (approved) | exit window after paying in the app |
+| `hai.do@gmail.com` | Đỗ Thanh Hải | ≥ 200,000 | 59C1-468.02 motorbike, 51A-864.20 car (approved) | check-out request from the app; long history |
+| `khoa.mai@gmail.com` | Mai Đăng Khoa | none | none, no Citizen ID | a brand-new account: profile first, then a vehicle |
 
 ## Lots
 
 | Lot | Model | People on duty | Lanes | Prices (active rule per vehicle type) |
 | --- | --- | --- | --- | --- |
-| FPT University (`LOT-FPTU-01`) | Wide deck, 3 × 50 | `mgr.fptu`, 2 Staff | IN-1, IN-2, OUT-1, OUT-2 | hourly blocks: car 20,000/h (cap 150,000), 7-seat 25,000/h, motorbike 5,000 per 4 h; car rule is version 2 (price change in its history) |
+| FPT University (`LOT-FPTU-01`) | Wide deck, 3 × 52 | `mgr.fptu`, 2 Staff | IN-1, IN-2, OUT-1, OUT-2 | hourly blocks: car 20,000/h (cap 150,000), 7-seat 25,000/h, motorbike 5,000 per 4 h; car rule is version 2 (price change in its history) |
 | Fsoft (`LOT-FSOFT-01`) | Tower, 4 × 30 | `mgr.fsoft`, 2 Staff | IN-1, OUT-1 | day 06:00-18:00 / night: car 25,000 / 15,000 per hour, 7-seat 30,000 / 20,000, motorbike 6,000 per 4 h |
 | Cong Hoa (`LOT-CONGHOA-01`) | Compact deck, 3 × 20 | `mgr.conghoa`, 1 active Staff | IN-1, OUT-1 | first 2 h car 30,000 then 15,000/h, 7-seat 40,000 then 20,000/h, motorbike 5,000 then 2,000/h (at most 20,000/day) |
 | Ben Thanh (`LOT-BENTHANH-01`) | Compact deck, 3 × 20 | none (its Manager is deactivated) | added on first use | none: the default tariff applies |

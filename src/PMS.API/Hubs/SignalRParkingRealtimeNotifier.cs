@@ -49,4 +49,7 @@ public class SignalRParkingRealtimeNotifier(IHubContext<ParkingOpsHub> opsHub, I
 
     private Task ToUser(string userId, string method, object payload) =>
         string.IsNullOrEmpty(userId) ? Task.CompletedTask : opsHub.Clients.User(userId).SendAsync(method, payload);
+
+    public Task DutyScheduleChangedAsync(int lotId) =>
+        opsHub.Clients.Group(ParkingOpsHub.OpsGroup(lotId)).SendAsync("DutyScheduleChanged", new { lotId });
 }

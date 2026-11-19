@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Exceptions;
 using PMS.Application.Helpers.Parking;
@@ -9,12 +8,15 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// Cash close per Staff and lot (BR-12, SRS 4.3 "Daily cash close"). A drawer opens with a float, every cash
-/// payment the Staff records adds the notes received and removes the change given, and at the close the Staff
-/// counts the banknotes blind. A difference over the threshold needs a reason and goes to the lot's Manager, who
-/// confirms it (Maker-Checker: never the Staff who closed it). Drawers are never deleted.
+/// Cash drawer per Staff and lot. A drawer opens with a float and keeps one running
+/// total: the float, plus every cash fee the Staff records (the change goes back to the customer, so only the fee
+/// stays), plus the cash the Manager approved into it.
+/// User decision (2026-11-15): banknotes are no longer counted. There is no count by value at the lane, at the
+/// opening or at the close, and the close is not compared with a count: the Staff hands the drawer in with the total
+/// the system kept, and the lot's Manager confirms the handover (Maker-Checker: never the Staff who closed it).
+/// Drawers closed before that keep their count and difference. Drawers are never deleted.
 /// Team decision (2026-11-07): there is no closing deadline. The Staff hands the drawer in whenever they want, and
-/// the next drawer opens at once with the standard float (<see cref="DefaultFloat"/>), so change is always at hand.
+/// the next drawer opens at once with the standard float (<see cref="DefaultFloat"/>).
 /// A drawer stays the Staff's open drawer across midnight until they close it.
 /// </summary>
 public class CashDrawerService(
@@ -25,22 +27,17 @@ public class CashDrawerService(
     IParkingRealtimeNotifier notifier = null,
     IUserNotificationPublisher notifications = null)
 {
-    /// <summary>BR-12: a larger difference needs a reason and a Manager's confirmation.</summary>
-    public const decimal DifferenceThreshold = 20_000;
+    /// <summary>The float every drawer opened by the system starts with (8,880,000 VND).</summary>
+    public const decimal DefaultFloat = 8_880_000;
 
-    /// <summary>Vietnamese banknotes the drawer counts, largest first.</summary>
-    public static readonly IReadOnlyList<int> Denominations = [500_000, 200_000, 100_000, 50_000, 20_000, 10_000, 5_000, 2_000, 1_000];
+    /// <summary>The largest float, or cash request, a Staff can enter at once.</summary>
+    public const decimal MaxAmount = 100_000_000;
 
-    /// <summary>The float every drawer opened by the system starts with (8,880,000 VND): 10 notes of each value.</summary>
-    public static readonly IReadOnlyDictionary<int, int> DefaultFloat =
-        Denominations.ToDictionary(value => value, _ => 10);
-
-    private const int MaxNotesPerValue = 100_000;
     private const string NotOpened = "NotOpened";
 
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
-    /// <summary>The signed-in Staff's open drawer at the lot (else their latest of today), with the live expected cash.</summary>
+    /// <summary>The signed-in Staff's open drawer at the lot (else their latest of today), with the live cash total.</summary>
     public async Task<CashDrawerModel> GetCurrentAsync(int lotId)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
@@ -53,19 +50,17 @@ public class CashDrawerService(
                 StaffUserId = lotScope.UserId,
                 BusinessDate = today,
                 Status = NotOpened,
-                DifferenceThreshold = DifferenceThreshold,
-                Denominations = Denominations,
                 DefaultFloat = DefaultFloat
             };
         return await ToModelAsync(drawer);
     }
 
-    /// <summary>Opens a drawer with the float the Staff counted in.</summary>
+    /// <summary>Opens a drawer with the float the Staff starts with (the standard float when none is given).</summary>
     public async Task<CashDrawerModel> OpenAsync(int lotId, OpenCashDrawerModel model)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
-        var notes = CleanNotes(model?.Float, "float");
-        var drawer = await OpenDrawerAsync(lotId, lotScope.UserId, notes)
+        var amount = CleanAmount(model?.Float ?? DefaultFloat, "float", allowZero: true);
+        var drawer = await OpenDrawerAsync(lotId, lotScope.UserId, amount)
                      ?? throw new BadRequestException("Your cash drawer is already open.");
         return await ToModelAsync(drawer);
     }
@@ -80,48 +75,32 @@ public class CashDrawerService(
     }
 
     /// <summary>
-    /// Closes the drawer with the blind count (a difference over the threshold needs a reason) and opens the next one
-    /// at once with the standard float. Returns the closed drawer.
+    /// Hands the drawer in with the cash total the system kept (nothing is counted) and opens the next one at once
+    /// with the standard float. Returns the closed drawer.
     /// </summary>
-    public async Task<CashDrawerModel> CloseAsync(int lotId, CloseCashDrawerModel model)
+    public async Task<CashDrawerModel> CloseAsync(int lotId)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
         var drawer = await OpenDrawerOfAsync(lotId, lotScope.UserId, tracked: true)
                      ?? throw new BadRequestException("Open your cash drawer before closing it.");
 
-        var counted = CleanNotes(model?.Counted, "count");
-        var countedTotal = Total(counted);
-        var (collected, _, _, _) = await CashTakenAsync(drawer, Now);
-        var (topUps, _) = await ApprovedTopUpsAsync(drawer.Id);
-        var expected = drawer.FloatTotal + collected + topUps;
-        var difference = countedTotal - expected;
-        var reason = model?.Reason?.Trim();
-        var overThreshold = Math.Abs(difference) > DifferenceThreshold;
-        if (overThreshold && string.IsNullOrEmpty(reason))
-            throw new BadRequestException(
-                $"The count is {difference:+#,0;-#,0} VND off the expected cash, more than {DifferenceThreshold:#,0} VND: give the reason to close the drawer.");
-        if (reason?.Length > 500)
-            throw new BadRequestException("The reason is too long (500 characters at most).");
-
-        drawer.CountedJson = Write(counted);
-        drawer.CountedTotal = countedTotal;
-        drawer.ExpectedTotal = expected;
-        drawer.Difference = difference;
-        drawer.DifferenceReason = string.IsNullOrEmpty(reason) ? null : reason;
+        var (collected, _) = await CashTakenAsync(drawer, Now);
+        var topUps = await ApprovedTopUpsAsync(drawer.Id);
+        // The total is frozen at the close: later payments go into the next drawer
+        drawer.ExpectedTotal = drawer.FloatTotal + collected + topUps;
         drawer.ClosedAt = Now;
-        drawer.Status = overThreshold ? CashCloseStatus.HasDifference : CashCloseStatus.Closed;
+        drawer.Status = CashCloseStatus.Closed;
         await pmsContext.SaveChangesAsync();
 
         // The Staff carries on at once with a fresh drawer and the standard float
         var next = await OpenDrawerAsync(lotId, drawer.StaffUserId, DefaultFloat);
 
-        // The Manager hears about every close at once, with the difference when there is one
+        // The Manager hears about every close at once, with the cash handed in
         var who = await StaffNameAsync(drawer.StaffUserId);
         var handover = next == null ? string.Empty : $" Drawer {next.CloseNo} opened with the standard {next.FloatTotal:#,0} VND float.";
-        await AlertAsync(drawer.ParkingLotId, "CASH_CLOSED", difference == 0
-            ? $"{who} closed cash drawer {drawer.CloseNo}: it balances. Confirm it in the Approval Queue.{handover}"
-            : $"{who} closed cash drawer {drawer.CloseNo}: {difference:+#,0;-#,0} VND off. Check it in the Approval Queue.{handover}");
-        // ...and keeps it in their notification bell (closing time, count and difference)
+        await AlertAsync(drawer.ParkingLotId, "CASH_CLOSED",
+            $"{who} handed in cash drawer {drawer.CloseNo} with {drawer.ExpectedTotal:#,0} VND. Confirm it in the Approval Queue.{handover}");
+        // ...and keeps it in their notification bell (closing time and cash total)
         notifications?.CashDrawerClosed(drawer.Id);
         return await ToModelAsync(drawer);
     }
@@ -142,7 +121,7 @@ public class CashDrawerService(
         return models;
     }
 
-    /// <summary>The Manager confirms a closed drawer; a difference over the threshold needs a note.</summary>
+    /// <summary>The Manager confirms a handed-in drawer; an older close with a counted difference needs a note.</summary>
     public async Task<CashDrawerModel> ConfirmAsync(long id, ConfirmCashCloseModel model)
     {
         var drawer = await pmsContext.DailyCashCloses.FirstOrDefaultAsync(d => d.Id == id)
@@ -150,7 +129,7 @@ public class CashDrawerService(
         await lotScope.EnsureCanManageAsync(drawer.ParkingLotId);
         if (drawer.Status is not (CashCloseStatus.Closed or CashCloseStatus.HasDifference))
             throw new BadRequestException(drawer.Status == CashCloseStatus.Open ? "This drawer is still open." : "This cash close is already confirmed.");
-        // Maker-Checker: whoever counted the drawer never confirms it
+        // Maker-Checker: whoever handed the drawer in never confirms it
         if (drawer.StaffUserId == lotScope.UserId)
             throw new ForbiddenException("You closed this drawer, so another Manager has to confirm it.");
 
@@ -168,35 +147,34 @@ public class CashDrawerService(
         return await ToModelAsync(drawer);
     }
 
-    // ---- more banknotes for a drawer (team addition, 2026-11-04) ----------------------------------
+    // ---- more cash for a drawer (team addition, 2026-11-04) ---------------------------------------
 
     /// <summary>
-    /// The Staff's drawer is short of banknotes (usually change): they list the notes they need for the lot's
-    /// Manager to approve. A drawer has at most one request waiting at a time.
+    /// The Staff's drawer is short of cash (usually change): they ask the lot's Manager for an amount, with a note
+    /// on what they need (e.g. small notes). A drawer has at most one request waiting at a time.
     /// </summary>
     public async Task<CashTopUpModel> RequestTopUpAsync(int lotId, RequestCashTopUpModel model)
     {
         await lotScope.EnsureCanOperateAsync(lotId);
-        var notes = CleanNotes(model?.Notes, "request");
-        if (notes.Count == 0)
-            throw new BadRequestException("List the banknotes you need.");
+        var amount = CleanAmount(model?.Amount ?? 0, "request", allowZero: false);
         var reason = model?.Reason?.Trim();
         if (reason?.Length > 500)
             throw new BadRequestException("The reason is too long (500 characters at most).");
 
-        // The notes go into the open drawer; with none open, the next drawer opens with the standard float to receive them
+        // The cash goes into the open drawer; with none open, the next drawer opens with the standard float to receive it
         await EnsureOpenAsync(lotId, lotScope.UserId);
         var drawer = await OpenDrawerOfAsync(lotId, lotScope.UserId);
         if (await pmsContext.CashTopUpRequests.AnyAsync(r => r.DailyCashCloseId == drawer.Id && r.Status == CashTopUpStatus.Pending))
-            throw new BadRequestException("You already have a request waiting for the Manager: cancel it to ask for different notes.");
+            throw new BadRequestException("You already have a request waiting for the Manager: cancel it to ask for a different amount.");
 
         var request = new CashTopUpRequest
         {
             ParkingLotId = lotId,
             DailyCashCloseId = drawer.Id,
             StaffUserId = lotScope.UserId,
-            NotesJson = Write(notes),
-            Total = Total(notes),
+            // Banknotes are no longer listed; the column stays for older requests
+            NotesJson = "{}",
+            Total = amount,
             Reason = string.IsNullOrEmpty(reason) ? null : reason,
             Status = CashTopUpStatus.Pending,
             CreatedAt = Now
@@ -206,7 +184,7 @@ public class CashDrawerService(
 
         var who = await StaffNameAsync(request.StaffUserId);
         await AlertAsync(lotId, "CASH_TOPUP_REQUESTED",
-            $"{who} needs {request.Total:#,0} VND in banknotes for cash drawer {drawer.CloseNo}: approve it in the Approval Queue.");
+            $"{who} needs {request.Total:#,0} VND in cash for cash drawer {drawer.CloseNo}: approve it in the Approval Queue.");
         return (await ToTopUpModelsAsync([request]))[0];
     }
 
@@ -235,7 +213,7 @@ public class CashDrawerService(
         return await ToTopUpModelsAsync(requests);
     }
 
-    /// <summary>The Manager approves: the notes count as cash put into the Staff's drawer (never one's own request).</summary>
+    /// <summary>The Manager approves: the amount counts as cash put into the Staff's drawer (never one's own request).</summary>
     public async Task<CashTopUpModel> ApproveTopUpAsync(long id, DecideCashTopUpModel model)
     {
         var request = await PendingTopUpAsync(id);
@@ -246,7 +224,7 @@ public class CashDrawerService(
         Decide(request, CashTopUpStatus.Approved, Note(model, required: false));
         await pmsContext.SaveChangesAsync();
         await AlertAsync(request.ParkingLotId, "CASH_TOPUP_APPROVED",
-            $"{request.Total:#,0} VND in banknotes approved for {await StaffNameAsync(request.StaffUserId)}'s cash drawer {drawer.CloseNo}: hand the notes over.");
+            $"{request.Total:#,0} VND in cash approved for {await StaffNameAsync(request.StaffUserId)}'s cash drawer {drawer.CloseNo}: hand it over.");
         return (await ToTopUpModelsAsync([request]))[0];
     }
 
@@ -294,19 +272,11 @@ public class CashDrawerService(
         return string.IsNullOrEmpty(note) ? null : note;
     }
 
-    /// <summary>Cash and banknotes the Manager approved into a drawer.</summary>
-    private async Task<(decimal Total, Dictionary<int, int> Notes)> ApprovedTopUpsAsync(long drawerId)
-    {
-        var approved = await pmsContext.CashTopUpRequests.AsNoTracking()
+    /// <summary>Cash the Manager approved into a drawer.</summary>
+    private async Task<decimal> ApprovedTopUpsAsync(long drawerId) =>
+        await pmsContext.CashTopUpRequests.AsNoTracking()
             .Where(r => r.DailyCashCloseId == drawerId && r.Status == CashTopUpStatus.Approved)
-            .Select(r => new { r.Total, r.NotesJson })
-            .ToListAsync();
-        var notes = new Dictionary<int, int>();
-        foreach (var request in approved)
-            foreach (var (value, count) in Read(request.NotesJson))
-                notes[value] = notes.GetValueOrDefault(value) + count;
-        return (approved.Sum(r => r.Total), notes);
-    }
+            .SumAsync(r => r.Total);
 
     private async Task<List<CashTopUpModel>> ToTopUpModelsAsync(IReadOnlyCollection<CashTopUpRequest> requests)
     {
@@ -332,7 +302,6 @@ public class CashDrawerService(
                 CloseNo = drawer?.CloseNo ?? 0,
                 StaffUserId = r.StaffUserId,
                 StaffName = names.GetValueOrDefault(r.StaffUserId),
-                Notes = Read(r.NotesJson),
                 Total = r.Total,
                 Reason = r.Reason,
                 Status = r.Status,
@@ -366,7 +335,7 @@ public class CashDrawerService(
     }
 
     /// <summary>Opens the Staff's next drawer of the business day; null when they already have one open.</summary>
-    private async Task<DailyCashClose> OpenDrawerAsync(int lotId, string staffUserId, IReadOnlyDictionary<int, int> notes)
+    private async Task<DailyCashClose> OpenDrawerAsync(int lotId, string staffUserId, decimal floatTotal)
     {
         if (await OpenDrawerOfAsync(lotId, staffUserId) != null) return null;
         var today = await BusinessDateAsync(lotId);
@@ -380,8 +349,7 @@ public class CashDrawerService(
             CloseNo = (latest?.CloseNo ?? 0) + 1,
             Status = CashCloseStatus.Open,
             OpenedAt = Now,
-            FloatJson = Write(notes),
-            FloatTotal = Total(notes)
+            FloatTotal = floatTotal
         };
         pmsContext.DailyCashCloses.Add(drawer);
         await pmsContext.SaveChangesAsync();
@@ -414,59 +382,22 @@ public class CashDrawerService(
     }
 
     /// <summary>Cash fees the drawer's Staff recorded at its lot between the opening and <paramref name="until"/>.</summary>
-    private async Task<(decimal Collected, int Count, Dictionary<int, int> NetNotes, decimal Untracked)> CashTakenAsync(DailyCashClose drawer, DateTime until)
+    private async Task<(decimal Collected, int Count)> CashTakenAsync(DailyCashClose drawer, DateTime until)
     {
-        var payments = await pmsContext.Payments.AsNoTracking()
+        var amounts = await pmsContext.Payments.AsNoTracking()
             .Where(p => p.PaymentMethod == PaymentMethod.Cash && p.Status == PaymentStatus.Succeeded
                         && p.CollectedByUserId == drawer.StaffUserId && p.ParkingLotId == drawer.ParkingLotId
                         && p.PaidAt >= drawer.OpenedAt && p.PaidAt <= until)
-            .Select(p => new { p.Amount, p.CashReceivedJson, p.CashChangeJson })
+            .Select(p => p.Amount)
             .ToListAsync();
-
-        var net = new Dictionary<int, int>();
-        decimal untracked = 0;
-        foreach (var payment in payments)
-        {
-            if (payment.CashReceivedJson == null)
-            {
-                // Taken as an amount only (POS without tapping the notes): it is still cash in the
-                // drawer, so the expected notes count it as the fewest notes that make it. Otherwise the notes column
-                // would come out short by exactly that amount and the count would show a loss that is not there.
-                untracked += payment.Amount;
-                foreach (var (value, count) in FewestNotes(payment.Amount)) net[value] = net.GetValueOrDefault(value) + count;
-                continue;
-            }
-            foreach (var (value, count) in Read(payment.CashReceivedJson)) net[value] = net.GetValueOrDefault(value) + count;
-            foreach (var (value, count) in Read(payment.CashChangeJson)) net[value] = net.GetValueOrDefault(value) - count;
-        }
-        return (payments.Sum(p => p.Amount), payments.Count, net, untracked);
-    }
-
-    /// <summary>The fewest banknotes that make the amount (largest first); a remainder under 1,000 VND is left out.</summary>
-    private static Dictionary<int, int> FewestNotes(decimal amount)
-    {
-        var notes = new Dictionary<int, int>();
-        var left = (long)Math.Floor(amount);
-        foreach (var value in Denominations)
-        {
-            var count = left / value;
-            if (count <= 0) continue;
-            notes[value] = (int)count;
-            left -= count * value;
-        }
-        return notes;
+        return (amounts.Sum(), amounts.Count);
     }
 
     private async Task<CashDrawerModel> ToModelAsync(DailyCashClose drawer)
     {
         var until = drawer.ClosedAt ?? Now;
-        var (collected, count, net, untracked) = await CashTakenAsync(drawer, until);
-        var (topUpTotal, topUpNotes) = await ApprovedTopUpsAsync(drawer.Id);
-        var floatNotes = Read(drawer.FloatJson);
-        var expectedNotes = Denominations
-            .Select(value => (value, count: floatNotes.GetValueOrDefault(value) + net.GetValueOrDefault(value) + topUpNotes.GetValueOrDefault(value)))
-            .Where(n => n.count != 0)
-            .ToDictionary(n => n.value, n => n.count);
+        var (collected, count) = await CashTakenAsync(drawer, until);
+        var topUpTotal = await ApprovedTopUpsAsync(drawer.Id);
         var requests = await pmsContext.CashTopUpRequests.AsNoTracking()
             .Where(r => r.DailyCashCloseId == drawer.Id)
             .OrderByDescending(r => r.CreatedAt)
@@ -487,19 +418,15 @@ public class CashDrawerService(
             CloseNo = drawer.CloseNo,
             Status = drawer.Status,
             OpenedAt = Utc(drawer.OpenedAt),
-            Float = floatNotes,
             FloatTotal = drawer.FloatTotal,
             CashCollected = collected,
             CashPayments = count,
-            ExpectedNotes = expectedNotes,
             // Frozen at the close; live while the drawer is open
-            ExpectedTotal = drawer.Status == CashCloseStatus.Open
+            CashTotal = drawer.Status == CashCloseStatus.Open
                 ? drawer.FloatTotal + collected + topUpTotal
                 : drawer.ExpectedTotal ?? drawer.FloatTotal + collected + topUpTotal,
             TopUpTotal = topUpTotal,
             TopUps = await ToTopUpModelsAsync(requests),
-            UntrackedCash = untracked,
-            Counted = drawer.CountedJson == null ? null : Read(drawer.CountedJson),
             CountedTotal = drawer.CountedTotal,
             Difference = drawer.Difference,
             DifferenceReason = drawer.DifferenceReason,
@@ -508,33 +435,21 @@ public class CashDrawerService(
             ConfirmedByName = names.FirstOrDefault(n => n.UserId == drawer.ConfirmedBy)?.FullName,
             ConfirmedAt = drawer.ConfirmedAt is { } confirmed ? Utc(confirmed) : null,
             ConfirmNote = drawer.ConfirmNote,
-            DifferenceThreshold = DifferenceThreshold,
-            Denominations = Denominations,
             DefaultFloat = DefaultFloat
         };
     }
 
-    /// <summary>Keeps known banknote values with a count above zero; refuses unknown values and impossible counts.</summary>
-    public static Dictionary<int, int> CleanNotes(IReadOnlyDictionary<int, int> notes, string what)
+    /// <summary>An amount of cash a Staff enters: whole VND, not negative (above zero unless allowed), not absurdly large.</summary>
+    private static decimal CleanAmount(decimal amount, string what, bool allowZero)
     {
-        var clean = new Dictionary<int, int>();
-        foreach (var (value, count) in notes ?? new Dictionary<int, int>())
-        {
-            if (!Denominations.Contains(value))
-                throw new BadRequestException($"{value:#,0} VND is not a banknote the drawer counts.");
-            if (count is < 0 or > MaxNotesPerValue)
-                throw new BadRequestException($"The {what} has an impossible number of {value:#,0} VND notes.");
-            if (count > 0) clean[value] = count;
-        }
-        return clean;
+        if (amount < 0 || (!allowZero && amount == 0))
+            throw new BadRequestException($"Enter the amount of the {what}.");
+        if (amount != decimal.Truncate(amount))
+            throw new BadRequestException($"The {what} must be a whole number of VND.");
+        if (amount > MaxAmount)
+            throw new BadRequestException($"The {what} cannot be more than {MaxAmount:#,0} VND.");
+        return amount;
     }
-
-    public static decimal Total(IReadOnlyDictionary<int, int> notes) => notes.Sum(n => (decimal)n.Key * n.Value);
-
-    public static string Write(IReadOnlyDictionary<int, int> notes) => JsonSerializer.Serialize(notes);
-
-    private static Dictionary<int, int> Read(string json) =>
-        string.IsNullOrEmpty(json) ? [] : JsonSerializer.Deserialize<Dictionary<int, int>>(json) ?? [];
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 }

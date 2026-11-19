@@ -8,22 +8,17 @@ using PMS.Shared.Services;
 namespace PMS.API.Controllers;
 
 /// <summary>
-/// The signed-in customer's notification bell: newest items, unread count, mark read and delete.
+/// The signed-in person's notification bell (customers, Staff, Managers and Admins): newest items, unread count, mark read and delete.
 /// Notifications are created by Hangfire jobs (vehicle approved/rejected, check-in, check-out)
 /// and pushed in real time through the parking-ops hub as "NotificationCreated".
 /// </summary>
-[Authorize(Roles = "User,Staff,Manager")]
+[Authorize(Roles = "User,Staff,Manager,Admin")]
 public class NotificationsController(INotificationService notifications, IClaimService claimService) : ApiController
 {
     /// <summary>Newest notifications (default 30, max 100) and the unread count.</summary>
     [HttpGet("~/api/notifications")]
     public async Task<IActionResult> GetMineAsync([FromQuery] bool unreadOnly = false, [FromQuery] int take = 30) =>
         Ok(ApiResult<NotificationListModel>.Success(await notifications.GetMineAsync(claimService.GetUserId(), unreadOnly, take)));
-
-    /// <summary>How many notifications the user has not read yet (for the badge).</summary>
-    [HttpGet("~/api/notifications/unread-count")]
-    public async Task<IActionResult> GetUnreadCountAsync() =>
-        Ok(ApiResult<int>.Success(await notifications.GetUnreadCountAsync(claimService.GetUserId())));
 
     /// <summary>Marks a single notification as read.</summary>
     [HttpPost("~/api/notifications/{id:long}/read")]

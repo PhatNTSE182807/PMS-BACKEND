@@ -17,6 +17,7 @@ namespace PMS.API.Controllers;
 [Authorize(Roles = "Admin")]
 public class AdminDashboardController(IAdminDashboardService dashboardService) : ApiController
 {
+    /// <summary>Network totals for the Admin dashboard: lots, capacity, occupancy, sessions and revenue.</summary>
     [HttpGet("overview")]
     public async Task<IActionResult> GetOverviewAsync(CancellationToken cancellationToken)
     {
@@ -24,6 +25,7 @@ public class AdminDashboardController(IAdminDashboardService dashboardService) :
         return Ok(ApiResult<DashboardOverviewDto>.Success(overview));
     }
 
+    /// <summary>Per-lot performance cards of the Admin dashboard: occupancy, traffic and revenue of each lot.</summary>
     [HttpGet("hubs")]
     public async Task<IActionResult> GetHubsAsync(CancellationToken cancellationToken)
     {

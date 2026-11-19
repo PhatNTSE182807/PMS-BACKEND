@@ -17,6 +17,7 @@ public class ManagerRevenueController(
     IRevenueReportService revenueReportService,
     IClaimService claimService) : ApiController
 {
+    /// <summary>Settled revenue of the Manager's lots (or one lot) over a date range.</summary>
     [HttpGet]
     public async Task<IActionResult> GetRevenueAsync(
         [FromQuery] string startDate = null,

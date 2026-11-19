@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace PMS.DataAccess.Identity;
 
 /// <summary>
-/// Lifetime of the password reset link: 30 minutes (FR-AUTH-12).
+/// Lifetime of the password reset link: 30 minutes.
 /// Kept apart from <see cref="DataProtectionTokenProviderOptions"/> so other Identity tokens keep their own lifetime.
 /// </summary>
 public class PasswordResetTokenProviderOptions : DataProtectionTokenProviderOptions

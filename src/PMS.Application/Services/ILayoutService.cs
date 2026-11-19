@@ -3,7 +3,7 @@ using PMS.Application.Models.Layout;
 namespace PMS.Application.Services;
 
 /// <summary>
-/// Layout 3D of a lot and its 2D fallback (SRS FR-3D-01/02/06/08). Layouts are generated from a
+/// Layout 3D of a lot and its 2D fallback. Layouts are generated from a
 /// ready-made model when the Admin registers the lot (LotTemplates); nobody edits them by hand.
 /// </summary>
 public interface ILayoutService

@@ -27,7 +27,7 @@ public class GateService(
     BookedBayCaseService bookedBays = null,
     ILayoutService layouts = null) : IGateService
 {
-    /// <summary>Two lanes never open two sessions for one plate at the same time (NFR-14) inside this process.</summary>
+    /// <summary>Two lanes never open two sessions for one plate at the same time inside this process.</summary>
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlateGates = new();
 
     private GateRules Rules => options.Gate;
@@ -190,7 +190,7 @@ public class GateService(
             CustomerType = session.CustomerId != null ? "Member" : "Guest",
             CustomerName = customerName,
             ElapsedMinutes = Math.Max(0, (int)Math.Floor((Now - session.EntryTime).TotalMinutes)),
-            FeeSoFar = quote == null ? null : quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee,
+            FeeSoFar = quote == null ? null : quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee + quote.PenaltyFee,
             DepositApplied = quote?.DepositApplied ?? session.DepositApplied,
             AlreadyPaid = quote?.AlreadyPaid ?? session.PaidAmount,
             AmountDue = quote?.AmountDue
@@ -350,7 +350,7 @@ public class GateService(
             var occupiedSlotIds = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
             var free = await pmsContext.Slots
                 .Where(s => s.Zone.ParkingLotId == lotId && s.Zone.IsActive && s.IsActive && s.Status == SlotStatus.Available
-                            && !occupiedSlotIds.Contains(s.Id))
+                            && s.Kind != SlotKind.Penalty && !occupiedSlotIds.Contains(s.Id))
                 .ToListAsync();
             // Never a bay another customer booked (now or later), one a waiting walk-in was sent to, or one where the
             // 3D model draws a walk-in without a bay: the move would only take the problem to someone else
@@ -587,17 +587,6 @@ public class GateService(
         return await ToModelAsync(session);
     }
 
-    public async Task<SessionResponseModel> CancelEntryAsync(long sessionId)
-    {
-        var session = await ScopedSessionAsync(sessionId, tracked: true);
-        await CancelPendingEntryAsync(session, "Vehicle turned around / cancelled by Staff");
-        await pmsContext.SaveChangesAsync();
-        // The session counted the vehicle in when it was created; it never got in, so count it out again
-        await occupancy.ReleaseAsync(session.ParkingLotId);
-        await inventory.FlushAsync();
-        return await ToModelAsync(session);
-    }
-
     /// <summary>Shared with the turn-around job: no sensor signal, so nothing was counted (4.2.1).</summary>
     internal Task CancelPendingEntryAsync(ParkingSession session, string note)
     {
@@ -664,7 +653,7 @@ public class GateService(
         // A Staff's cash goes into their drawer of the day: one opens on its own when none is (an extra close after the first)
         if (cashDrawers != null && lotScope.Role == "Staff")
             await cashDrawers.EnsureOpenAsync(session.ParkingLotId, lotScope.UserId);
-        return await paymentService.RecordCashAsync(session, quote.AmountDue, model.Amount, model.Prepaid, lotScope.UserId, model.Received, model.Change);
+        return await paymentService.RecordCashAsync(session, quote.AmountDue, model.Amount, model.Prepaid, lotScope.UserId);
     }
 
     public async Task<PaymentResponseModel> PayOnlineAtLaneAsync(long sessionId, LanePaymentModel model, PaymentRequestContext context)
@@ -861,7 +850,7 @@ public class GateService(
     /// <summary>
     /// The Staff checked the driver's papers (uploaded or shown at the counter) against the vehicle and decides the case;
     /// the Manager no longer does (team decision, 2026-11-04). Approved: the fine goes on the bill and the vehicle stays
-    /// parked until it checks out. Refused: it stays and cannot leave until a new case is approved (SRS 4.2.4).
+    /// parked until it checks out. Refused: it stays and cannot leave until a new case is approved.
     /// Cases left waiting for a Manager before the change are decided here too.
     /// </summary>
     public async Task<SessionResponseModel> ReviewLostTicketAsync(long sessionId, LostTicketReviewModel model)
@@ -967,25 +956,6 @@ public class GateService(
 
     // ---- customer ---------------------------------------------------------------------------------
 
-    public async Task<IReadOnlyList<SessionResponseModel>> GetMySessionsAsync(string userId)
-    {
-        var customerId = await CustomerIdAsync(userId);
-        var sessions = await pmsContext.ParkingSessions.AsNoTracking()
-            .Where(s => s.CustomerId == customerId && s.Status != SessionStatus.Cancelled)
-            .OrderByDescending(s => s.EntryTime)
-            .Take(50)
-            .ToListAsync();
-        return (await ToModelsAsync(sessions)).OrderByDescending(s => SessionStatus.Inside.Contains(s.Status)).ToList();
-    }
-
-    public async Task<CheckoutQuoteModel> QuoteMySessionAsync(string userId, long sessionId)
-    {
-        var session = await OwnSessionAsync(userId, sessionId, tracked: false);
-        var quote = await QuoteAsync(session, null, null, mutate: false);
-        quote.Session = await ToModelAsync(session);
-        return quote;
-    }
-
     public async Task<PaymentResponseModel> PayMySessionAsync(string userId, long sessionId, CreatePaymentModel model, PaymentRequestContext context)
     {
         var session = await OwnSessionAsync(userId, sessionId, tracked: true);
@@ -1026,8 +996,11 @@ public class GateService(
         var result = new List<CurrentSessionModel>();
         foreach (var (session, model) in sessions.Zip(models))
         {
-            // A read-only quote: looking at the fee never changes the session
-            var quote = await QuoteAsync(session, null, null, mutate: false);
+            // A read-only quote: looking at the fee never changes the session. A lost-ticket case waiting for the
+            // Staff decision has no fee yet (the lane cannot charge it either), so the vehicle is listed without one instead
+            // of failing the whole list
+            var lostTicketPending = session.Status == SessionStatus.LostTicketPending;
+            var quote = lostTicketPending ? new CheckoutQuoteModel() : await QuoteAsync(session, null, null, mutate: false);
             var tariff = await TariffOfAsync(session);
             var lot = lots.GetValueOrDefault(session.ParkingLotId);
             var vehicle = session.VehicleId != null ? vehicles.GetValueOrDefault(session.VehicleId.Value) : null;
@@ -1047,7 +1020,8 @@ public class GateService(
                 BookingMode = booking?.BookingMode,
                 PlannedDeparture = booking?.DepartureTime is { } departure ? Utc(departure) : null,
                 ElapsedMinutes = Math.Max(0, (int)Math.Floor((Now - session.EntryTime).TotalMinutes)),
-                FeeSoFar = quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee,
+                LostTicketPending = lostTicketPending,
+                FeeSoFar = quote.Fee + quote.LostTicketFee + quote.ExitWindowLateFee + quote.PenaltyFee,
                 DepositApplied = quote.DepositApplied,
                 AlreadyPaid = quote.AlreadyPaid,
                 AmountDue = quote.AmountDue,
@@ -1066,19 +1040,10 @@ public class GateService(
         return result;
     }
 
-    public async Task<ExitPassModel> GetMyExitPassAsync(string userId, long sessionId)
-    {
-        var session = await OwnSessionAsync(userId, sessionId, tracked: false);
-        if (!SessionStatus.Inside.Contains(session.Status))
-            throw new BadRequestException("The exit pass is available while the vehicle is inside the lot.");
-        var quote = await QuoteAsync(session, null, null, mutate: false);
-        return ExitPassFor(session, quote.AmountDue);
-    }
-
     /// <summary>
     /// Every parked vehicle has an exit pass from check-in on. It carries the session code (the exit lane
     /// finds the session from it and charges what is due); after a prepayment it also carries the end of
-    /// the Exit Window, so an offline gate can open the barrier on it alone (FR-PAY-07).
+    /// the Exit Window, so an offline gate can open the barrier on it alone.
     /// </summary>
     private ExitPassModel ExitPassFor(ParkingSession session, decimal amountDue)
     {
@@ -1105,7 +1070,7 @@ public class GateService(
     // ---- fee --------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Prices the stay up to now (BR-10, BR-22, FR-RSV-07). With <paramref name="mutate"/> it is a fee request
+    /// Prices the stay up to now. With <paramref name="mutate"/> it is a fee request
     /// at a payment point: Active → PendingPayment, Paid past its Exit Window → PendingPayment, nothing due → Paid.
     /// </summary>
     /// <summary>
@@ -1126,7 +1091,7 @@ public class GateService(
     private async Task<CheckoutQuoteModel> QuoteAsync(ParkingSession session, string exitPlate, decimal? exitConfidence, bool mutate)
     {
         if (session.Status == SessionStatus.LostTicketPending)
-            throw new BadRequestException("The lost-ticket case is waiting for a Manager.");
+            throw new BadRequestException("The lost-ticket case is waiting for the Staff to check the papers.");
         if (!SessionStatus.Inside.Contains(session.Status))
             throw new BadRequestException($"The session is {session.Status} and cannot be charged.");
         // 4.2.4: after a rejection nobody takes the fee (lane, counter, app or check-out) until a new case is approved
@@ -1163,11 +1128,11 @@ public class GateService(
         var settledPaid = session.Status == SessionStatus.Paid && !exitWindowMissed;
         var settlement = settledPaid
             ? new Settlement(session.OriginalFee, 0, 0, session.DepositApplied, session.PaidAmount, 0, depositForfeited ? 0 : Math.Max(0, deposit - session.DepositApplied))
-            : FeeCalculator.Settle(breakdown.Total, depositCredit, session.PaidAmount, exitWindowMissed, Rules.ExitWindowLateFee, lostFee);
+            : FeeCalculator.Settle(breakdown.Total, depositCredit, session.PaidAmount, exitWindowMissed, Rules.ExitWindowLateFee, lostFee, session.PenaltyFee);
 
         var zeroReason = settledPaid ? session.ZeroFeeReason
             : session.SessionType == SessionType.Whitelist ? "Whitelist"
-            : breakdown.WithinGrace && lostFee == 0 ? "GracePeriod"
+            : breakdown.WithinGrace && lostFee == 0 && session.PenaltyFee == 0 ? "GracePeriod"
             : settlement.AmountDue == 0 && session.PaidAmount == 0 && depositCredit > 0 ? "CoveredByDeposit"
             : null;
 
@@ -1186,7 +1151,7 @@ public class GateService(
 
             session.TotalDurationMinutes = breakdown.DurationMinutes;
             session.OriginalFee = breakdown.Total;
-            session.FinalFee = settlement.Fee + settlement.LostTicketFee + settlement.ExitWindowLateFee;
+            session.FinalFee = settlement.Fee + settlement.LostTicketFee + settlement.ExitWindowLateFee + settlement.PenaltyFee;
             session.DepositApplied = settlement.DepositApplied;
             session.ZeroFeeReason = zeroReason;
             session.PricingRuleId ??= tariff.RuleId;
@@ -1213,6 +1178,8 @@ public class GateService(
             Fee = settlement.Fee,
             LostTicketFee = settlement.LostTicketFee,
             ExitWindowLateFee = settlement.ExitWindowLateFee,
+            PenaltyFee = settlement.PenaltyFee,
+            PenaltyReason = session.PenaltyReason,
             DepositApplied = settlement.DepositApplied,
             AlreadyPaid = settlement.AlreadyPaid,
             AmountDue = settlement.AmountDue,
@@ -1509,7 +1476,10 @@ public class GateService(
             PlateMismatch = s.PlateMismatch,
             IsOverdue = SessionStatus.Inside.Contains(s.Status) && s.EntryTime < overdueBefore,
             ZeroFeeReason = s.ZeroFeeReason,
-            OverrideNote = s.OverrideNote
+            OverrideNote = s.OverrideNote,
+            PenaltyReason = s.PenaltyReason,
+            PenaltyFee = s.PenaltyFee,
+            RelocatedAt = s.RelocatedAt is { } towed ? Utc(towed) : null
         }).ToList();
     }
 }

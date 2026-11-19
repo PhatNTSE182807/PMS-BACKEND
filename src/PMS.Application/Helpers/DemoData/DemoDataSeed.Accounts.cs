@@ -27,7 +27,10 @@ public sealed partial class DemoDataSeed
 
     private static readonly string[] OperatingLots = ["fptu", "fsoft", "conghoa"];
 
-    private sealed record EmployeeDef(string UserName, string FullName, string Phone, string Role, string LotKey, bool IsActive);
+    private sealed record EmployeeDef(string UserName, string FullName, string Phone, string Role, string LotKey, bool IsActive,
+        string EmploymentType = "FullTime");
+
+    private const string Backup = "Backup";
 
     private static readonly EmployeeDef[] EmployeeDefs =
     [
@@ -43,7 +46,34 @@ public sealed partial class DemoDataSeed
         new("staff.fsoft1", "Lý Thanh Tâm", "0901000203", StaffRole, "fsoft", true),
         new("staff.fsoft2", "Võ Hoàng Nam", "0901000204", StaffRole, "fsoft", true),
         new("staff.conghoa1", "Phan Thị Mai", "0901000205", StaffRole, "conghoa", true),
-        new("staff.conghoa2", "Bùi Đức Anh", "0901000206", StaffRole, "conghoa", false)
+        new("staff.conghoa2", "Bùi Đức Anh", "0901000206", StaffRole, "conghoa", false),
+        // Five full-time Staff per operating lot cover the 28 shifts of a week (one shift a day, one day off)
+        new("staff.fptu3", "Đỗ Thị Lan", "0901000207", StaffRole, "fptu", true),
+        new("staff.fptu4", "Ngô Văn Hùng", "0901000208", StaffRole, "fptu", true),
+        new("staff.fptu5", "Hồ Thị Thu", "0901000209", StaffRole, "fptu", true),
+        new("staff.fsoft3", "Mai Quốc Khánh", "0901000210", StaffRole, "fsoft", true),
+        new("staff.fsoft4", "Tạ Thị Ngọc", "0901000211", StaffRole, "fsoft", true),
+        new("staff.fsoft5", "Châu Minh Trí", "0901000212", StaffRole, "fsoft", true),
+        new("staff.conghoa3", "Lâm Thị Yến", "0901000213", StaffRole, "conghoa", true),
+        new("staff.conghoa4", "Dương Văn Phúc", "0901000214", StaffRole, "conghoa", true),
+        new("staff.conghoa5", "Kiều Thị Hạnh", "0901000215", StaffRole, "conghoa", true),
+        new("staff.conghoa6", "Tôn Thất Vinh", "0901000216", StaffRole, "conghoa", true),
+        // Five backup Staff per operating lot, paid by the hour, for leave and empty shifts
+        new("backup.fptu1", "Vũ Thị Hằng", "0901000301", StaffRole, "fptu", true, Backup),
+        new("backup.fptu2", "Lục Văn Tuấn", "0901000302", StaffRole, "fptu", true, Backup),
+        new("backup.fptu3", "Quách Thị Diễm", "0901000303", StaffRole, "fptu", true, Backup),
+        new("backup.fptu4", "Thân Văn Đạt", "0901000304", StaffRole, "fptu", true, Backup),
+        new("backup.fptu5", "Âu Thị Kim", "0901000305", StaffRole, "fptu", true, Backup),
+        new("backup.fsoft1", "Đinh Văn Sơn", "0901000306", StaffRole, "fsoft", true, Backup),
+        new("backup.fsoft2", "La Thị Bích", "0901000307", StaffRole, "fsoft", true, Backup),
+        new("backup.fsoft3", "Hà Minh Nhật", "0901000308", StaffRole, "fsoft", true, Backup),
+        new("backup.fsoft4", "Giang Thị Oanh", "0901000309", StaffRole, "fsoft", true, Backup),
+        new("backup.fsoft5", "Trịnh Văn Lộc", "0901000310", StaffRole, "fsoft", true, Backup),
+        new("backup.conghoa1", "Cao Thị Nga", "0901000311", StaffRole, "conghoa", true, Backup),
+        new("backup.conghoa2", "Mạc Văn Toàn", "0901000312", StaffRole, "conghoa", true, Backup),
+        new("backup.conghoa3", "Lưu Thị Huệ", "0901000313", StaffRole, "conghoa", true, Backup),
+        new("backup.conghoa4", "Doãn Văn Thắng", "0901000314", StaffRole, "conghoa", true, Backup),
+        new("backup.conghoa5", "Phùng Thị Xuân", "0901000315", StaffRole, "conghoa", true, Backup)
     ];
 
     private sealed record PriceDef(
@@ -178,7 +208,11 @@ public sealed partial class DemoDataSeed
                     Email = user.Email,
                     Phone = def.Phone,
                     Position = def.Role,
-                    HireDate = DateOnly.FromDateTime(now.AddDays(-120 + i * 3)),
+                    EmploymentType = def.Role == StaffRole ? def.EmploymentType : "FullTime",
+                    // The first accounts keep their old hire dates; the rest joined on the 1st, 4 months ago (leave allowed)
+                    HireDate = i < 11
+                        ? DateOnly.FromDateTime(now.AddDays(-120 + i * 3))
+                        : new DateOnly(now.Year, now.Month, 1).AddMonths(-4),
                     Status = def.IsActive ? "Active" : "Inactive",
                     CreatedAt = now.AddDays(-120 + i * 3)
                 };
@@ -225,9 +259,27 @@ public sealed partial class DemoDataSeed
     {
         var email = EmailOf(userName);
         var password = PasswordFor(role);
-        var user = await userManager.FindByNameAsync(userName) ?? await userManager.FindByEmailAsync(email);
+        var user = await userManager.FindByNameAsync(userName)
+                   ?? await userManager.FindByEmailAsync(email)
+                   ?? await userManager.FindByEmailAsync($"{userName}@{OldEmailDomain}");
         if (user != null)
         {
+            // Demo accounts seeded before the domain changed keep their data and move to the new address
+            if (string.Equals(user.Email, $"{userName}@{OldEmailDomain}", StringComparison.OrdinalIgnoreCase)
+                && await userManager.FindByEmailAsync(email) == null)
+            {
+                var moved = await userManager.SetEmailAsync(user, email);
+                if (moved.Succeeded)
+                {
+                    user.EmailConfirmed = true;
+                    await userManager.UpdateAsync(user);
+                    await SyncProfileEmailAsync(user.Id, email);
+                }
+                else
+                    logger?.LogWarning("Demo data: could not move '{UserName}' to {Email}: {Errors}",
+                        userName, email, string.Join("; ", moved.Errors.Select(e => e.Description)));
+            }
+
             // Managers and Staff created before they got their own passwords still use the customers' one
             if (password != Password && await userManager.CheckPasswordAsync(user, Password))
             {
@@ -254,6 +306,18 @@ public sealed partial class DemoDataSeed
             throw new InvalidOperationException(
                 $"Demo data: could not create '{userName}': {string.Join("; ", result.Errors.Select(e => e.Description))}");
         return user;
+    }
+
+    /// <summary>Keeps the email copied onto the account's Customer or Employee row in step with the account.</summary>
+    private async Task SyncProfileEmailAsync(string userId, string email)
+    {
+        var customer = await db.Customers.FirstOrDefaultAsync(c => c.UserId == userId);
+        if (customer != null)
+            customer.Email = email;
+        var employee = await db.Employees.FirstOrDefaultAsync(e => e.UserId == userId);
+        if (employee != null)
+            employee.Email = email;
+        await db.SaveChangesAsync();
     }
 
     /// <summary>
@@ -385,6 +449,7 @@ public sealed partial class DemoDataSeed
                 MaxDailyFee = def.MaxDailyFee,
                 LostTicketFee = def.LostTicketFee,
                 BookedBayCompensation = PricingRule.DefaultCompensationFor(type.Code),
+                PenaltyFee = PricingRule.DefaultPenaltyFor(type.Code),
                 Currency = "VND",
                 EffectiveFrom = createdAt,
                 Status = "Active",

@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using PMS.Application.Helpers.Parking;
 using PMS.Application.Models.Notifications;
 using PMS.Application.Models.Operations;
+using PMS.Application.Models.User;
 using PMS.Application.Models.VehicleDocuments;
 using PMS.Application.Services;
 using PMS.Application.Services.Impl;
@@ -236,10 +237,12 @@ public class NotificationJobs(
             return false;
 
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == bayCase.ParkingLotId);
-        var slotIds = new[] { bayCase.SlotId, bayCase.NewSlotId ?? 0 };
+        var slotIds = new[] { bayCase.SlotId, bayCase.NewSlotId ?? 0, bayCase.RelocatedToSlotId ?? 0 };
         var codes = await pmsContext.Slots.AsNoTracking().Where(s => slotIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Code);
         var bookedBay = codes.GetValueOrDefault(bayCase.SlotId) ?? "your bay";
-        var newBay = bayCase.NewSlotId is { } id ? codes.GetValueOrDefault(id) : null;
+        // A tow names the bay the vehicle went to; a moved booking names its new bay
+        var newBay = bayCase.NewSlotId is { } id ? codes.GetValueOrDefault(id)
+            : bayCase.RelocatedToSlotId is { } towedTo ? codes.GetValueOrDefault(towedTo) : null;
         var lotName = lot?.Name ?? "the parking lot";
         var arrival = LocalTime(reservation.StartTime, lot);
         static string Money(decimal value) => $"{value.ToString("N0", CultureInfo.InvariantCulture)} VND";
@@ -252,6 +255,8 @@ public class NotificationJobs(
                 $"Your booking {reservation.ReservationCode} at {lotName} now has bay {newBay ?? "a new bay"} instead of {bookedBay}. The first hour is free."),
             NotificationTypes.BookedBayFreed => ("Your booked bay is free again",
                 $"The vehicle in bay {bookedBay} at {lotName} has left. Your booking {reservation.ReservationCode} keeps that bay."),
+            NotificationTypes.VehicleTowed => ("Your booked bay is free again",
+                $"The lot towed the vehicle that was in bay {bookedBay} at {lotName}. Your booking {reservation.ReservationCode} keeps that bay."),
             NotificationTypes.BookingCancelledByLot => ("Your booking was cancelled by the lot",
                 $"Bay {bookedBay} you booked at {lotName} was taken and no other bay of your vehicle type was free, so the lot cancelled booking {reservation.ReservationCode}. Sorry for the trouble."),
             NotificationTypes.DepositRefunded when bayCase.DepositRefunded > 0 => ("Deposit refunded to your XXIV wallet",
@@ -264,6 +269,8 @@ public class NotificationJobs(
         var overstay = await pmsContext.ParkingSessions.AnyAsync(s => s.Id == bayCase.SessionId && s.ReservationId != null);
         var occupant = overstay ? "A vehicle that stayed past its booking is still in" : "A walk-in parked in";
         var toStaff = await StaffBookedBayAsync(bayCase, reservation, notificationType, lotName, bookedBay, newBay, arrival, occupant);
+        if (notificationType == NotificationTypes.VehicleTowed)
+            toStaff |= await TowedOwnerAsync(bayCase, lotName, bookedBay, newBay);
         toStaff |= await ManagerBookedBayAsync(bayCase, reservation, notificationType, lot, bookedBay, newBay, arrival, occupant, overstay);
         if (text == null || string.IsNullOrEmpty(reservation.UserId))
             return toStaff;
@@ -308,7 +315,7 @@ public class NotificationJobs(
         // The money notice goes out once: with the compensation, or with the deposit when no compensation was paid
         var moneyNotice = (notificationType == NotificationTypes.CompensationPaid && bayCase.CompensationPaid > 0)
                           || (notificationType == NotificationTypes.DepositRefunded && bayCase.CompensationPaid <= 0 && bayCase.DepositRefunded > 0);
-        if (notificationType is not (NotificationTypes.BookedBayTaken or NotificationTypes.BookedBayReassigned) && !moneyNotice)
+        if (notificationType is not (NotificationTypes.BookedBayTaken or NotificationTypes.BookedBayReassigned or NotificationTypes.VehicleTowed) && !moneyNotice)
             return false;
 
         var recipients = await pmsContext.Employees.AsNoTracking()
@@ -342,8 +349,10 @@ public class NotificationJobs(
             var resolver = userId == bayCase.ResolvedBy;
             (string Title, string Message) text = notificationType switch
             {
-                NotificationTypes.BookedBayTaken => ("Booked bay taken: move the booking",
-                    $"{occupant} bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}. Move the booking to another free bay in Exceptions & Alerts, or compensate the customer when none is left."),
+                NotificationTypes.BookedBayTaken => ("Booked bay taken: tow the vehicle",
+                    $"{occupant} bay {bookedBay} at {lotName}, booked by booking {reservation.ReservationCode} for {arrival}. Tow it to a penalty bay in Exceptions & Alerts, move the booking to another free bay, or compensate the customer when nothing is left."),
+                NotificationTypes.VehicleTowed => (resolver ? "You towed a vehicle out of a booked bay" : "A vehicle was towed out of a booked bay",
+                    $"The vehicle in bay {bookedBay} at {lotName} was towed to bay {newBay ?? "another bay"}; it owes a {Money(bayCase.PenaltyFee)} penalty at check-out. Booking {reservation.ReservationCode} keeps bay {bookedBay}."),
                 NotificationTypes.BookedBayReassigned => (resolver ? "You moved a booking to another bay" : "A booking moved to another bay",
                     $"Booking {reservation.ReservationCode} at {lotName} now has bay {newBay ?? "a new bay"} instead of {bookedBay}. The customer was told; the first hour is free."),
                 _ => (resolver ? "You sent compensation to the customer" : "Compensation sent to a customer",
@@ -361,6 +370,40 @@ public class NotificationJobs(
             }, data);
         }
         return sent;
+    }
+
+    /// <summary>
+    /// The owner of a towed vehicle, when it came in on their own booking and stayed past it: where the vehicle is now and
+    /// the penalty owed at check-out. A walk-in has no account to tell.
+    /// </summary>
+    private async Task<bool> TowedOwnerAsync(BookedBayCase bayCase, string lotName, string bookedBay, string towedTo)
+    {
+        var ownerId = await pmsContext.ParkingSessions.AsNoTracking()
+            .Where(s => s.Id == bayCase.SessionId && s.ReservationId != null)
+            .Join(pmsContext.Reservations.AsNoTracking(), s => s.ReservationId, r => (long?)r.Id, (s, r) => r.UserId)
+            .FirstOrDefaultAsync();
+        if (string.IsNullOrEmpty(ownerId))
+            return false;
+
+        var penalty = $"{bayCase.PenaltyFee.ToString("N0", CultureInfo.InvariantCulture)} VND";
+        return await SaveAndPushAsync(new UserNotification
+        {
+            UserId = ownerId,
+            Type = NotificationTypes.VehicleTowed,
+            Title = "Your vehicle was moved to a penalty bay",
+            Message = $"Your vehicle stayed past its booking in bay {bookedBay} at {lotName}, which another customer booked, so the lot moved it to bay {towedTo ?? "a penalty bay"}. A {penalty} penalty is added to your fee at check-out.",
+            RefType = "BookedBayCase",
+            RefId = bayCase.Id.ToString(CultureInfo.InvariantCulture),
+            EventAt = bayCase.ResolvedAt ?? bayCase.CreatedAt
+        }, new Dictionary<string, string>
+        {
+            ["audience"] = "owner",
+            ["lotId"] = bayCase.ParkingLotId.ToString(CultureInfo.InvariantCulture),
+            ["lotName"] = lotName,
+            ["bayCode"] = bookedBay,
+            ["newBayCode"] = towedTo,
+            ["amount"] = bayCase.PenaltyFee.ToString(CultureInfo.InvariantCulture)
+        });
     }
 
     /// <summary>
@@ -567,8 +610,8 @@ public class NotificationJobs(
     }
 
     /// <summary>
-    /// A Staff closed their cash drawer: the lot Manager's bell says who, at what time, the count against the expected
-    /// cash and the difference with its reason, so the Manager can confirm it in the Approval Queue.
+    /// A Staff handed in their cash drawer: the lot Manager's bell says who, at what time and with how much cash,
+    /// so the Manager can confirm it in the Approval Queue.
     /// </summary>
     public async Task<bool> CashDrawerClosedAsync(long drawerId)
     {
@@ -583,22 +626,16 @@ public class NotificationJobs(
         var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == drawer.ParkingLotId);
         static string Money(decimal value) => $"{value.ToString("N0", CultureInfo.InvariantCulture)} VND";
         var who = await EmployeeNameAsync(drawer.StaffUserId);
-        var counted = drawer.CountedTotal ?? 0;
-        var expected = drawer.ExpectedTotal ?? 0;
-        var difference = drawer.Difference ?? counted - expected;
-        var result = difference == 0
-            ? "It balances. Confirm it in the Approval Queue."
-            : $"It is {Money(Math.Abs(difference))} {(difference > 0 ? "over" : "short")}" +
-              (string.IsNullOrWhiteSpace(drawer.DifferenceReason) ? "." : $". Reason: \"{drawer.DifferenceReason.Trim()}\".") +
-              " Check it in the Approval Queue.";
+        // Banknotes are no longer counted (2026-11-15): the drawer is handed in with the total the system kept
+        var total = drawer.ExpectedTotal ?? drawer.FloatTotal;
 
         return await SaveAndPushAsync(new UserNotification
         {
             UserId = managerId,
             Type = NotificationTypes.CashDrawerClosed,
-            Title = difference == 0 ? $"{who} closed cash drawer {drawer.CloseNo}" : $"{who} closed cash drawer {drawer.CloseNo} with a difference",
-            Message = $"{who} closed cash drawer {drawer.CloseNo} at {lot?.Name ?? "the parking lot"} at {LocalTime(drawer.ClosedAt.Value, lot)}. " +
-                      $"Counted {Money(counted)}, expected {Money(expected)}. {result}",
+            Title = $"{who} handed in cash drawer {drawer.CloseNo}",
+            Message = $"{who} handed in cash drawer {drawer.CloseNo} at {lot?.Name ?? "the parking lot"} at {LocalTime(drawer.ClosedAt.Value, lot)} " +
+                      $"with {Money(total)} (float {Money(drawer.FloatTotal)}). Confirm it in the Approval Queue.",
             RefType = "DailyCashClose",
             RefId = drawer.Id.ToString(CultureInfo.InvariantCulture),
             EventAt = drawer.ClosedAt
@@ -611,12 +648,199 @@ public class NotificationJobs(
             ["lotName"] = lot?.Name,
             ["staffName"] = who,
             ["closedAt"] = Iso(drawer.ClosedAt.Value),
-            ["countedTotal"] = counted.ToString(CultureInfo.InvariantCulture),
-            ["expectedTotal"] = expected.ToString(CultureInfo.InvariantCulture),
-            ["difference"] = difference.ToString(CultureInfo.InvariantCulture),
-            ["reason"] = drawer.DifferenceReason
+            ["floatTotal"] = drawer.FloatTotal.ToString(CultureInfo.InvariantCulture),
+            ["cashTotal"] = total.ToString(CultureInfo.InvariantCulture)
         });
     }
+
+    /// <summary>
+    /// A zone became almost full, full, or has space again (<paramref name="notificationType"/> is LotAlmostFull, LotFull or
+    /// LotSpaceAvailable): the bell of every active Staff of the lot and of its Manager says which zone and how many bays
+    /// are taken. One notice per person and level change (<paramref name="changedAt"/> keys it), so a retry never repeats it.
+    /// </summary>
+    public async Task<bool> ZoneFillChangedAsync(int zoneId, string notificationType, DateTime changedAt)
+    {
+        if (notificationType is not (NotificationTypes.LotAlmostFull or NotificationTypes.LotFull or NotificationTypes.LotSpaceAvailable))
+            return false;
+
+        var zone = await pmsContext.Zones.AsNoTracking()
+            .Include(z => z.ZoneCounter)
+            .Include(z => z.ParkingLot)
+            .FirstOrDefaultAsync(z => z.Id == zoneId);
+        if (zone?.ZoneCounter == null || zone.ParkingLot == null || zone.ParkingLot.IsDeleted)
+            return false;
+
+        var lot = zone.ParkingLot;
+        var total = zone.ZoneCounter.TotalCapacity;
+        var free = zone.ZoneCounter.AvailableSpaces;
+        var taken = Math.Max(0, total - free);
+        var percent = ZoneFillLevel.OccupiedPercent(total, free);
+        var where = $"{zone.Name} at {lot.Name}";
+        var counts = $"{taken} of {total} bays are taken ({percent.ToString("0.#", CultureInfo.InvariantCulture)} %), {free} free";
+
+        (string Title, string Message) text = notificationType switch
+        {
+            NotificationTypes.LotFull => ($"{zone.Name} is full",
+                $"{where} has no free bay left ({counts}). Walk-ins are turned away at the entry lane; booked and whitelisted vehicles still get in."),
+            NotificationTypes.LotAlmostFull => ($"{zone.Name} is almost full",
+                $"{where} is filling up: {counts}. Customers see the lot as almost full."),
+            _ => ($"{zone.Name} has free bays again",
+                $"{where} is no longer full: {counts}. Walk-ins can park again.")
+        };
+
+        var staff = await pmsContext.Employees.AsNoTracking()
+            .Where(e => e.ParkingLotId == lot.Id && e.Status == "Active" && e.Position != "Manager" && e.UserId != null)
+            .Select(e => e.UserId)
+            .Distinct()
+            .ToListAsync();
+        var managerId = await LotManagerAsync(lot.Id);
+        var recipients = staff.Select(id => (UserId: id, Audience: "staff")).ToList();
+        if (managerId != null && !staff.Contains(managerId))
+            recipients.Add((managerId, "manager"));
+
+        var refId = $"{zoneId}:{changedAt.Ticks.ToString(CultureInfo.InvariantCulture)}";
+        var sent = false;
+        foreach (var (userId, audience) in recipients)
+        {
+            sent |= await SaveAndPushAsync(new UserNotification
+            {
+                UserId = userId,
+                Type = notificationType,
+                Title = text.Title,
+                Message = text.Message,
+                RefType = "Zone",
+                RefId = refId,
+                EventAt = changedAt
+            }, new Dictionary<string, string>
+            {
+                ["audience"] = audience,
+                ["lotId"] = lot.Id.ToString(CultureInfo.InvariantCulture),
+                ["lotName"] = lot.Name,
+                ["zoneId"] = zoneId.ToString(CultureInfo.InvariantCulture),
+                ["zoneName"] = zone.Name,
+                ["totalBays"] = total.ToString(CultureInfo.InvariantCulture),
+                ["freeBays"] = free.ToString(CultureInfo.InvariantCulture),
+                ["occupancyPercent"] = percent.ToString(CultureInfo.InvariantCulture)
+            });
+        }
+
+        return sent;
+    }
+
+    /// <summary>
+    /// A customer asked for their account to be deleted: every active Admin's bell says who, why, and what still ties
+    /// the account to the system (open sessions, upcoming bookings, wallet balance) so the Admin can decide before
+    /// locking it from the customer list. One notice per Admin and request, so a retry never repeats it.
+    /// </summary>
+    public async Task<int> AccountDeletionRequestedAsync(long requestId)
+    {
+        var request = await pmsContext.AccountDeletionRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == requestId);
+        if (request == null || request.Status != AccountDeletionRequestStatuses.Pending || audience == null)
+            return 0;
+
+        var customer = await pmsContext.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.UserId == request.UserId);
+        var account = await audience.AccountAsync(request.UserId);
+        var name = FirstFilled(customer?.FullName, account.UserName, account.Email, "A customer");
+        var email = FirstFilled(account.Email, customer?.Email);
+
+        var openSessions = customer == null ? 0
+            : await pmsContext.ParkingSessions.CountAsync(s => s.CustomerId == customer.Id && SessionStatus.Open.Contains(s.Status));
+        var upcoming = await pmsContext.Reservations.CountAsync(r => r.UserId == request.UserId && ReservationStatus.Upcoming.Contains(r.Status));
+        var balance = customer == null ? 0m
+            : await pmsContext.Wallets.Where(w => w.CustomerId == customer.Id).Select(w => (decimal?)w.Balance).FirstOrDefaultAsync() ?? 0m;
+
+        var ties = new List<string>();
+        if (openSessions > 0) ties.Add(openSessions == 1 ? "1 vehicle still parked" : $"{openSessions} vehicles still parked");
+        if (upcoming > 0) ties.Add(upcoming == 1 ? "1 upcoming booking" : $"{upcoming} upcoming bookings");
+        if (balance > 0) ties.Add($"{balance.ToString("N0", CultureInfo.InvariantCulture)} VND left in the wallet");
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? "" : $" Reason: \"{request.Reason.Trim()}\".";
+        var status = ties.Count == 0 ? " Nothing is open on the account." : $" Still open: {string.Join(", ", ties)}.";
+
+        var sent = 0;
+        foreach (var adminId in await audience.ActiveAdminIdsAsync())
+        {
+            if (await SaveAndPushAsync(new UserNotification
+                {
+                    UserId = adminId,
+                    Type = NotificationTypes.AccountDeletionRequested,
+                    Title = $"{name} asked to delete their account",
+                    Message = $"{name}{(string.IsNullOrEmpty(email) ? "" : $" ({email})")} asked for their account to be deleted.{reason}{status} " +
+                              "Lock the account from User Accounts once it can be closed.",
+                    RefType = "AccountDeletionRequest",
+                    RefId = request.Id.ToString(CultureInfo.InvariantCulture),
+                    EventAt = request.RequestedAt
+                }, new Dictionary<string, string>
+                {
+                    ["audience"] = "admin",
+                    ["requestId"] = request.Id.ToString(CultureInfo.InvariantCulture),
+                    ["userId"] = request.UserId,
+                    ["customerName"] = name,
+                    ["email"] = email,
+                    ["reason"] = request.Reason,
+                    ["openSessions"] = openSessions.ToString(CultureInfo.InvariantCulture),
+                    ["upcomingBookings"] = upcoming.ToString(CultureInfo.InvariantCulture),
+                    ["walletBalance"] = balance.ToString(CultureInfo.InvariantCulture)
+                }))
+                sent++;
+        }
+        return sent;
+    }
+
+    /// <summary>
+    /// A pricing rule's prices changed: every active Admin (except whoever made the change) hears which lot and vehicle
+    /// type, who changed it, and the old and new prices. Keyed by the history row, so a retry never repeats it.
+    /// </summary>
+    public async Task<int> LotPricingChangedAsync(long historyId, string oldPrices, string newPrices)
+    {
+        if (audience == null)
+            return 0;
+        var history = await pmsContext.PricingRuleHistories.AsNoTracking().FirstOrDefaultAsync(h => h.Id == historyId);
+        if (history == null)
+            return 0;
+        var rule = await pmsContext.PricingRules.AsNoTracking().FirstOrDefaultAsync(r => r.Id == history.PricingRuleId);
+        if (rule?.ParkingLotId == null)
+            return 0;
+        var lot = await pmsContext.ParkingLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == rule.ParkingLotId);
+        var vehicleType = await pmsContext.VehicleTypes.AsNoTracking().Where(v => v.Id == rule.VehicleTypeId).Select(v => v.Name).FirstOrDefaultAsync();
+
+        var who = (string.IsNullOrEmpty(history.ChangedBy) ? null
+                      : await pmsContext.Employees.AsNoTracking().Where(e => e.UserId == history.ChangedBy).Select(e => e.FullName).FirstOrDefaultAsync())
+                  ?? "A Manager";
+        var lotName = lot?.Name ?? "a parking lot";
+        var typeLabel = string.IsNullOrWhiteSpace(vehicleType) ? rule.Name : vehicleType;
+
+        var sent = 0;
+        foreach (var adminId in (await audience.ActiveAdminIdsAsync()).Where(id => id != history.ChangedBy))
+        {
+            if (await SaveAndPushAsync(new UserNotification
+                {
+                    UserId = adminId,
+                    Type = NotificationTypes.LotPricingChanged,
+                    Title = $"{who} changed the {typeLabel} price at {lotName}",
+                    Message = $"{who} changed the {typeLabel} price ({rule.Name}) at {lotName} at {LocalTime(history.ChangedAt, lot)}" +
+                              $"{(rule.Status == "Active" ? "" : $" (the rule is {rule.Status}, so nobody pays it yet)")}. " +
+                              $"Before: {oldPrices}. Now: {newPrices}.",
+                    RefType = "PricingRuleHistory",
+                    RefId = history.Id.ToString(CultureInfo.InvariantCulture),
+                    EventAt = history.ChangedAt
+                }, new Dictionary<string, string>
+                {
+                    ["audience"] = "admin",
+                    ["historyId"] = history.Id.ToString(CultureInfo.InvariantCulture),
+                    ["ruleId"] = rule.Id.ToString(CultureInfo.InvariantCulture),
+                    ["lotId"] = rule.ParkingLotId.Value.ToString(CultureInfo.InvariantCulture),
+                    ["lotName"] = lot?.Name,
+                    ["vehicleType"] = vehicleType,
+                    ["changedBy"] = who,
+                    ["oldPrices"] = oldPrices,
+                    ["newPrices"] = newPrices
+                }))
+                sent++;
+        }
+        return sent;
+    }
+
+    private static string FirstFilled(params string[] values) => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
     /// <summary>The active Manager of the lot (ParkingLots.ManagerUserId), or null.</summary>
     private Task<string> LotManagerAsync(int lotId) =>

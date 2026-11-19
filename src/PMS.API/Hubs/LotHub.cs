@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 namespace PMS.API.Hubs;
 
 /// <summary>
-/// Public real-time channel of a lot's 3D model (SRS FR-3D-03, FR-3D-08): slot and lot statuses,
+/// Public real-time channel of a lot's 3D model: slot and lot statuses,
 /// never plates. Clients join one group per lot they show. Mapped at /api/hubs/lots.
 /// </summary>
 public class LotHub : Hub

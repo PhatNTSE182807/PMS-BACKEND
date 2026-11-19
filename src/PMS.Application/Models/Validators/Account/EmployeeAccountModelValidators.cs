@@ -6,7 +6,7 @@ using PMS.DataAccess.Identity;
 
 namespace PMS.Application.Models.Validators.Account;
 
-/// <summary>BR-28 form rules. Uniqueness on update is checked by the service, which knows the account id.</summary>
+/// <summary>Employee account form rules. Uniqueness on update is checked by the service, which knows the account id.</summary>
 public class UpdateEmployeeAccountModelValidator : AbstractValidator<UpdateEmployeeAccountModel>
 {
     public UpdateEmployeeAccountModelValidator()

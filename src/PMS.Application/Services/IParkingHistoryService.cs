@@ -3,7 +3,7 @@ using PMS.Application.Models.Operations;
 
 namespace PMS.Application.Services;
 
-/// <summary>The signed-in customer's finished parking sessions and their e-receipts (FR-CUS-02).</summary>
+/// <summary>The signed-in customer's finished parking sessions and their e-receipts.</summary>
 public interface IParkingHistoryService
 {
     /// <summary>Sessions that ended (the vehicle left), newest exit first, one page at a time.</summary>

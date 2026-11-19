@@ -11,6 +11,6 @@ public class VehicleDocumentStorageOptions
     /// <summary>Largest accepted file: 10 MB.</summary>
     public long MaxFileBytes { get; set; } = 10 * 1024 * 1024;
 
-    /// <summary>BR-26: photos are deleted this many days after the final decision.</summary>
+    /// <summary>Photos are deleted this many days after the final decision.</summary>
     public int RetentionDays { get; set; } = 30;
 }

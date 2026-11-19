@@ -68,6 +68,10 @@ public class CreatePricingRuleModelValidator : AbstractValidator<CreatePricingRu
             .GreaterThanOrEqualTo(0).WithMessage("The compensation for a taken booked bay must be 0 or more.")
             .LessThanOrEqualTo(10_000_000).WithMessage("The compensation for a taken booked bay can be at most 10,000,000 VND.");
 
+        RuleFor(x => x.PenaltyFee)
+            .GreaterThanOrEqualTo(0).WithMessage("The penalty for a towed vehicle must be 0 or more.")
+            .LessThanOrEqualTo(10_000_000).WithMessage("The penalty for a towed vehicle can be at most 10,000,000 VND.");
+
         RuleFor(x => x.Currency)
             .MaximumLength(3).WithMessage("Currency code must not exceed 3 characters.");
 
@@ -140,6 +144,10 @@ public class UpdatePricingRuleModelValidator : AbstractValidator<UpdatePricingRu
             .GreaterThanOrEqualTo(0).WithMessage("The compensation for a taken booked bay must be 0 or more.")
             .LessThanOrEqualTo(10_000_000).WithMessage("The compensation for a taken booked bay can be at most 10,000,000 VND.");
 
+        RuleFor(x => x.PenaltyFee)
+            .GreaterThanOrEqualTo(0).WithMessage("The penalty for a towed vehicle must be 0 or more.")
+            .LessThanOrEqualTo(10_000_000).WithMessage("The penalty for a towed vehicle can be at most 10,000,000 VND.");
+
         RuleFor(x => x.Status)
             .Must(s => string.IsNullOrEmpty(s) || ValidStatuses.Contains(s, StringComparer.OrdinalIgnoreCase))
             .WithMessage($"Status must be one of: {string.Join(", ", ValidStatuses)}.");
@@ -166,5 +174,19 @@ public class PricingSimulationRequestModelValidator : AbstractValidator<PricingS
         RuleFor(x => x)
             .Must(x => x.RuleId.HasValue || x.VehicleTypeId.HasValue || !string.IsNullOrWhiteSpace(x.VehicleTypeCode))
             .WithMessage("At least one of RuleId, VehicleTypeId, or VehicleTypeCode must be provided for simulation.");
+    }
+}
+
+/// <summary>A draft holds a full set of rule values: they pass the same checks as a direct update.</summary>
+public class SavePricingRuleDraftModelValidator : AbstractValidator<SavePricingRuleDraftModel>
+{
+    public SavePricingRuleDraftModelValidator()
+    {
+        RuleFor(x => x.Values)
+            .NotNull().WithMessage("The draft prices are required.")
+            .SetValidator(new UpdatePricingRuleModelValidator());
+
+        RuleFor(x => x.Note)
+            .MaximumLength(500).WithMessage("The note must not exceed 500 characters.");
     }
 }

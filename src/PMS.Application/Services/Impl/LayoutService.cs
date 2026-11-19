@@ -58,7 +58,8 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
                 Row = s.Placement.Row,
                 Col = s.Placement.Col,
                 Rotation = s.Placement.Rotation,
-                ModelUrl = s.Placement.ModelUrl
+                ModelUrl = s.Placement.ModelUrl,
+                Kind = s.Slot.Kind ?? SlotKind.Standard
             }).OrderBy(s => s.FloorNo).ThenBy(s => s.Row).ThenBy(s => s.Col).ToList()
         };
     }
@@ -102,6 +103,9 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
         var floors = ReadFloors(layout).Select(floor =>
         {
             var onFloor = slots.Where(s => s.Placement.FloorNo == floor.FloorNo).ToList();
+            // Penalty bays are counted on their own: they are never free for a booking or a walk-in
+            var standard = onFloor.Where(s => s.Slot.Kind != SlotKind.Penalty).ToList();
+            var penalty = onFloor.Where(s => s.Slot.Kind == SlotKind.Penalty).ToList();
             var result = new Layout2DFloorModel
             {
                 FloorNo = floor.FloorNo,
@@ -109,8 +113,10 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
                 Kind = floor.Kind,
                 Rows = floor.Rows,
                 Cols = floor.Cols,
-                Total = onFloor.Count,
-                Free = onFloor.Count(s => s.Slot.Status == Available)
+                Total = standard.Count,
+                Free = standard.Count(s => s.Slot.Status == Available),
+                PenaltyTotal = penalty.Count,
+                PenaltyFree = penalty.Count(s => s.Slot.Status == Available)
             };
 
             if (level == LayoutDetail.Slots)
@@ -127,12 +133,14 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
                     Status = s.Slot.Status,
                     VehicleColor = parkedInSlot.GetValueOrDefault(s.Slot.Id)?.VehicleColor,
                     ParkedVehicleTypeCode = parkedInSlot.GetValueOrDefault(s.Slot.Id)?.VehicleTypeCode,
-                    BookedLater = s.Slot.Status == Available && bookedLater.Contains(s.Slot.Id)
+                    BookedLater = s.Slot.Status == Available && bookedLater.Contains(s.Slot.Id),
+                    Kind = s.Slot.Kind ?? SlotKind.Standard
                 }).OrderBy(c => c.Row).ThenBy(c => c.Col).ToList();
             }
             else
             {
-                result.ZoneBlocks = onFloor.GroupBy(s => s.Slot.ZoneId).Select(g =>
+                // A zone's block covers its normal bays; the penalty block at the end of the level is not part of it
+                result.ZoneBlocks = standard.GroupBy(s => s.Slot.ZoneId).Select(g =>
                 {
                     zones.TryGetValue(g.Key, out var zone);
                     return new Layout2DZoneBlockModel
@@ -245,8 +253,8 @@ public class LayoutService(PmsDbContext pmsContext) : ILayoutService
             : new ZoneAvailabilityModel
             {
                 ZoneId = z.Id,
-                Total = z.Slots.Count(s => s.IsActive),
-                Free = z.Slots.Count(s => s.IsActive && s.Status == Available)
+                Total = z.Slots.Count(s => s.IsActive && s.Kind != SlotKind.Penalty),
+                Free = z.Slots.Count(s => s.IsActive && s.Kind != SlotKind.Penalty && s.Status == Available)
             }).ToList();
     }
 }

@@ -31,4 +31,13 @@ public class HangfireUserNotificationPublisher(IBackgroundJobClient jobs) : IUse
 
     public void CashDrawerClosed(long drawerId) =>
         jobs.Enqueue<NotificationJobs>(j => j.CashDrawerClosedAsync(drawerId));
+
+    public void ZoneFillChanged(int zoneId, string notificationType, DateTime changedAt) =>
+        jobs.Enqueue<NotificationJobs>(j => j.ZoneFillChangedAsync(zoneId, notificationType, changedAt));
+
+    public void AccountDeletionRequested(long requestId) =>
+        jobs.Enqueue<NotificationJobs>(j => j.AccountDeletionRequestedAsync(requestId));
+
+    public void LotPricingChanged(long historyId, string oldPrices, string newPrices) =>
+        jobs.Enqueue<NotificationJobs>(j => j.LotPricingChangedAsync(historyId, oldPrices, newPrices));
 }

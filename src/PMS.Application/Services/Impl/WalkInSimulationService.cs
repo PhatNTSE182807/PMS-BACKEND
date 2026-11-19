@@ -198,18 +198,10 @@ public class WalkInSimulationService(
             CompletedCount = await completed.CountAsync(),
             Revenue = await completed.SumAsync(s => (decimal?)s.FinalFee) ?? 0,
             TotalBays = lotId is { } id
-                ? await pmsContext.Slots.CountAsync(s => s.Zone.ParkingLotId == id && s.Zone.IsActive && s.IsActive)
+                ? await pmsContext.Slots.CountAsync(s => s.Zone.ParkingLotId == id && s.Zone.IsActive && s.IsActive && s.Kind != SlotKind.Penalty)
                 : null,
             FreeBays = lotId is { } lot ? (await FreeBaysAsync(lot)).Count : null
         };
-    }
-
-    /// <summary>Drives one simulated vehicle out now: pays what is due in cash at the exit lane, then leaves.</summary>
-    public async Task<SimulatedWalkInModel> CheckOutNowAsync(long sessionId)
-    {
-        var session = await SimulatedSessionAsync(sessionId);
-        await LeaveAsync(session.Id, session.HasPlate ? session.EntryPlateNumber : null);
-        return (await GetOverviewAsync(session.ParkingLotId)).Inside.FirstOrDefault(s => s.SessionId == sessionId);
     }
 
     /// <summary>Drives every simulated vehicle of the lot (or of every lot) out now.</summary>
@@ -239,20 +231,8 @@ public class WalkInSimulationService(
         return await LeaveEachAsync(due.Select(s => (s.Id, s.HasPlate ? s.EntryPlateNumber : null, s.SimulatedBy)));
     }
 
-    /// <summary>The driver of a simulated vehicle says the ticket is lost; Staff approves on the spot or a Manager decides.</summary>
-    public async Task<SimulatedWalkInModel> ReportLostTicketAsync(long sessionId, SimulateLostTicketModel model)
-    {
-        var session = await SimulatedSessionAsync(sessionId);
-        await gates.ReportLostTicketAsync(session.Id, new LostTicketModel
-        {
-            Reason = "Simulated: the driver lost the paper ticket.",
-            ConditionsMet = model?.ConditionsMet == true
-        });
-        return (await GetOverviewAsync(session.ParkingLotId)).Inside.FirstOrDefault(s => s.SessionId == sessionId);
-    }
-
     /// <summary>
-    /// A walk-in parks in the bay of a confirmed booking (BR-08 exception). When that customer checks in, the
+    /// A walk-in parks in the bay of a confirmed booking (exception). When that customer checks in, the
     /// entry lane moves the booking to another bay with the first hour free, or to the walk-in area with a full refund.
     /// </summary>
     public async Task<BookedBayTakenModel> OccupyBookedBayAsync(int lotId, long? reservationId, int? slotId = null)
@@ -389,7 +369,7 @@ public class WalkInSimulationService(
             }
             catch (Exception e) when (e is BadRequestException or ConflictException or ForbiddenException or NotFoundException)
             {
-                // A lost ticket waiting for a Manager, or a case that was rejected: the vehicle stays for now
+                // A lost ticket waiting for the Staff decision, or a case that was rejected: the vehicle stays for now
                 pmsContext.ChangeTracker.Clear();
                 result.Skipped++;
             }
@@ -404,10 +384,6 @@ public class WalkInSimulationService(
             await gates.PayCashAsync(sessionId, new CashPaymentModel { Amount = quote.AmountDue });
         await gates.CheckoutAsync(sessionId, new CheckoutModel { PlateNumber = plate, PhotoChecked = true });
     }
-
-    private async Task<ParkingSession> SimulatedSessionAsync(long sessionId) =>
-        await pmsContext.ParkingSessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == sessionId && s.IsSimulated)
-        ?? throw new NotFoundException("No simulated vehicle with this session.");
 
     /// <summary>
     /// A random plate in the real format that is not parked now, not a registered vehicle (it would be linked

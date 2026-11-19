@@ -18,7 +18,7 @@ public static class UserValidatorConfiguration
 
     public const string VietnamPhoneNumberRegex = @"^(\+84|84|0)[35789][0-9]{8}$";
 
-    /// <summary>BR-28: a Vietnamese phone number of 10 digits starting with 0.</summary>
+    /// <summary>A Vietnamese phone number of 10 digits starting with 0.</summary>
     public const string EmployeePhoneNumberRegex = @"^0[0-9]{9}$";
 
     /// <summary>Vietnamese Citizen ID (CCCD): exactly 12 digits.</summary>

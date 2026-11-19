@@ -3,9 +3,10 @@ using System;
 namespace PMS.DataAccess.Persistence.Entities;
 
 /// <summary>
-/// One cash drawer of a Staff member at a lot for a business day (BR-12): the float counted in when it opens,
-/// the banknotes counted out when it closes, the expected cash and the difference. Cash taken after a close
-/// opens another drawer of the same day (CloseNo 2, 3…). Never deleted: a Manager confirms it.
+/// One cash drawer of a Staff member at a lot: the float it opens with and the cash total handed in at the close
+/// (float + cash taken + approved top-ups). Since 2026-11-15 nothing is counted by banknote, so new rows leave
+/// FloatJson, CountedJson, CountedTotal and Difference empty; older rows keep their count. Closing a drawer opens
+/// the next one (CloseNo 2, 3…). Never deleted: a Manager confirms it.
 /// </summary>
 public partial class DailyCashClose
 {
@@ -26,26 +27,26 @@ public partial class DailyCashClose
 
     public DateTime OpenedAt { get; set; }
 
-    /// <summary>When the drawer must be closed: 23:00 of the business day (BR-12), or sooner when the Admin's simulation ends the day.</summary>
+    /// <summary>When the drawer must be closed: 23:00 of the business day, or sooner when the Admin's simulation ends the day.</summary>
     public DateTime? CloseDueAt { get; set; }
 
     /// <summary>When the drawer was found still open after its deadline and the Manager was told.</summary>
     public DateTime? OverdueAt { get; set; }
 
-    /// <summary>Banknotes put in the drawer when it opened, as JSON {"500000": 1, "10000": 20, …}.</summary>
+    /// <summary>Legacy: banknotes put in the drawer when it opened (rows before 2026-11-15).</summary>
     public string FloatJson { get; set; }
 
     public decimal FloatTotal { get; set; }
 
-    /// <summary>Banknotes the Staff counted at the close, same JSON shape; null while open.</summary>
+    /// <summary>Legacy: banknotes the Staff counted at the close (rows before 2026-11-15).</summary>
     public string CountedJson { get; set; }
 
     public decimal? CountedTotal { get; set; }
 
-    /// <summary>Float plus the cash taken by this Staff while the drawer was open.</summary>
+    /// <summary>The cash total handed in: float + cash taken by this Staff + approved top-ups; set at the close.</summary>
     public decimal? ExpectedTotal { get; set; }
 
-    /// <summary>Counted minus expected (negative: cash is missing).</summary>
+    /// <summary>Legacy: counted minus expected (negative: cash was missing).</summary>
     public decimal? Difference { get; set; }
 
     public string DifferenceReason { get; set; }

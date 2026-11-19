@@ -36,12 +36,25 @@ public static class NotificationTypes
     public const string BookingBayMoved = "BookingBayMoved";
     /// <summary>Manager bell: a Staff closed their cash drawer (when, counted vs expected, the difference).</summary>
     public const string CashDrawerClosed = "CashDrawerClosed";
+    /// <summary>Staff towed the vehicle out of a booked bay to a penalty bay: the booked customer keeps the bay, the towed vehicle's owner owes a penalty.</summary>
+    public const string VehicleTowed = "VehicleTowed";
+    /// <summary>Staff and Manager bell: a zone of their lot reached 80 % of its bays.</summary>
+    public const string LotAlmostFull = "LotAlmostFull";
+    /// <summary>Staff and Manager bell: a zone of their lot has no free bay left (walk-ins are turned away).</summary>
+    public const string LotFull = "LotFull";
+    /// <summary>Staff and Manager bell: a full zone of their lot has free bays again.</summary>
+    public const string LotSpaceAvailable = "LotSpaceAvailable";
+    /// <summary>Admin bell: a customer asked for their account to be deleted (the Admin locks it from the customer list).</summary>
+    public const string AccountDeletionRequested = "AccountDeletionRequested";
+    /// <summary>Admin bell: a Manager changed the prices of a lot's pricing rule (old and new prices).</summary>
+    public const string LotPricingChanged = "LotPricingChanged";
 
     public static readonly string[] All =
     [
         VehicleApproved, VehicleRejected, CheckIn, CheckOut, PriceChanged,
         BookedBayTaken, BookedBayReassigned, BookedBayFreed, BookingCancelledByLot, DepositRefunded, CompensationPaid,
-        DepartureSoon, DepartureOverdue, BookingBayMoved, CashDrawerClosed
+        DepartureSoon, DepartureOverdue, BookingBayMoved, CashDrawerClosed, VehicleTowed,
+        LotAlmostFull, LotFull, LotSpaceAvailable, AccountDeletionRequested, LotPricingChanged
     ];
 }
 

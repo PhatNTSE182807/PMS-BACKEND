@@ -1,3 +1,4 @@
+using PMS.API.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PMS.Application.Models;
@@ -8,7 +9,7 @@ using PMS.Shared.Services;
 namespace PMS.API.Controllers;
 
 /// <summary>
-/// Staff review of new vehicle registrations (SRS FR-VER-03/04): compare the uploaded registration
+/// Staff review of new vehicle registrations: compare the uploaded registration
 /// certificate and Citizen ID card with the vehicle and the account, then approve or reject the vehicle.
 /// Staff hold this permission; Managers and Admins can act too.
 /// </summary>
@@ -26,12 +27,14 @@ public class VehicleVerificationsController(
         return Ok(ApiResult<List<VehicleVerificationReviewModel>>.Success(await vehicleDocumentService.GetReviewQueueAsync(status)));
     }
 
+    /// <summary>One vehicle registration check with its documents and photos.</summary>
     [HttpGet("{verificationId:guid}")]
     public async Task<IActionResult> GetAsync(Guid verificationId)
     {
         return Ok(ApiResult<VehicleVerificationReviewModel>.Success(await vehicleDocumentService.GetForReviewAsync(verificationId)));
     }
 
+    /// <summary>Downloads one uploaded document of a registration check (never cached).</summary>
     [HttpGet("{verificationId:guid}/files/{documentId:guid}")]
     public async Task<IActionResult> GetFileAsync(Guid verificationId, Guid documentId)
     {
@@ -41,7 +44,7 @@ public class VehicleVerificationsController(
     }
 
     /// <summary>Approves or rejects a check waiting for review; a rejection needs a note for the customer.</summary>
-    [HttpPost("{verificationId:guid}/review")]
+    [HttpPost("{verificationId:guid}/review"), RequireOnShift]
     public async Task<IActionResult> ReviewAsync(Guid verificationId, [FromBody] ReviewVehicleVerificationModel model)
     {
         return Ok(ApiResult<VehicleVerificationReviewModel>.Success(

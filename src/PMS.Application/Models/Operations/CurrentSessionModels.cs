@@ -34,6 +34,12 @@ public class CurrentSessionModel
 
     public int ElapsedMinutes { get; set; }
 
+    /// <summary>
+    /// The ticket was reported lost and the case waits for the Staff decision: no fee is quoted yet (all amounts are 0) and
+    /// the vehicle cannot be prepaid or checked out until the case is decided.
+    /// </summary>
+    public bool LostTicketPending { get; set; }
+
     /// <summary>Parking fee so far (before the deposit and payments).</summary>
     public decimal FeeSoFar { get; set; }
 

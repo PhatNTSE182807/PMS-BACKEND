@@ -30,5 +30,16 @@ public partial class PmsDbContext
         });
 
         modelBuilder.Entity<PricingRule>().Property(e => e.BookedBayCompensation).HasColumnType("decimal(18, 2)");
+
+        // Penalty bays: the bay kind, the fee on the pricing rule, and what a towed vehicle owes
+        modelBuilder.Entity<BookedBayCase>().Property(e => e.PenaltyFee).HasColumnType("decimal(18, 2)");
+        modelBuilder.Entity<PricingRule>().Property(e => e.PenaltyFee).HasColumnType("decimal(18, 2)");
+        modelBuilder.Entity<Slot>().Property(e => e.Kind).IsRequired().HasMaxLength(20).IsUnicode(false).HasDefaultValue("Standard");
+        modelBuilder.Entity<ParkingSession>(entity =>
+        {
+            entity.Property(e => e.PenaltyReason).HasMaxLength(20).IsUnicode(false);
+            entity.Property(e => e.PenaltyFee).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.RelocatedAt).HasPrecision(3);
+        });
     }
 }

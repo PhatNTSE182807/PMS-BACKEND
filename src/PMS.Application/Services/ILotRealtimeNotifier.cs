@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 namespace PMS.Application.Services;
 
 /// <summary>
-/// Pushes lot changes to the clients watching that lot (SignalR in PMS.API, SRS FR-3D-03/08).
+/// Pushes lot changes to the clients watching that lot (SignalR in PMS.API).
 /// Public payloads carry ids and statuses only, never plates.
 /// </summary>
 public interface ILotRealtimeNotifier

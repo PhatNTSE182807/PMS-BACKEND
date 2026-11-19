@@ -88,7 +88,7 @@ public sealed partial class DemoDataSeed
     /// <summary>
     /// A finished session: quoted and paid at <paramref name="paidAt"/> (the fee is fixed by that quote), out
     /// through the exit lane at <paramref name="exit"/>. A booking's deposit is deducted and any remainder
-    /// refunded; a lost ticket adds its fine. Nothing is charged when the amount due is 0 (BR-09).
+    /// refunded; a lost ticket adds its fine. Nothing is charged when the amount due is 0.
     /// </summary>
     private async Task<ParkingSession> AddCompletedSessionAsync(LotInfo lot, string plate, string typeCode, CustomerInfo owner, Vehicle vehicle,
         DateTime entry, DateTime paidAt, DateTime exit, int daysAgo, string method, string provider, string channel,
@@ -331,7 +331,7 @@ public sealed partial class DemoDataSeed
 
     /// <summary>
     /// Prepaid in cash at the counter, but left 25 minutes after the 15-minute exit window: re-priced from the
-    /// entry, what was paid subtracted, and the late-exit fee added (BR-10), paid at the exit lane.
+    /// entry, what was paid subtracted, and the late-exit fee added, paid at the exit lane.
     /// </summary>
     private async Task AddMissedExitWindowAsync(LotInfo lot, DateTime date)
     {

@@ -212,8 +212,11 @@ public class PaymentService(
         return ToModel(paymentOnline);
     }
 
-    public async Task<PaymentResponseModel> RecordCashAsync(ParkingSession session, decimal amountDue, decimal received, bool prepaid, string staffUserId,
-        IReadOnlyDictionary<int, int> receivedNotes = null, IReadOnlyDictionary<int, int> changeNotes = null)
+    /// <summary>
+    /// Cash taken by a Staff: only the fee is recorded (the change goes back to the customer), and it adds to the
+    /// Staff's drawer total. Banknotes are not recorded (user decision, 2026-11-15).
+    /// </summary>
+    public async Task<PaymentResponseModel> RecordCashAsync(ParkingSession session, decimal amountDue, decimal received, bool prepaid, string staffUserId)
     {
         if (session.Status != SessionStatus.PendingPayment)
             throw new BadRequestException("The session is not waiting for payment.");
@@ -228,18 +231,6 @@ public class PaymentService(
         payment.SessionId = session.Id;
         payment.ParkingLotId = session.ParkingLotId;
         payment.CollectedByUserId = staffUserId;
-        if (receivedNotes is { Count: > 0 })
-        {
-            // Note by note: what came in and what went back must match the money and the fee exactly
-            var inNotes = CashDrawerService.CleanNotes(receivedNotes, "money received");
-            var outNotes = CashDrawerService.CleanNotes(changeNotes, "change");
-            if (CashDrawerService.Total(inNotes) != received)
-                throw new BadRequestException("The banknotes received do not add up to the amount received.");
-            if (CashDrawerService.Total(inNotes) - CashDrawerService.Total(outNotes) != amountDue)
-                throw new BadRequestException($"The change given back does not leave exactly {amountDue:N0} VND.");
-            payment.CashReceivedJson = CashDrawerService.Write(inNotes);
-            payment.CashChangeJson = CashDrawerService.Write(outNotes);
-        }
         payment.Status = PaymentStatus.Succeeded;
         payment.PaidAt = Now;
         invoice.Status = "Paid";
@@ -281,15 +272,6 @@ public class PaymentService(
             return new PaymentCallbackResultModel { SignatureValid = true, Outcome = "AlreadyProcessed", Payment = ToModel(payment) };
 
         return await QueryAndApplyAsync(payment, clientIp);
-    }
-
-    public async Task<PaymentResponseModel> GetAsync(long paymentId)
-    {
-        var payment = await pmsContext.Payments.AsNoTracking().FirstOrDefaultAsync(p => p.Id == paymentId)
-                      ?? throw new NotFoundException("Payment not found.");
-        await EnsureCanSeeAsync(payment);
-        var session = payment.SessionId == null ? null : await pmsContext.ParkingSessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == payment.SessionId);
-        return ToModel(payment, session);
     }
 
     public async Task<PaymentResponseModel> GetPendingForReservationAsync(long reservationId)
@@ -474,7 +456,7 @@ public class PaymentService(
 
     /// <summary>
     /// Applies a gateway result once. A success that arrives after the reservation expired or after the
-    /// session was already paid (cash, another QR) is refunded at once (FR-RSV-08, FR-PAY-08/09).
+    /// session was already paid (cash, another QR) is refunded at once.
     /// </summary>
     private async Task<PaymentCallbackResultModel> ApplyAsync(string paymentCode, bool success, decimal amount, string transactionNo, string message, string payload)
     {
@@ -615,7 +597,7 @@ public class PaymentService(
         return "Refunded";
     }
 
-    /// <summary>The session is paid: Paid; prepaid at the app or a kiosk also gets an Exit Window (FR-PAY-07).</summary>
+    /// <summary>The session is paid: Paid; prepaid at the app or a kiosk also gets an Exit Window.</summary>
     private void SettleSession(ParkingSession session, Payment payment)
     {
         ParkingStateMachines.EnsureSession(session.Status, SessionStatus.Paid);
@@ -628,7 +610,7 @@ public class PaymentService(
     }
 
     /// <summary>
-    /// Creates a refund row and sends it (cash is handed back on the spot, FR-PAY-09). <paramref name="toWallet"/> credits
+    /// Creates a refund row and sends it (cash is handed back on the spot). <paramref name="toWallet"/> credits
     /// the customer's XXIV wallet whatever the original method was (VNPay, MoMo, wallet).
     /// </summary>
     private async Task RefundAsync(Payment original, decimal amount, string reason, string requestedBy, bool toWallet = false)
@@ -1008,29 +990,7 @@ public class PaymentService(
             .Select(s => (decimal?)s.FinalFee)
             .SumAsync() ?? 0m;
 
-        var txs = await pmsContext.WalletTransactions
-            .Where(t => t.WalletId == wallet.Id)
-            .OrderByDescending(t => t.CreatedAt)
-            .Take(10)
-            .ToListAsync();
-
-        var recent = txs.Select(t => new WalletTransactionResponseModel
-        {
-            Id = t.ReferenceId ?? $"TX-{t.Id}",
-            Title = t.Description ?? (t.Amount >= 0 ? "Wallet Deposit" : "Wallet Withdrawal"),
-            Subtitle = $"{t.CreatedAt:MMM dd, HH:mm} • Ref: {t.ReferenceId ?? t.Id.ToString()}",
-            Amount = t.Amount,
-            Status = "Completed",
-            // Refunds and compensation come back to the wallet: listed as such, not as a top-up
-            Type = t.TxnType switch
-            {
-                "Refund" or "Compensation" => "refund",
-                "Payment" => "payment",
-                _ => t.Amount >= 0 ? "deposit" : "withdraw"
-            },
-            Method = t.ReferenceType ?? "Wallet",
-            CreatedAt = t.CreatedAt
-        }).ToList();
+        var recent = await WalletTransactionsAsync(wallet.Id, RecentWalletTransactions);
 
         return new WalletResponseModel
         {
@@ -1043,6 +1003,50 @@ public class PaymentService(
             MinTopUp = parkingOptions.Wallet.MinTopUp,
             RecentTransactions = recent
         };
+    }
+
+    public async Task<IReadOnlyList<WalletTransactionResponseModel>> GetWalletTransactionsAsync(string userId)
+    {
+        var customer = await GetOrCreateCustomerAsync(userId);
+        var wallet = await GetOrCreateWalletAsync(customer.Id);
+        return await WalletTransactionsAsync(wallet.Id, WalletHistoryLimit);
+    }
+
+    /// <summary>Transactions shown with the wallet balance; the history view asks for the rest.</summary>
+    private const int RecentWalletTransactions = 10;
+
+    /// <summary>Most transactions the history view gets in one answer.</summary>
+    private const int WalletHistoryLimit = 500;
+
+    /// <summary>The wallet's latest transactions, newest first, as the customer sees them.</summary>
+    private async Task<IReadOnlyList<WalletTransactionResponseModel>> WalletTransactionsAsync(int walletId, int take)
+    {
+        var txs = await pmsContext.WalletTransactions.AsNoTracking()
+            .Where(t => t.WalletId == walletId)
+            .OrderByDescending(t => t.CreatedAt)
+            .ThenByDescending(t => t.Id)
+            .Take(take)
+            .ToListAsync();
+
+        return txs.Select(t => new WalletTransactionResponseModel
+        {
+            Id = t.ReferenceId ?? $"TX-{t.Id}",
+            Title = t.Description ?? (t.Amount >= 0 ? "Wallet Deposit" : "Wallet Withdrawal"),
+            Subtitle = $"{t.CreatedAt:MMM dd, HH:mm} • Ref: {t.ReferenceId ?? t.Id.ToString()}",
+            Amount = t.Amount,
+            BalanceBefore = t.BalanceBefore,
+            BalanceAfter = t.BalanceAfter,
+            Status = "Completed",
+            // Refunds and compensation come back to the wallet: listed as such, not as a top-up
+            Type = t.TxnType switch
+            {
+                "Refund" or "Compensation" => "refund",
+                "Payment" => "payment",
+                _ => t.Amount >= 0 ? "deposit" : "withdraw"
+            },
+            Method = t.ReferenceType ?? "Wallet",
+            CreatedAt = t.CreatedAt
+        }).ToList();
     }
 
     public async Task<WalletResponseModel> WithdrawWalletAsync(string userId, WithdrawWalletModel model)

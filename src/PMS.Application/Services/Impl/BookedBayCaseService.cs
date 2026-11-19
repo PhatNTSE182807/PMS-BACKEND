@@ -10,7 +10,7 @@ using PMS.DataAccess.Persistence.Entities;
 namespace PMS.Application.Services.Impl;
 
 /// <summary>
-/// A walk-in parked in the bay of a confirmed booking (BR-08, team rules of 2026-11-06). The case opens as soon as the
+/// A walk-in parked in the bay of a confirmed booking (team rules of 2026-11-06). The case opens as soon as the
 /// walk-in is recorded in that bay: the lot's Staff get an alert and the customer a notification. Staff then move the
 /// booking to another free bay of its type (first hour free at check-in), or, only when none is free, cancel it: the
 /// deposit goes back to the XXIV wallet and the lot pays the compensation of its pricing rule into the wallet too
@@ -26,7 +26,8 @@ public class BookedBayCaseService(
     TimeProvider clock,
     IParkingRealtimeNotifier notifier = null,
     IUserNotificationPublisher notifications = null,
-    ILayoutService layouts = null)
+    ILayoutService layouts = null,
+    ParkingOptions parkingOptions = null)
 {
     public const string SystemActor = "System";
 
@@ -76,9 +77,9 @@ public class BookedBayCaseService(
         // A vehicle that came in on its own booking and stayed past it, or a walk-in
         var message = session.ReservationId != null
             ? $"{(session.HasPlate ? session.EntryPlateNumber : "A vehicle")} stayed past its booking in bay {bay.Code}, booked next by {reservation.ReservationCode} (arrives {LocalTime(reservation.StartTime, lot)}). " +
-              "Move the booking in Exceptions & Alerts, or compensate the customer when no bay is free."
+              "Tow it to a penalty bay or move the booking in Exceptions & Alerts; compensate the customer only when no bay is free."
             : $"Walk-in {plate} parked in bay {bay.Code}, booked by {reservation.ReservationCode} (arrives {LocalTime(reservation.StartTime, lot)}). " +
-              "Move the booking in Exceptions & Alerts.";
+              "Tow it to a penalty bay, or move the booking, in Exceptions & Alerts.";
         var (lotId, walkInId) = (session.ParkingLotId, session.Id);
         inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "BOOKED_BAY_TAKEN", message, walkInId) ?? Task.CompletedTask);
         await inventory.FlushAsync();
@@ -103,6 +104,41 @@ public class BookedBayCaseService(
             .Take(50)
             .ToListAsync();
         return await ToModelsAsync(cases);
+    }
+
+    /// <summary>
+    /// Team rule (2026-11-15): Staff tow the vehicle that fills the booked bay, so the booked customer keeps the bay they
+    /// picked. The vehicle goes to a free penalty bay of its type, or, when every penalty bay is taken, to a free walk-in
+    /// bay (still flagged and charged as a penalty). It owes the penalty of its pricing rule at check-out on top of its
+    /// fee. A vehicle in a penalty bay is outside the zone counter, so its space goes back to its zone right away.
+    /// </summary>
+    public async Task<BookedBayCaseModel> TowAsync(long caseId, TowVehicleModel model)
+    {
+        var (bayCase, reservation) = await OpenCaseAsync(caseId);
+        var session = await pmsContext.ParkingSessions.FirstOrDefaultAsync(s => s.Id == bayCase.SessionId);
+        if (session == null || !SessionStatus.Open.Contains(session.Status) || session.SlotId != bayCase.SlotId)
+            throw new BadRequestException("The vehicle is no longer in the booked bay.");
+
+        var options = await TowBaysAsync(session, reservation.Id);
+        var target = model?.SlotId is { } chosen
+            ? options.FirstOrDefault(s => s.Id == chosen)
+              ?? throw new BadRequestException("That bay cannot take the towed vehicle: it is not free, does not fit it, or is kept for a customer. Pick another bay.")
+            : options.FirstOrDefault()
+              ?? throw new BadRequestException("Every penalty bay and walk-in bay is taken: move the booking to another bay, or compensate the customer.");
+        var fee = await PenaltyForAsync(session);
+
+        var toBay = await MoveToTowBayAsync(session, bayCase.SlotId, reservation, target.Id, fee);
+        ResolveAsTowed(bayCase, toBay, fee, lotScope.UserId, model?.Note);
+        await pmsContext.SaveChangesAsync();
+
+        var fromCode = await BayCodeAsync(bayCase.SlotId);
+        var (lotId, sessionId) = (session.ParkingLotId, session.Id);
+        var message = $"Vehicle towed from bay {fromCode} to bay {target.Code}.";
+        inventory.Queue(() => notifier?.OpsAlertAsync(lotId, "VEHICLE_TOWED", message, sessionId) ?? Task.CompletedTask);
+        QueueReservation(reservation);
+        await inventory.FlushAsync();
+        notifications?.BookedBayCaseChanged(bayCase.Id, NotificationTypes.VehicleTowed);
+        return (await ToModelsAsync([bayCase])).Single();
     }
 
     /// <summary>Moves the booking to another free bay of its type; the customer gets the first hour free at check-in.</summary>
@@ -158,6 +194,11 @@ public class BookedBayCaseService(
         var free = await FreeBaysAsync(reservation, bayCase.SlotId);
         if (free.Count > 0)
             throw new BadRequestException($"Bay {free[0].Code} is free: move the booking there instead.");
+        // Compensation is the last resort: while the vehicle can be towed, tow it
+        var session = await pmsContext.ParkingSessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == bayCase.SessionId);
+        if (session != null && SessionStatus.Open.Contains(session.Status) && session.SlotId == bayCase.SlotId
+            && (await TowBaysAsync(session, reservation.Id)).FirstOrDefault() is { } towBay)
+            throw new BadRequestException($"Bay {towBay.Code} is free: tow the vehicle there instead.");
 
         await CancelAndCompensateAsync(bayCase, reservation, lotScope.UserId, model?.Note);
         return (await ToModelsAsync([bayCase])).Single();
@@ -204,7 +245,7 @@ public class BookedBayCaseService(
         if (bayCase.CompensationPaid > 0) notifications?.BookedBayCaseChanged(bayCase.Id, NotificationTypes.CompensationPaid);
     }
 
-    /// <summary>The booking was moved away from a taken bay before it arrived: its first hour is free (BR-08).</summary>
+    /// <summary>The booking was moved away from a taken bay before it arrived: its first hour is free.</summary>
     public Task<bool> WasMovedAsync(long reservationId) =>
         pmsContext.BookedBayCases.AnyAsync(c => c.ReservationId == reservationId && c.Status == BookedBayCaseStatus.Reassigned);
 
@@ -302,7 +343,149 @@ public class BookedBayCaseService(
         return opened;
     }
 
+    /// <summary>
+    /// Team rule (2026-11-17): a vehicle still parked on its scheduled booking <see cref="ParkingOptions.OverstayTowTime"/>
+    /// after the planned departure is towed to a penalty bay and owes the penalty at check-out. The tow comes before the
+    /// next booking of the bay may check in (turnover 30 minutes, check-in 15 minutes early). When another booking waits
+    /// for the bay a case opens for the lot's Staff; while the parking simulation runs the system tows on its own, with or
+    /// without a next booking. Only a vehicle simply parked is towed: one paying or driving out is left alone.
+    /// Returns how many were towed.
+    /// </summary>
+    public async Task<int> TowOverstaysAsync(int? lotId = null)
+    {
+        if (parkingOptions == null)
+            return 0;
+        var cutoff = Now - parkingOptions.OverstayTowTime;
+        var overdue = await pmsContext.ParkingSessions
+            .Where(s => s.SlotId != null && s.ReservationId != null && s.RelocatedAt == null
+                        && s.Status == SessionStatus.Active
+                        && (lotId == null || s.ParkingLotId == lotId)
+                        && pmsContext.Slots.Any(b => b.Id == s.SlotId && b.Kind != SlotKind.Penalty)
+                        && pmsContext.Reservations.Any(r => r.Id == s.ReservationId && r.Status == ReservationStatus.CheckedIn
+                                                            && r.BookingMode == BookingMode.Scheduled
+                                                            && r.DepartureTime != null && r.DepartureTime <= cutoff))
+            .ToListAsync();
+
+        var towed = 0;
+        foreach (var session in overdue)
+        {
+            var bayId = session.SlotId!.Value;
+            // A booking of the bay arriving soon gets a case (Staff tow the vehicle in Exceptions & Alerts); one days
+            // ahead is not told its bay is taken
+            var soon = Now.AddMinutes(parkingOptions.Reservations.HoldAheadMinutes);
+            var nextSoon = await pmsContext.Reservations.AnyAsync(r => r.SlotId == bayId && r.Id != session.ReservationId
+                                                                       && r.Status == ReservationStatus.Confirmed && r.StartTime <= soon);
+            var bayCase = (nextSoon ? await OpenIfBookedAsync(session.Id) : null)
+                          ?? await pmsContext.BookedBayCases.FirstOrDefaultAsync(c => c.SessionId == session.Id && c.SlotId == bayId
+                                                                                       && c.Status == BookedBayCaseStatus.Open);
+            if (!parkingOptions.IsSimulating)
+                continue;
+
+            var next = bayCase == null ? null : await pmsContext.Reservations.FirstOrDefaultAsync(r => r.Id == bayCase.ReservationId);
+            var target = (await TowBaysAsync(session, next?.Id ?? 0)).FirstOrDefault();
+            if (target == null)
+                continue;
+            var fee = await PenaltyForAsync(session);
+            Slot toBay;
+            try
+            {
+                toBay = await MoveToTowBayAsync(session, bayId, next, target.Id, fee);
+            }
+            catch (ConflictException)
+            {
+                // The tow bay was taken at the same moment: the next run tries again
+                continue;
+            }
+            if (bayCase != null)
+            {
+                ResolveAsTowed(bayCase, toBay, fee, SystemActor, null);
+                await pmsContext.SaveChangesAsync();
+                notifications?.BookedBayCaseChanged(bayCase.Id, NotificationTypes.VehicleTowed);
+            }
+            if (next != null)
+                QueueReservation(next);
+
+            var fromCode = await BayCodeAsync(bayId);
+            var (sessionLotId, sessionId) = (session.ParkingLotId, session.Id);
+            var message = $"{(session.HasPlate ? session.EntryPlateNumber : "A vehicle")} stayed past its booking: towed from bay {fromCode} to bay {toBay.Code}, penalty {fee:N0} VND at check-out.";
+            inventory.Queue(() => notifier?.OpsAlertAsync(sessionLotId, "VEHICLE_TOWED", message, sessionId) ?? Task.CompletedTask);
+            towed++;
+        }
+
+        await inventory.FlushAsync();
+        return towed;
+    }
+
     /* Helpers --------------------------------------------------------- */
+
+    /// <summary>
+    /// Moves the vehicle of <paramref name="session"/> out of <paramref name="fromBayId"/> into the tow bay
+    /// <paramref name="targetId"/> and adds the penalty to its session. The bay it leaves goes back to
+    /// <paramref name="nextBooking"/> (held when its hold already started) or turns free when no booking waits for it.
+    /// </summary>
+    private Task<Slot> MoveToTowBayAsync(ParkingSession session, int fromBayId, Reservation nextBooking, int targetId, decimal fee) =>
+        ParkingInventory.WithSlotLockAsync([targetId, fromBayId], async () =>
+        {
+            var toBay = await pmsContext.Slots.FirstAsync(s => s.Id == targetId);
+            if (toBay.Status != SlotStatus.Available
+                || await pmsContext.ParkingSessions.AnyAsync(s => s.SlotId == toBay.Id && SessionStatus.Open.Contains(s.Status)))
+                throw new ConflictException("That bay was just taken. Pick another bay.");
+            var bookedBay = await pmsContext.Slots.FirstAsync(s => s.Id == fromBayId);
+            var fromZoneId = session.ZoneId ?? bookedBay.ZoneId;
+
+            // The vehicle's space: a penalty bay is outside the counter, so the space goes back to its zone; a walk-in
+            // bay in another zone moves the space there
+            if (toBay.Kind == SlotKind.Penalty)
+            {
+                await inventory.AdjustCounterAsync(fromZoneId, session.ParkingLotId, available: +1, occupied: -1);
+            }
+            else if (toBay.ZoneId != fromZoneId)
+            {
+                await inventory.AdjustCounterAsync(fromZoneId, session.ParkingLotId, available: +1, occupied: -1);
+                await inventory.AdjustCounterAsync(toBay.ZoneId, session.ParkingLotId, available: -1, occupied: +1);
+            }
+            inventory.MarkSlot(session.ParkingLotId, toBay, SlotStatus.Occupied);
+
+            // The booked bay is the next booking's again: held when its hold already started (that space was counted), free otherwise
+            inventory.MarkSlot(session.ParkingLotId, bookedBay, nextBooking?.SlotHeldAt != null ? SlotStatus.Reserved : SlotStatus.Available);
+
+            // A vehicle towed off its own booking's bay no longer holds that bay, so the next booking can lock it
+            // (one booking holding a bay at a time)
+            if (session.ReservationId is { } ownId)
+            {
+                var own = await pmsContext.Reservations.FirstOrDefaultAsync(r => r.Id == ownId && r.SlotId == bookedBay.Id);
+                if (own != null)
+                    own.SlotHeldAt = null;
+            }
+
+            session.RelocatedFromSlotId = bookedBay.Id;
+            session.SlotId = toBay.Id;
+            session.ZoneId = toBay.ZoneId;
+            session.RelocatedAt = Now;
+            session.PenaltyReason = session.ReservationId != null ? PenaltyReason.Overstay : PenaltyReason.WrongBay;
+            session.PenaltyFee += fee;
+            // Prepaid before the tow: the penalty is still owed, so the vehicle pays it at the lane
+            if (session.Status == SessionStatus.Paid)
+            {
+                session.Status = SessionStatus.Active;
+                session.ExitWindowEndsAt = null;
+            }
+            session.UpdatedAt = Now;
+            await pmsContext.SaveChangesAsync();
+            return toBay;
+        });
+
+    /// <summary>Marks <paramref name="bayCase"/> as settled by towing the vehicle to <paramref name="toBay"/>.</summary>
+    private void ResolveAsTowed(BookedBayCase bayCase, Slot toBay, decimal fee, string by, string note)
+    {
+        bayCase.Status = BookedBayCaseStatus.Relocated;
+        bayCase.RelocatedToSlotId = toBay.Id;
+        bayCase.PenaltyFee = fee;
+        bayCase.ResolvedBy = by;
+        bayCase.ResolvedAt = Now;
+        var kind = toBay.Kind == SlotKind.Penalty ? "penalty bay" : "walk-in bay";
+        bayCase.ResolutionNote = Note(note, $"Towed to {kind} {toBay.Code}; penalty {fee:N0} VND at check-out.");
+    }
 
     private async Task<(BookedBayCase Case, Reservation Reservation)> OpenCaseAsync(long caseId)
     {
@@ -379,6 +562,55 @@ public class BookedBayCaseService(
             .FirstOrDefaultAsync();
     }
 
+    /// <summary>
+    /// Bays the vehicle of <paramref name="session"/> can be towed to, best first: free penalty bays that fit it (its own
+    /// level first), then free walk-in bays (the same rule as the entry lane: no booking soon, nothing a waiting walk-in
+    /// or the 3D model keeps).
+    /// </summary>
+    private async Task<List<Slot>> TowBaysAsync(ParkingSession session, long reservationId)
+    {
+        var types = await inventory.VehicleTypesAsync();
+        var vehicleTypeId = session.VehicleTypeId
+                            ?? await pmsContext.Slots.Where(s => s.Id == session.SlotId).Select(s => (int?)s.VehicleTypeId).FirstOrDefaultAsync();
+        var occupied = pmsContext.ParkingSessions.Where(s => s.SlotId != null && SessionStatus.Open.Contains(s.Status)).Select(s => s.SlotId);
+        var penalty = (await pmsContext.Slots.AsNoTracking().Include(s => s.Zone)
+                .Where(s => s.Zone.ParkingLotId == session.ParkingLotId && s.Zone.IsActive && s.IsActive
+                            && s.Kind == SlotKind.Penalty && s.Status == SlotStatus.Available && !occupied.Contains(s.Id))
+                .ToListAsync())
+            .Where(s => vehicleTypeId == null || ParkingInventory.Compatible(types, s.VehicleTypeId, vehicleTypeId.Value))
+            .OrderBy(s => s.ZoneId == session.ZoneId ? 0 : 1)
+            .ThenBy(s => s.Code, StringComparer.Ordinal)
+            .ToList();
+
+        var holdAhead = TimeSpan.FromMinutes(parkingOptions?.Reservations.HoldAheadMinutes ?? 120);
+        var kept = await KeptBays.ForAsync(pmsContext, layouts, session.ParkingLotId, reservationId);
+        var walkInIds = (await inventory.WalkInBaysAsync(session.ParkingLotId, vehicleTypeId, Now, holdAhead))
+            .Where(b => !kept.Contains(b.Slot.Id) && b.Slot.Id != session.SlotId)
+            .Select(b => b.Slot.Id)
+            .ToList();
+        var walkIn = await pmsContext.Slots.AsNoTracking().Include(s => s.Zone).Where(s => walkInIds.Contains(s.Id)).ToListAsync();
+        return penalty.Concat(walkIn.OrderBy(s => walkInIds.IndexOf(s.Id))).ToList();
+    }
+
+    /// <summary>The penalty of the lot's active pricing rule for the vehicle type of the session (a lot rule before a shared one).</summary>
+    private async Task<decimal> PenaltyForAsync(ParkingSession session)
+    {
+        var vehicleTypeId = session.VehicleTypeId
+                            ?? await pmsContext.Slots.Where(s => s.Id == session.SlotId).Select(s => (int?)s.VehicleTypeId).FirstOrDefaultAsync();
+        if (vehicleTypeId == null)
+            return 0;
+        var now = Now;
+        return await pmsContext.PricingRules.AsNoTracking()
+            .Where(r => r.VehicleTypeId == vehicleTypeId && r.Status == "Active"
+                        && (r.ParkingLotId == session.ParkingLotId || r.ParkingLotId == null)
+                        && r.EffectiveFrom <= now && (r.EffectiveTo == null || r.EffectiveTo > now))
+            .OrderByDescending(r => r.ParkingLotId != null)
+            .ThenByDescending(r => r.Priority)
+            .ThenByDescending(r => r.Id)
+            .Select(r => r.PenaltyFee)
+            .FirstOrDefaultAsync();
+    }
+
     /// <summary>Free bays of the booked vehicle type the booking can move to: not occupied and not booked by anyone else.</summary>
     private async Task<List<Slot>> FreeBaysAsync(Reservation reservation, int bookedBayId)
     {
@@ -392,7 +624,7 @@ public class BookedBayCaseService(
             .Select(r => r.SlotId);
         var free = await pmsContext.Slots.AsNoTracking().Include(s => s.Zone)
             .Where(s => s.Zone.ParkingLotId == reservation.ParkingLotId && s.Zone.IsActive && s.IsActive
-                        && s.Status == SlotStatus.Available && s.Id != bookedBayId
+                        && s.Status == SlotStatus.Available && s.Id != bookedBayId && s.Kind != SlotKind.Penalty
                         && !occupied.Contains(s.Id) && !booked.Contains(s.Id))
             .ToListAsync();
         // Same bays as the entry lane keeps off: never one a waiting walk-in was sent to or where the 3D model draws a walk-in
@@ -411,7 +643,10 @@ public class BookedBayCaseService(
 
         var reservationIds = cases.Select(c => c.ReservationId).Distinct().ToList();
         var sessionIds = cases.Select(c => c.SessionId).Distinct().ToList();
-        var bayIds = cases.Select(c => c.SlotId).Concat(cases.Where(c => c.NewSlotId != null).Select(c => c.NewSlotId!.Value)).Distinct().ToList();
+        var bayIds = cases.Select(c => c.SlotId)
+            .Concat(cases.Where(c => c.NewSlotId != null).Select(c => c.NewSlotId!.Value))
+            .Concat(cases.Where(c => c.RelocatedToSlotId != null).Select(c => c.RelocatedToSlotId!.Value))
+            .Distinct().ToList();
         var bookings = await pmsContext.Reservations.AsNoTracking().Where(r => reservationIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id);
         var sessions = await pmsContext.ParkingSessions.AsNoTracking().Where(s => sessionIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id);
         var bays = await pmsContext.Slots.AsNoTracking().Where(s => bayIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id);
@@ -458,7 +693,11 @@ public class BookedBayCaseService(
                 WalkInEntryTime = walkIn == null ? default : Utc(walkIn.EntryTime),
                 WalkInInside = walkIn != null && SessionStatus.Open.Contains(walkIn.Status),
                 DepositRefunded = c.DepositRefunded,
-                CompensationPaid = c.CompensationPaid
+                CompensationPaid = c.CompensationPaid,
+                Offence = walkIn?.ReservationId != null ? PenaltyReason.Overstay : PenaltyReason.WrongBay,
+                PenaltyFee = c.PenaltyFee,
+                TowedToBayId = c.RelocatedToSlotId,
+                TowedToBayCode = c.RelocatedToSlotId is { } towedId ? bays.GetValueOrDefault(towedId)?.Code : null
             };
 
             if (c.Status == BookedBayCaseStatus.Open && booking != null)
@@ -468,6 +707,13 @@ public class BookedBayCaseService(
                 model.FreeBays = (await FreeBaysAsync(booking, c.SlotId))
                     .Select(s => new BookedBayOptionModel { SlotId = s.Id, Code = s.Code, ZoneName = s.Zone?.Name })
                     .ToList();
+                if (walkIn != null && SessionStatus.Open.Contains(walkIn.Status) && walkIn.SlotId == c.SlotId)
+                {
+                    model.TowBays = (await TowBaysAsync(walkIn, booking.Id))
+                        .Select(s => new BookedBayOptionModel { SlotId = s.Id, Code = s.Code, ZoneName = s.Zone?.Name, Kind = s.Kind ?? SlotKind.Standard })
+                        .ToList();
+                    model.PenaltyFee = await PenaltyForAsync(walkIn);
+                }
             }
             models.Add(model);
         }

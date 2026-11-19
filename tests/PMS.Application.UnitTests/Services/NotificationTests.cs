@@ -120,7 +120,13 @@ public class NotificationTests : IDisposable
             NotificationTypes.DepartureSoon,
             NotificationTypes.DepartureOverdue,
             NotificationTypes.BookingBayMoved,
-            NotificationTypes.CashDrawerClosed);
+            NotificationTypes.CashDrawerClosed,
+            NotificationTypes.VehicleTowed,
+            NotificationTypes.LotAlmostFull,
+            NotificationTypes.LotFull,
+            NotificationTypes.LotSpaceAvailable,
+            NotificationTypes.AccountDeletionRequested,
+            NotificationTypes.LotPricingChanged);
         NotificationTypes.All.Should().OnlyHaveUniqueItems();
     }
 

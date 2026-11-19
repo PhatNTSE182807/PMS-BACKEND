@@ -24,6 +24,9 @@ public class EmployeeAccountResponseModel
 
     public DateTime? CreatedAt { get; set; }
 
+    /// <summary>Staff: "FullTime" (monthly salary) or "Backup" (paid by the hour).</summary>
+    public string EmploymentType { get; set; }
+
     /// <summary>Managers: the lots they manage. Staff: the lot they work at.</summary>
     public List<AssignedParkingLotModel> ParkingLots { get; set; } = [];
 }
@@ -45,6 +48,9 @@ public class UpdateEmployeeAccountModel
     public string Email { get; set; }
 
     public string PhoneNumber { get; set; }
+
+    /// <summary>Staff only, optional: "FullTime" or "Backup".</summary>
+    public string EmploymentType { get; set; }
 }
 
 /// <summary>Admin sets the full list of lots a Manager manages; lots left out lose this Manager.</summary>
@@ -53,7 +59,7 @@ public class AssignParkingLotsModel
     public List<int> ParkingLotIds { get; set; } = [];
 }
 
-/// <summary>Manager creates a Staff account in one of the lots they manage (UC-09).</summary>
+/// <summary>Manager creates a Staff account in one of the lots they manage.</summary>
 public class CreateStaffAccountModel
 {
     /// <summary>Optional; derived from the email when empty.</summary>
@@ -70,6 +76,9 @@ public class CreateStaffAccountModel
     public string ConfirmPassword { get; set; }
 
     public int ParkingLotId { get; set; }
+
+    /// <summary>"FullTime" (default, monthly salary) or "Backup" (paid by the hour).</summary>
+    public string EmploymentType { get; set; }
 }
 
 /// <summary>Manager moves a Staff member to another lot they manage.</summary>

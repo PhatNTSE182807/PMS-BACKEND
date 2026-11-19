@@ -45,7 +45,7 @@ public static class VehicleVerificationStatus
     public const string Processing = "Processing";
     /// <summary>Legacy: verified by OCR without Staff. Counts as approved.</summary>
     public const string AutoVerified = "AutoVerified";
-    /// <summary>Submitted and waiting for Staff to compare the papers (FR-VER-03).</summary>
+    /// <summary>Submitted and waiting for Staff to compare the papers.</summary>
     public const string NeedsReview = "NeedsReview";
     public const string Approved = "Approved";
     public const string Rejected = "Rejected";
@@ -67,7 +67,7 @@ public class VehicleDocumentFileModel
     public string ContentType { get; set; }
     public long SizeBytes { get; set; }
     public DateTime UploadedAt { get; set; }
-    /// <summary>False once the photo was deleted (BR-26, 30 days after the decision).</summary>
+    /// <summary>False once the photo was deleted (30 days after the decision).</summary>
     public bool IsAvailable { get; set; }
 }
 
@@ -87,7 +87,7 @@ public class VehicleVerificationModel
     public DateTime? SubmittedAt { get; set; }
     public DateTime? DecidedAt { get; set; }
     public string ReviewNote { get; set; }
-    /// <summary>When the photos will be (or were) deleted under BR-26.</summary>
+    /// <summary>When the photos will be (or were) deleted under the photo retention rule.</summary>
     public DateTime? FilesDeleteAt { get; set; }
     public DateTime? FilesDeletedAt { get; set; }
 }

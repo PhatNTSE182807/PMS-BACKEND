@@ -18,8 +18,6 @@ internal static class SwaggerTags
     public const string Authentication = "User Authentication";
 
     public const string Profile = "User Profile Management";
-
-    public const string Management = "User Management";
 }
 
 public class UsersController(
@@ -28,37 +26,8 @@ public class UsersController(
     IPasswordResetService passwordResetService,
     IClaimService claimService) : ApiController
 {
-    [HttpGet]
-    [Tags(SwaggerTags.Management)]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> GetAllAsync([FromQuery] string role = null, [FromQuery] bool? isActive = null, [FromQuery] string searchTerm = null)
-    {
-        return Ok(ApiResult<IEnumerable<UserResponseModel>>.Success(await userService.GetAllAsync(role, isActive, searchTerm)));
-    }
 
-    [HttpGet("{id}")]
-    [Tags(SwaggerTags.Management)]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> GetByIdAsync(string id)
-    {
-        return Ok(ApiResult<UserResponseModel>.Success(await userService.GetByIdAsync(id)));
-    }
-
-    [HttpPost("internal")]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> CreateInternalUserAsync([FromBody] CreateInternalUserModel model)
-    {
-        return Ok(ApiResult<CreateUserResponseModel>.Success(await userService.CreateInternalUserAsync(model)));
-    }
-
-    [HttpPatch("{id}/status")]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> UpdateStatusAsync(string id, [FromBody] UpdateUserStatusModel model)
-    {
-        var currentUserId = claimService.GetUserId();
-        return Ok(ApiResult<bool>.Success(await userService.UpdateUserStatusAsync(currentUserId, id, model.IsActive)));
-    }
-
+    /// <summary>Creates a customer account.</summary>
     [HttpPost("register")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
@@ -67,6 +36,7 @@ public class UsersController(
         return Ok(ApiResult<CreateUserResponseModel>.Success(await userService.CreateAsync(createUserModel)));
     }
 
+    /// <summary>Signs in with email and password; returns the tokens, or a two-factor challenge when it is enabled.</summary>
     [HttpPost("authenticate")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
@@ -75,6 +45,7 @@ public class UsersController(
         return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginAsync(loginUserModel)));
     }
 
+    /// <summary>Completes a sign-in with the two-factor code sent by email.</summary>
     [HttpPost("two-factor")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
@@ -83,6 +54,7 @@ public class UsersController(
         return Ok(ApiResult<LoginResponseModel>.Success(await userService.VerifyTwoFactorAsync(model)));
     }
 
+    /// <summary>Sends a new two-factor code for a pending sign-in.</summary>
     [HttpPost("two-factor/resend")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
@@ -91,6 +63,7 @@ public class UsersController(
         return Ok(ApiResult<ResendTwoFactorResponseModel>.Success(await userService.ResendTwoFactorOtpAsync(model)));
     }
 
+    /// <summary>Sends a one-time sign-in code to the email address.</summary>
     [HttpPost("login-otp/request")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
@@ -100,6 +73,7 @@ public class UsersController(
         return Ok(ApiResult<string>.Success("A login code has been sent to your email."));
     }
 
+    /// <summary>Signs in with the one-time code sent by email.</summary>
     [HttpPost("login-otp/verify")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
@@ -108,6 +82,7 @@ public class UsersController(
         return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginWithOtpAsync(model)));
     }
 
+    /// <summary>Emails a password reset link; the answer is the same whether or not the email has an account.</summary>
     [HttpPost("forgot-password")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
@@ -120,6 +95,7 @@ public class UsersController(
             "If an account uses this email, we have sent a link to reset the password. Please check your inbox."));
     }
 
+    /// <summary>Sets a new password with the token from the reset link.</summary>
     [HttpPost("reset-password")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
@@ -130,6 +106,7 @@ public class UsersController(
         return Ok(ApiResult<string>.Success("Your password has been reset. You can now sign in with it."));
     }
 
+    /// <summary>Signs in (or signs up) with a Google ID token.</summary>
     [HttpPost("login-google")]
     [Tags(SwaggerTags.Authentication)]
     [AllowAnonymous]
@@ -138,6 +115,7 @@ public class UsersController(
         return Ok(ApiResult<LoginResponseModel>.Success(await userService.LoginWithGoogleAsync(model)));
     }
 
+    /// <summary>The signed-in user's profile.</summary>
     [HttpGet("profile")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -147,6 +125,7 @@ public class UsersController(
         return Ok(ApiResult<UserProfileResponseModel>.Success(await userProfileService.GetProfileAsync(userId)));
     }
 
+    /// <summary>Updates the signed-in user's profile.</summary>
     [HttpPut("profile")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -156,6 +135,7 @@ public class UsersController(
         return Ok(ApiResult<UserProfileResponseModel>.Success(await userProfileService.UpdateProfileAsync(userId, model)));
     }
 
+    /// <summary>Checks whether a phone number or citizen ID is already used by another account.</summary>
     [HttpGet("profile/check-unique")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -165,6 +145,7 @@ public class UsersController(
         return Ok(ApiResult<ProfileFieldAvailabilityModel>.Success(await userProfileService.CheckProfileUniquenessAsync(userId, phone, citizenId)));
     }
 
+    /// <summary>Uploads a new profile picture for the signed-in user.</summary>
     [HttpPost("profile/avatar")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -193,6 +174,7 @@ public class UsersController(
         return File(avatar.Content, avatar.ContentType);
     }
 
+    /// <summary>The signed-in user's vehicles.</summary>
     [HttpGet("profile/vehicles")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -202,6 +184,7 @@ public class UsersController(
         return Ok(ApiResult<List<VehicleResponseModel>>.Success(await userProfileService.GetVehiclesAsync(userId)));
     }
 
+    /// <summary>Checks whether a plate can be added (not already registered by another account).</summary>
     [HttpGet("profile/vehicles/check-plate")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -211,6 +194,7 @@ public class UsersController(
         return Ok(ApiResult<PlateAvailabilityResponseModel>.Success(await userProfileService.CheckPlateAvailabilityAsync(userId, plate, excludeVehicleId)));
     }
 
+    /// <summary>Adds a vehicle to the signed-in user's account.</summary>
     [HttpPost("profile/vehicles")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -220,6 +204,7 @@ public class UsersController(
         return Ok(ApiResult<VehicleResponseModel>.Success(await userProfileService.AddVehicleAsync(userId, model)));
     }
 
+    /// <summary>Updates one of the signed-in user's vehicles.</summary>
     [HttpPut("profile/vehicles/{vehicleId:guid}")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -229,6 +214,7 @@ public class UsersController(
         return Ok(ApiResult<VehicleResponseModel>.Success(await userProfileService.UpdateVehicleAsync(userId, vehicleId, model)));
     }
 
+    /// <summary>Removes one of the signed-in user's vehicles.</summary>
     [HttpDelete("profile/vehicles/{vehicleId:guid}")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -238,6 +224,7 @@ public class UsersController(
         return Ok(ApiResult<bool>.Success(await userProfileService.DeleteVehicleAsync(userId, vehicleId)));
     }
 
+    /// <summary>Makes a vehicle the default one for bookings.</summary>
     [HttpPatch("profile/vehicles/{vehicleId:guid}/default")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -247,6 +234,7 @@ public class UsersController(
         return Ok(ApiResult<VehicleResponseModel>.Success(await userProfileService.SetDefaultVehicleAsync(userId, vehicleId)));
     }
 
+    /// <summary>Vehicle types a customer can register.</summary>
     [HttpGet("profile/vehicle-types")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -255,6 +243,7 @@ public class UsersController(
         return Ok(ApiResult<List<VehicleTypeResponseModel>>.Success(await userProfileService.GetVehicleTypesAsync()));
     }
 
+    /// <summary>Changes the signed-in user's password (the current password is required).</summary>
     [HttpPut("profile/change-password")]
     [Tags(SwaggerTags.Profile)]
     [Authorize]
@@ -262,13 +251,5 @@ public class UsersController(
     {
         var userId = claimService.GetUserId();
         return Ok(ApiResult<bool>.Success(await userProfileService.ChangePasswordAsync(userId, model)));
-    }
-
-    [HttpGet("{id}/profile")]
-    [Tags(SwaggerTags.Management)]
-    [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> GetProfileByUserIdAsync(string id)
-    {
-        return Ok(ApiResult<UserProfileResponseModel>.Success(await userProfileService.GetProfileAsync(id)));
     }
 }

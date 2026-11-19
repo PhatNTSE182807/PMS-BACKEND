@@ -17,13 +17,8 @@ public class ManagerController(
     IEmployeeAccountService employeeAccountService,
     IClaimService claimService) : ApiController
 {
-    [HttpGet("lots")]
-    public async Task<IActionResult> GetLotsAsync()
-    {
-        return Ok(ApiResult<IEnumerable<AssignedParkingLotModel>>.Success(
-            await employeeAccountService.GetManagedLotsAsync(claimService.GetUserId())));
-    }
 
+    /// <summary>Staff of the Manager's lots, filtered by lot, active state and a search term.</summary>
     [HttpGet("staff")]
     public async Task<IActionResult> GetStaffAsync(
         [FromQuery] int? parkingLotId = null,
@@ -34,6 +29,7 @@ public class ManagerController(
             await employeeAccountService.GetStaffAsync(claimService.GetUserId(), parkingLotId, isActive, searchTerm)));
     }
 
+    /// <summary>One Staff account of the Manager's lots.</summary>
     [HttpGet("staff/{id}")]
     public async Task<IActionResult> GetStaffByIdAsync(string id)
     {
@@ -41,6 +37,7 @@ public class ManagerController(
             await employeeAccountService.GetStaffByIdAsync(claimService.GetUserId(), id)));
     }
 
+    /// <summary>Creates a Staff account in one of the lots the Manager manages.</summary>
     [HttpPost("staff")]
     public async Task<IActionResult> CreateStaffAsync([FromBody] CreateStaffAccountModel model)
     {
@@ -48,6 +45,7 @@ public class ManagerController(
             await employeeAccountService.CreateStaffAsync(claimService.GetUserId(), model)));
     }
 
+    /// <summary>Updates a Staff member's personal and employment details.</summary>
     [HttpPut("staff/{id}")]
     public async Task<IActionResult> UpdateStaffAsync(string id, [FromBody] UpdateEmployeeAccountModel model)
     {
@@ -55,6 +53,7 @@ public class ManagerController(
             await employeeAccountService.UpdateStaffAsync(claimService.GetUserId(), id, model)));
     }
 
+    /// <summary>Moves a Staff member to another lot managed by the same Manager.</summary>
     [HttpPut("staff/{id}/lot")]
     public async Task<IActionResult> AssignStaffLotAsync(string id, [FromBody] AssignStaffParkingLotModel model)
     {
@@ -62,6 +61,7 @@ public class ManagerController(
             await employeeAccountService.AssignStaffLotAsync(claimService.GetUserId(), id, model)));
     }
 
+    /// <summary>Activates or locks a Staff account.</summary>
     [HttpPatch("staff/{id}/status")]
     public async Task<IActionResult> UpdateStaffStatusAsync(string id, [FromBody] UpdateUserStatusModel model)
     {
@@ -69,7 +69,7 @@ public class ManagerController(
             await employeeAccountService.SetStaffStatusAsync(claimService.GetUserId(), id, model.IsActive)));
     }
 
-    /// <summary>Soft delete (BR-21): locks the account and marks the employee Terminated.</summary>
+    /// <summary>Soft delete: locks the account and marks the employee Terminated.</summary>
     [HttpDelete("staff/{id}")]
     public async Task<IActionResult> DeleteStaffAsync(string id)
     {

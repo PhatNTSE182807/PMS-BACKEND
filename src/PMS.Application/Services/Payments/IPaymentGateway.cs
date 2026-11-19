@@ -1,7 +1,7 @@
 namespace PMS.Application.Services.Payments;
 
 /// <summary>
-/// One online payment provider (SRS E1: VNPay, MoMo). Implementations only talk to the provider and
+/// One online payment provider. Implementations only talk to the provider and
 /// check signatures; what a payment means for a reservation or session is PaymentService's job.
 /// </summary>
 public interface IPaymentGateway
@@ -18,10 +18,10 @@ public interface IPaymentGateway
     /// <summary>Checks the signature of a return/IPN callback and reads its result.</summary>
     GatewayCallback ParseCallback(IReadOnlyDictionary<string, string> fields);
 
-    /// <summary>Asks the provider for the transaction status (FR-PAY-08 "kiểm tra trạng thái giao dịch với E1").</summary>
+    /// <summary>Asks the provider for the transaction status ("kiểm tra trạng thái giao dịch với E1").</summary>
     Task<GatewayStatus> QueryAsync(GatewayQueryRequest request, CancellationToken cancellationToken = default);
 
-    /// <summary>Returns money to the original source (FR-PAY-10).</summary>
+    /// <summary>Returns money to the original source.</summary>
     Task<GatewayRefundResult> RefundAsync(GatewayRefundRequest request, CancellationToken cancellationToken = default);
 }
 

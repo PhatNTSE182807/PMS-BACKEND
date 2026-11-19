@@ -3,9 +3,8 @@ using System;
 namespace PMS.DataAccess.Persistence.Entities;
 
 /// <summary>
-/// A Staff member's drawer is running out of banknotes (usually change): they list the notes they need and
-/// the lot's Manager approves or rejects the list. Approved notes count as cash put into that drawer, so the
-/// expected cash at the close includes them. Never deleted.
+/// A Staff member's drawer is running out of cash (usually change): they ask for an amount and the lot's Manager
+/// approves or rejects it. Approved cash counts as put into that drawer, so its cash total includes it. Never deleted.
 /// </summary>
 public class CashTopUpRequest
 {
@@ -13,13 +12,13 @@ public class CashTopUpRequest
 
     public int ParkingLotId { get; set; }
 
-    /// <summary>The open drawer (DailyCashCloses.Id) the notes go into.</summary>
+    /// <summary>The open drawer (DailyCashCloses.Id) the cash goes into.</summary>
     public long DailyCashCloseId { get; set; }
 
     /// <summary>Staff who asked (dbo.Users.Id).</summary>
     public string StaffUserId { get; set; }
 
-    /// <summary>Banknotes asked for, as JSON {"50000": 10, "10000": 20, …}.</summary>
+    /// <summary>Legacy: banknotes asked for (rows before 2026-11-15); "{}" since amounts are asked for.</summary>
     public string NotesJson { get; set; }
 
     public decimal Total { get; set; }
