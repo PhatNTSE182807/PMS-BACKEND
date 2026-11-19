@@ -1,3 +1,4 @@
+using PMS.API.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PMS.Application.Models;
@@ -43,7 +44,7 @@ public class VehicleVerificationsController(
     }
 
     /// <summary>Approves or rejects a check waiting for review; a rejection needs a note for the customer.</summary>
-    [HttpPost("{verificationId:guid}/review")]
+    [HttpPost("{verificationId:guid}/review"), RequireOnShift]
     public async Task<IActionResult> ReviewAsync(Guid verificationId, [FromBody] ReviewVehicleVerificationModel model)
     {
         return Ok(ApiResult<VehicleVerificationReviewModel>.Success(

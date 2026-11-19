@@ -1,3 +1,4 @@
+using PMS.API.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PMS.Application.Models;
@@ -13,6 +14,7 @@ namespace PMS.API.Controllers;
 /// </summary>
 [Route("api/staff")]
 [Authorize(Roles = "Staff,Manager,Admin")]
+[RequireOnShift]
 public class StaffGateController(IGateService gateService, IReservationService reservationService, PlateListService plateLists, CashDrawerService cashDrawers) : ApiController
 {
     /// <summary>The signed-in Staff's cash drawer at the lot: float, cash taken and the running cash total.</summary>
@@ -26,7 +28,7 @@ public class StaffGateController(IGateService gateService, IReservationService r
         Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.OpenAsync(lotId, model)));
 
     /// <summary>Hands the drawer in with the cash total the system kept (nothing is counted); the next drawer opens at once.</summary>
-    [HttpPost("lots/{lotId:int}/cash-drawer/close")]
+    [HttpPost("lots/{lotId:int}/cash-drawer/close"), AllowOffShift]
     public async Task<IActionResult> CloseCashDrawerAsync(int lotId) =>
         Ok(ApiResult<CashDrawerModel>.Success(await cashDrawers.CloseAsync(lotId)));
 

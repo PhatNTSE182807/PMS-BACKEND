@@ -40,6 +40,8 @@ public class ApiApplicationFactory<TProgram> : WebApplicationFactory<TProgram> w
                 new Dictionary<string, string>
                 {
                     ["Database:UseInMemoryDatabase"] = "true",
+                    // POS tests act as Staff without starting a shift
+                    ["WorkSchedule:RequireShiftForPos"] = "false",
                     ["JwtConfiguration:SecretKey"] = "tI079UygByXy52J552Xb4odrUjYXjrPBDuK6FhFv6Qa6eD6SZG",
                     ["SmtpSettings:Server"] = "",
                     ["SmtpSettings:Port"] = "548",

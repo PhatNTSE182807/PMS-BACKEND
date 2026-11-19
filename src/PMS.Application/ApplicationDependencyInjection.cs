@@ -31,27 +31,11 @@ public static class ApplicationDependencyInjection
         services.AddScoped<IUserProfileService, UserProfileService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IEmployeeAccountService, EmployeeAccountService>();
-        services.AddScoped<WorkSchedulingService>();
-        services.AddScoped<WorkScheduleNotificationJob>();
-        services.AddScoped<WorkAttendanceJobs>();
-        services.AddScoped<IApprovedWorkLeaveSource, ApprovedWorkLeaveSource>();
-        services.AddScoped<WorkRequestJobs>();
-        services.AddSingleton(sp => {
-            var options = sp.GetRequiredService<IConfiguration>().GetSection("WorkRequests").Get<PMS.Application.Models.WorkScheduling.WorkRequestOptions>() ?? new();
-            options.Validate(); return options;
-        });
-        services.AddSingleton(sp => {
-            var rules = sp.GetRequiredService<IConfiguration>().GetSection("WorkRotation").Get<PMS.Application.Models.WorkScheduling.WorkRotationRules>() ?? new();
-            rules.Validate();
-            return rules;
-        });
-        var attendanceOptions = new PMS.Application.Models.WorkScheduling.WorkAttendanceOptions();
-        services.AddSingleton(sp =>
-        {
-            var rules = sp.GetRequiredService<IConfiguration>().GetSection("WorkAttendance").Get<PMS.Application.Models.WorkScheduling.WorkAttendanceOptions>() ?? attendanceOptions;
-            rules.Validate();
-            return rules;
-        });
+        // Duty board, shift attendance, leave and payroll ("WorkSchedule" and "Payroll" settings)
+        services.AddScoped<DutyScheduleService>();
+        services.AddScoped<DutyJobs>();
+        services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection("WorkSchedule").Get<PMS.Application.Models.DutySchedule.DutyOptions>() ?? new());
+        services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection("Payroll").Get<PMS.Application.Models.DutySchedule.PayrollOptions>() ?? new());
         services.AddScoped<ILayoutService, LayoutService>();
         services.AddScoped<IParkingLotService, ParkingLotService>();
         services.AddScoped<IZoneService, ZoneService>();

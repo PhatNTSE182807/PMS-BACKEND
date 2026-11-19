@@ -1,3 +1,4 @@
+using PMS.API.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PMS.Application.Models;
@@ -51,13 +52,13 @@ public class GateRequestsController(IGateRequestService gateRequests, IClaimServ
         Ok(ApiResult<IReadOnlyList<GateRequestModel>>.Success(await gateRequests.GetQueueAsync(lotId, kind)));
 
     /// <summary>Opens the barrier through the normal gate checks; blocking alerts keep the request waiting.</summary>
-    [HttpPost("~/api/staff/gate-requests/{requestId:long}/approve")]
+    [HttpPost("~/api/staff/gate-requests/{requestId:long}/approve"), RequireOnShift]
     [Authorize(Roles = "Staff,Manager,Admin")]
     public async Task<IActionResult> ApproveAsync(long requestId, [FromBody] ApproveGateRequestModel model) =>
         Ok(ApiResult<GateRequestDecisionModel>.Success(await gateRequests.ApproveAsync(requestId, model)));
 
     /// <summary>Refuses the request; the reason is shown to the customer.</summary>
-    [HttpPost("~/api/staff/gate-requests/{requestId:long}/refuse")]
+    [HttpPost("~/api/staff/gate-requests/{requestId:long}/refuse"), RequireOnShift]
     [Authorize(Roles = "Staff,Manager,Admin")]
     public async Task<IActionResult> RefuseAsync(long requestId, [FromBody] RefuseGateRequestModel model) =>
         Ok(ApiResult<GateRequestModel>.Success(await gateRequests.RefuseAsync(requestId, model)));

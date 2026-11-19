@@ -29,7 +29,9 @@ public partial class PmsDbContext
 
         // Banknotes a Staff asks the Manager to add to their cash drawer live in PmsDbContext.CashTopUps.cs
         ConfigureCashTopUps(modelBuilder);
-        ConfigureWorkScheduling(modelBuilder);
+
+        // Duty board, shift attendance, leave and payslips live in PmsDbContext.DutySchedule.cs
+        ConfigureDutySchedule(modelBuilder);
 
         // Booked bays taken by a walk-in and the compensation of a pricing rule live in PmsDbContext.BookedBayCases.cs
         ConfigureBookedBayCases(modelBuilder);

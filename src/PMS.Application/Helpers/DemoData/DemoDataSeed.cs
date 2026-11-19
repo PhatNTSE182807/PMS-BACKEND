@@ -126,6 +126,7 @@ public sealed partial class DemoDataSeed
             return;
 
         await EnsureAccountsAsync();
+        await EnsureDutyPatternsAsync();
         await EnsureLotSetupAsync();
 
         if (await db.AuditLogs.AnyAsync(a => a.Action == MarkerAction))
