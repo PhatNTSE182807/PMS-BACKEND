@@ -4,7 +4,7 @@
 >
 > Mã yêu cầu (FR/BR/UC/NFR) giữ nguyên để tra cứu; mã mới được đánh tiếp số; mã bị bỏ ghi rõ “(bỏ ở v1.x)” và không đánh số lại. Mức độ triển khai của từng module nằm ở Phụ lục A.
 
-Nov 19, 2026
+Nov 20, 2026 (bản 1.6.1)
 
 ## 1. Giới thiệu
 
@@ -71,7 +71,7 @@ Hệ thống gồm một Backend API tập trung (ASP.NET Core, SQL Server, Sign
 | # | Actor | Có tài khoản | Vai trò |
 | --- | --- | --- | --- |
 | A1 | Admin | Có (nội bộ) | Quản trị chuỗi: tạo và cấu hình bãi (từ mẫu tòa nhà, vị trí bản đồ), chuyển trạng thái bãi, tạo tài khoản Manager và gán bãi, xem và khóa tài khoản khách hàng (kể cả theo yêu cầu xóa tài khoản), báo cáo doanh thu toàn chuỗi và hiệu suất bãi, xem lịch sử giá, đặt số ngày phép năm của Staff, trả lương cho Staff và Manager, mô phỏng vận hành. Không tham gia vận hành hằng ngày. |
-| A2 | Manager | Có (nội bộ) | Phụ trách một hoặc nhiều bãi (mỗi bãi đúng một Manager): bảng giá (kể cả bản nháp), tài khoản Staff (chính thức hoặc dự phòng), lịch trực 4 ca và duyệt nghỉ phép, sửa chấm công, đặt chỗ của bãi (hủy phía bãi), xác nhận chốt ngăn kéo tiền mặt, duyệt yêu cầu bổ sung tiền mặt, Whitelist/Blacklist của bãi, đóng session bất thường, doanh thu và tình trạng lấp đầy. Không đứng ca; nhận lương tháng cố định. |
+| A2 | Manager | Có (nội bộ) | Phụ trách một hoặc nhiều bãi (mỗi bãi đúng một Manager): bảng giá (kể cả bản nháp), tài khoản Staff (chính thức hoặc dự phòng), lịch trực 4 ca, thay ca khẩn cấp và duyệt nghỉ phép, đặt chỗ của bãi (hủy phía bãi), xác nhận chốt ngăn kéo tiền mặt, duyệt yêu cầu bổ sung tiền mặt, Whitelist/Blacklist của bãi, đóng session bất thường, doanh thu và tình trạng lấp đầy. Không đứng ca; nhận lương tháng cố định. |
 | A3 | Staff | Có (nội bộ) | Trực cổng/quầy tại một bãi theo ca được phân: bắt đầu/kết thúc ca; trong ca: check-in/check-out (kể cả thủ công), xử lý yêu cầu cổng và cảnh báo, thu tiền mặt hoặc QR, quản lý ngăn kéo tiền mặt, quyết định mất vé, xử lý hồ sơ slot đặt bị chiếm; Staff có quyền “Xác minh phương tiện” duyệt hồ sơ xe toàn chuỗi (trong ca). Mọi lúc: xem bảng phân công, xin nghỉ, xem phiếu lương. Staff là chính thức hoặc dự phòng. |
 | A4 | User | Có (công khai) | Khách có tài khoản: đăng ký và xác minh xe, đặt chỗ trên 3D, nhận chỗ xe máy ngay, gửi yêu cầu check-in/check-out, theo dõi xe đang đỗ, thanh toán (ví, VNPay, MoMo), quản lý ví, xem lịch sử và biên lai, nhận thông báo, hỏi trợ lý. |
 | A5 | Guest | Không | Khách vãng lai: xem bãi, giá, chỗ trống, mô hình 3D và chỉ đường; gửi xe bằng vé QR; thanh toán tại làn ra hoặc quầy (tiền mặt hoặc QR động); hỏi trợ lý. |
@@ -138,7 +138,7 @@ Guest không phải một role trong cơ sở dữ liệu. Hệ thống có 4 ro
 | --- | --- |
 | Lịch trực | Thêm lịch trực (v1.5 để ngoài phạm vi): 4 ca cố định 6 giờ mỗi ngày, mỗi ca một Staff; tuần mẫu lặp lại; Manager đổi một ô cho “chỉ ngày này” hoặc “tuần này và các tuần sau”; tối đa 12 giờ một ngày và không quá 2 ca liền nhau; Staff xem bảng phân công cả bãi (2026-11-19, thay bản lịch ca, ca mẫu, xoay ca, nhận ca trống, đổi ca, trực dự phòng của 2026-11-15 → 11-17) |
 | Staff chính thức / dự phòng | Staff có loại hợp đồng Chính thức (lương tháng, trong tuần mẫu) hoặc Dự phòng (trả theo giờ, chỉ xếp vào từng ca); demo có 5 chính thức + 5 dự phòng mỗi bãi (2026-11-19) |
-| Chấm công | Staff bắt đầu ca từ 30 phút trước giờ ca; 30 phút sau giờ bắt đầu chưa vào ca thì Vắng; quên kết thúc thì tự kết thúc ở giờ hết ca sau 15 phút; Manager sửa giờ thực tế có lý do (2026-11-19) |
+| Chấm công | Staff bắt đầu ca từ 30 phút trước giờ ca tới hết ca; vào sau giờ bắt đầu thì ghi Đi muộn; hết ca vẫn chưa vào thì Vắng; đã bắt đầu thì không kết thúc sớm được, hệ thống tự kết thúc đúng giờ hết ca; Manager không sửa chấm công (2026-11-19, chỉnh 2026-11-20) |
 | Khóa POS ngoài ca | Staff ngoài ca không thao tác được xe và tiền (giao diện khóa, Backend trả 403); vẫn nộp ngăn kéo được sau ca; Staff đăng nhập ngoài ca thấy trang Off duty với ca kế tiếp (2026-11-19) |
 | Nghỉ phép | Staff xin nghỉ theo khoảng ngày kèm lý do; tối đa 7 ngày mỗi tháng (cộng các đơn); 12 ngày có lương mỗi năm, hết thì không lương; tháng đầu vào làm giữa tháng không được nghỉ; Manager duyệt và chọn người thay từng ca hoặc từ chối có lý do (2026-11-19) |
 | Lương | Staff chính thức 5.800.000đ/tháng, Manager 10.000.000đ/tháng, Staff dự phòng và ca làm thêm 30.000đ/giờ; trừ lương/26 mỗi ngày vắng hoặc nghỉ không lương; tháng đầu tính theo ngày, tháng nghỉ việc đủ lương; Admin bấm Trả tất cả đầu tháng; Staff/Manager xem phiếu lương và giả lập nhận lương (2026-11-19) |
@@ -366,23 +366,23 @@ Mục mới ở v1.6. Chi tiết kỹ thuật: `docs/WORK_SCHEDULING.md` và `do
 | FR-HR-01 | Mỗi bãi có 4 ca cố định mỗi ngày theo múi giờ của bãi: Đêm 00:00–06:00, Sáng 06:00–12:00, Chiều 12:00–18:00, Tối 18:00–24:00; mỗi ca đúng một Staff hoặc để trống. Không có ca mẫu, không cấu hình giờ ca | Hệ thống | M |
 | FR-HR-02 | Loại Staff: Chính thức (lương tháng, có trong tuần mẫu) hoặc Dự phòng (trả theo giờ, chỉ được xếp vào từng ca, không có trong tuần mẫu); Manager chọn khi tạo hoặc sửa Staff | Manager | M |
 | FR-HR-03 | Bảng phân công của Manager: lưới 7 ngày (thứ Hai → Chủ nhật) × 4 ca, chuyển tuần trước/sau/tuần này; ca trống sắp tới tô đỏ và có thanh cảnh báo số ca trống; ô hiện người trực, nhãn Dự phòng, “Chỉ ngày này”, người đang nghỉ, đơn nghỉ đang chờ, trạng thái chấm công | Manager | M |
-| FR-HR-04 | Tuần mẫu lặp lại: phân công 7 × 4 lặp mỗi tuần từ ngày bắt đầu hiệu lực cho tới phiên bản sau. Manager bấm một ca, chọn người (hoặc để trống) và chọn áp dụng “Chỉ ngày này” (đổi một ngày, tuần mẫu giữ nguyên) hoặc “Tuần này và các tuần sau” (tạo phiên bản tuần mẫu mới từ ngày đó, áp cho các phiên bản sau). Không sửa ca đã qua hoặc ca mà Staff đã bắt đầu | Manager | M |
-| FR-HR-05 | Danh sách người có thể nhận một ca: Staff đang hoạt động của bãi, Chính thức trước, Dự phòng sau, kèm số ca trong tuần; người không nhận được hiện lý do (đang nghỉ hoặc chờ duyệt nghỉ ngày đó, đã làm 12 giờ trong ngày, sẽ quá 12 giờ liền); cảnh báo “Ca liền kề” khi nối tiếp một ca khác (BR-33) | Manager | M |
+| FR-HR-04 | Tuần mẫu lặp lại: phân công 7 × 4 lặp mỗi tuần từ ngày bắt đầu hiệu lực cho tới phiên bản sau. Manager bấm một ca chưa bắt đầu và chọn “Đổi tuần mẫu” (tuần này và các tuần sau, chỉ với Staff chính thức); tuần mẫu không đổi được cho ca đã bắt đầu hoặc đã qua | Manager | M |
+| FR-HR-05 | Thay ca khẩn cấp: Manager bấm một ca trên bảng phân công (kể cả ca đang diễn ra) và thay ngay bằng một Staff dự phòng cho riêng ngày đó, hoặc để trống; Staff chính thức không được chọn khi thay một ngày. Người đang trực bị gỡ khỏi ca: ca của họ kết thúc ngay và POS khóa với họ; người thay được báo và vào ca được tới hết ca. Danh sách người có thể nhận hiện số ca trong tuần và lý do không nhận được (đang nghỉ hoặc chờ duyệt nghỉ, đã làm 12 giờ trong ngày, sẽ quá 12 giờ liền); cảnh báo “Ca liền kề” (BR-33) | Manager | M |
 | FR-HR-06 | Bảng phân công của Staff: cùng lưới của bãi mình, chỉ đọc, hiện tên mọi người; ca của mình tô nổi bật, có lọc “Chỉ ca của tôi”; đồng nghiệp nghỉ chỉ hiện nhãn đang nghỉ (không lộ lý do); xem tới 4 tuần sau; cập nhật real-time khi Manager đổi | Staff | M |
-| FR-HR-07 | Chấm công: Staff bắt đầu ca của mình từ 30 phút trước giờ ca tới 30 phút sau giờ bắt đầu (người được xếp sau khi ca đã bắt đầu có 30 phút từ lúc được xếp) và kết thúc ca; giờ theo máy chủ | Staff | M |
-| FR-HR-08 | Vắng và tự kết thúc: quá 30 phút sau giờ bắt đầu mà chưa vào ca thì ca được ghi Vắng, Staff và Manager nhận thông báo (không ghi Vắng khi đang chờ duyệt nghỉ, hoặc ca được xếp sau khi đã bắt đầu); quá 15 phút sau giờ hết ca chưa kết thúc thì hệ thống kết thúc ở giờ hết ca và gắn nhãn Tự kết thúc | Hệ thống | M |
-| FR-HR-09 | Manager sửa chấm công một ca (giờ vào, giờ ra; để trống cả hai là Vắng) kèm lý do bắt buộc; giờ không ở tương lai, ra không trước vào; không sửa được tháng đã trả lương | Manager | M |
-| FR-HR-10 | Khóa POS ngoài ca: Staff chỉ thao tác xe và tiền (cổng, POS thu phí, ngoại lệ, mất vé, hồ sơ slot bị chiếm, yêu cầu cổng, duyệt hồ sơ xe, mở ngăn kéo) khi đang trong ca đã bắt đầu và chưa quá giờ hết ca + 15 phút; Backend trả 403 “You are not on shift” cho thao tác thay đổi; xem vẫn được; nộp ngăn kéo được cả sau ca. Tắt được bằng cấu hình (WorkSchedule:RequireShiftForPos) để kiểm thử | Hệ thống, Staff | M |
-| FR-HR-11 | Trải nghiệm Staff: sau đăng nhập, đang trong ca hoặc tới giờ bắt đầu thì vào POS, ngoài ca thì vào trang Off duty (ca kế tiếp và thời gian còn lại, lối tắt Bảng phân công, Phiếu lương); trang POS ngoài ca hiện màn khóa “Available during your shift”; thanh trên cùng có nút Bắt đầu ca khi tới giờ và Kết thúc ca khi đang trực | Staff | M |
+| FR-HR-07 | Chấm công: Staff bắt đầu ca của mình từ 30 phút trước giờ ca tới hết ca; vào sau giờ bắt đầu (hoặc sau lúc được xếp, nếu được xếp khi ca đã bắt đầu) thì ghi Đi muộn (chỉ là nhãn, không trừ lương); giờ theo máy chủ. Đã bắt đầu thì không có nút kết thúc: Staff làm tới hết ca | Staff | M |
+| FR-HR-08 | Vắng và kết thúc ca: tới giờ hết ca mà chưa vào ca thì ca được ghi Vắng, Staff và Manager nhận thông báo (không ghi Vắng khi đang chờ duyệt nghỉ, hoặc khi bảng phân công được lập sau khi ca bắt đầu); ca đã bắt đầu tự kết thúc đúng giờ hết ca | Hệ thống | M |
+| FR-HR-09 | Manager sửa chấm công (bỏ ở v1.6.1: giờ vào/ra chỉ do Staff bắt đầu ca và hệ thống kết thúc ca) | – | – |
+| FR-HR-10 | Khóa POS ngoài ca: Staff chỉ thao tác xe và tiền (cổng, POS thu phí, ngoại lệ, mất vé, hồ sơ slot bị chiếm, yêu cầu cổng, duyệt hồ sơ xe, mở ngăn kéo) khi đang trong ca đã bắt đầu và chưa tới giờ hết ca; Backend trả 403 “You are not on shift” cho thao tác thay đổi; xem vẫn được; nộp ngăn kéo được cả sau ca. Tắt được bằng cấu hình (WorkSchedule:RequireShiftForPos) để kiểm thử | Hệ thống, Staff | M |
+| FR-HR-11 | Trải nghiệm Staff: sau đăng nhập, đang trong ca hoặc tới giờ bắt đầu thì vào POS, ngoài ca thì vào trang Off duty (ca kế tiếp và thời gian còn lại, lối tắt Bảng phân công, Phiếu lương); trang POS ngoài ca hiện màn khóa “Available during your shift”; thanh trên cùng có nút Bắt đầu ca khi tới giờ (báo sẽ bị ghi muộn nếu ca đã bắt đầu) và cho biết ca tự kết thúc lúc nào khi đang trực | Staff | M |
 | FR-HR-12 | Xin nghỉ: Staff chọn khoảng ngày (từ hôm nay, tối đa 6 tháng tới) và lý do (bắt buộc, ≤ 500 ký tự); trước khi gửi thấy các ca bị ảnh hưởng, số ngày có lương / không lương và lý do không gửi được; rút lại đơn đang chờ. Quy tắc BR-34, BR-35 | Staff | M |
 | FR-HR-13 | Duyệt nghỉ: Manager xem đơn (đơn chờ trước) với lý do, số ngày có/không lương và các ca cần người thay; duyệt thì chọn người thay cho từng ca (theo FR-HR-05) hoặc để trống (ca đỏ trên bảng, điền sau); từ chối thì bắt buộc lý do. Người nghỉ bị gỡ khỏi các ca, người thay nhận thông báo, ngày nghỉ được ghi có lương hoặc không lương | Manager | M |
 | FR-HR-14 | Ngày phép năm: mặc định 12 ngày có lương mỗi năm; Admin sửa theo từng Staff và năm (không thấp hơn số ngày đã dùng); Staff thấy số ngày còn lại và số ngày đã nghỉ trong tháng | Admin, Staff | M |
 | FR-HR-15 | Tính lương tháng (BR-36 → BR-38): Staff chính thức lương cứng trừ ngày vắng và nghỉ không lương, cộng ca làm thêm; Staff dự phòng theo giờ làm thực; Manager lương cố định; cộng điều chỉnh. Giờ làm = vào → ra trong khung giờ ca, tính tới phút. Phiếu lương có từng dòng kèm ngày/ca nguồn | Hệ thống | M |
-| FR-HR-16 | Trả lương: ngày 1 hằng tháng hệ thống tính sẵn lương tháng trước (Chưa trả) và báo Admin; Admin xem bảng, có thể sửa chấm công rồi bấm “Trả tất cả” (Pay all) để chuyển mọi phiếu Chưa trả của tháng sang Đã trả; chỉ trả được tháng đã kết thúc; mỗi người nhận thông báo | Admin | M |
+| FR-HR-16 | Trả lương: ngày 1 hằng tháng hệ thống tính sẵn lương tháng trước (Chưa trả) và báo Admin; Admin xem bảng rồi bấm “Trả tất cả” (Pay all) để chuyển mọi phiếu Chưa trả của tháng sang Đã trả; chỉ trả được tháng đã kết thúc; mỗi người nhận thông báo | Admin | M |
 | FR-HR-17 | Báo cáo lương của Admin: một bảng theo tháng, lọc bãi, loại (Chính thức, Dự phòng, Manager), trạng thái, kèm/không kèm phiếu giả lập; cột lương cứng, khoản trừ, làm thêm, điều chỉnh, thực nhận, ngày trả; tổng đã trả, chưa trả, giả lập; xuất CSV; tháng chưa kết thúc hiện số tạm tính | Admin | M |
 | FR-HR-18 | Điều chỉnh lương: Admin thêm một khoản ± kèm lý do vào tháng chưa trả của một người; phiếu đã trả không bao giờ sửa | Admin | S |
 | FR-HR-19 | Phiếu lương của tôi: Staff và Manager xem các tháng đã nhận (tháng, ngày nhận, thực nhận) và chi tiết từng dòng | Staff, Manager | M |
-| FR-HR-20 | Giả lập nhận lương (demo): Staff/Manager tự tạo cho chính mình một phiếu lương Đã trả gồm lương cứng và/hoặc số giờ làm thêm (0–200, bước 0,5); Backend lấy người nhận từ phiên đăng nhập; phiếu gắn nhãn Simulated, hiện ngay trong báo cáo của Admin, không thay phiếu thật và bị bỏ qua khi Trả tất cả; tắt được bằng cấu hình (Payroll:AllowSimulation) | Staff, Manager | S |
+| FR-HR-20 | Giả lập nhận lương (demo): Staff/Manager tự tạo cho chính mình một phiếu lương Đã trả gồm lương cứng và/hoặc số giờ làm thêm (số nguyên 0–200); Backend lấy người nhận từ phiên đăng nhập; phiếu gắn nhãn Simulated, hiện ngay trong báo cáo của Admin, không thay phiếu thật và bị bỏ qua khi Trả tất cả; tắt được bằng cấu hình (Payroll:AllowSimulation) | Staff, Manager | S |
 
 ## 4. Luồng nghiệp vụ
 
@@ -415,7 +415,7 @@ User (có tài khoản)
 Staff
 
 - Xem bảng phân công của bãi; ngoài ca thì thấy trang Off duty với ca kế tiếp, xin nghỉ (khoảng ngày, lý do) và xem phiếu lương.
-- Tới giờ ca (từ 30 phút trước): bấm Bắt đầu ca; POS chỉ mở khi đang trong ca. Hết ca bấm Kết thúc ca (quên thì hệ thống tự kết thúc).
+- Tới giờ ca (từ 30 phút trước, muộn nhất tới hết ca; sau giờ bắt đầu là Đi muộn): bấm Bắt đầu ca; POS chỉ mở khi đang trong ca. Ca tự kết thúc đúng giờ hết ca, không kết thúc sớm.
 - Đăng nhập, làm việc tại bãi được Manager gán; mở ngăn kéo tiền mặt với số quỹ nhập vào (hoặc ngăn kéo tự mở ở lần thu tiền mặt đầu).
 - Tab Check-in: xử lý xe tại làn và yêu cầu check-in từ app; xác nhận/sửa biển số; chọn slot cho xe vãng lai; xử lý cảnh báo (Blacklist, biển số trùng, hết chỗ, QR không khớp); xe không biển số phải ghi lý do; mở barie.
 - Tab Check-out: xử lý hàng chờ check-out (yêu cầu từ app và xe đã trả phí), tra session, thu phí tại làn, mở barie.
@@ -430,7 +430,7 @@ Manager
 
 - Console: tình trạng lấp đầy, doanh thu, mô hình 3D của bãi mình.
 - Thiết lập bảng giá cho từng loại xe (mô hình tính phí, trần ngày, phạt mất vé, bồi thường); lưu là áp dụng ngay và khách được báo, hoặc lưu nháp để áp dụng sau; xem lịch sử giá.
-- Bảng phân công: xếp người cho 4 ca mỗi ngày, đổi một ngày hoặc đổi tuần mẫu; lấp ca trống bằng Staff chính thức hoặc dự phòng; sửa chấm công có lý do.
+- Bảng phân công: đổi tuần mẫu bằng Staff chính thức; thay ca khẩn cấp (kể cả ca đang diễn ra) bằng Staff dự phòng; theo dõi Đi muộn và Vắng.
 - Duyệt đơn nghỉ: chọn người thay từng ca hoặc để trống; hoặc từ chối có lý do.
 - Xem phiếu lương của mình (giả lập nhận lương khi demo).
 - Tạo, sửa, khóa, cho nghỉ Staff (chọn Chính thức hoặc Dự phòng); gán Staff vào bãi.
@@ -554,11 +554,11 @@ Quyền của User theo trạng thái xe:
 | Tình huống | Xử lý |
 | --- | --- |
 | Staff mở POS ngoài ca | Trang khóa “Available during your shift”; mọi thao tác thay đổi bị Backend từ chối (403); vẫn xem được, vẫn nộp ngăn kéo được |
-| Staff không vào ca | 30 phút sau giờ bắt đầu: ghi Vắng, báo Staff và Manager; trừ một ngày lương nếu là Staff chính thức. Manager có thể sửa chấm công kèm lý do |
-| Staff quên kết thúc ca | 15 phút sau giờ hết ca: hệ thống kết thúc ở giờ hết ca, gắn nhãn Tự kết thúc |
+| Staff không vào ca | Tới giờ hết ca mà chưa vào: ghi Vắng, báo Staff và Manager; trừ một ngày lương nếu là Staff chính thức. Vào muộn trong ca: ghi Đi muộn, không trừ lương |
+| Staff muốn về sớm | Không có nút kết thúc ca; nếu cần người thay, Manager thay khẩn cấp bằng Staff dự phòng (ca của người cũ kết thúc lúc thay). Ca tự kết thúc đúng giờ hết ca |
 | Ca không có người | Ô đỏ trên bảng phân công và thanh cảnh báo; Manager xếp Staff chính thức hoặc dự phòng |
 | Xếp người vi phạm giờ làm | Chặn: đã đủ 2 ca trong ngày, sẽ thành 3 ca liền, người đang nghỉ hoặc chờ duyệt nghỉ; Staff dự phòng không vào tuần mẫu |
-| Đổi ca đã bắt đầu / đã qua | Từ chối; chỉ sửa chấm công được |
+| Đổi ca đã bắt đầu / đã qua | Ca đang diễn ra: chỉ thay khẩn cấp bằng Staff dự phòng; ca đã qua: không đổi |
 | Đơn nghỉ vượt giới hạn | Không gửi được: quá 7 ngày trong tháng, trùng đơn khác, tháng đầu vào làm giữa tháng, ngày đã qua, ca đã bắt đầu |
 | Duyệt nghỉ khi không có người thay | Duyệt và để trống ca (điền sau) hoặc từ chối kèm lý do (“không còn người”) |
 | Hết ngày phép có lương | Ngày có ca vượt hạn mức là nghỉ không lương, trừ một ngày lương |
@@ -688,12 +688,10 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
   [*] --> ChưaVào
-  ChưaVào --> ĐangTrực: Staff bắt đầu ca (từ 30 phút trước giờ ca)
-  ChưaVào --> Vắng: quá 30 phút sau giờ bắt đầu
-  ĐangTrực --> HoànThành: Staff kết thúc ca
-  ĐangTrực --> HoànThành: quá giờ hết ca 15 phút (Tự kết thúc)
-  Vắng --> HoànThành: Manager sửa giờ vào/ra kèm lý do
-  HoànThành --> Vắng: Manager sửa (bỏ giờ) kèm lý do
+  ChưaVào --> ĐangTrực: Staff bắt đầu ca (từ 30 phút trước giờ ca; sau giờ bắt đầu thì gắn nhãn Đi muộn)
+  ChưaVào --> Vắng: tới giờ hết ca mà chưa vào
+  ĐangTrực --> HoànThành: tới giờ hết ca (tự kết thúc)
+  ĐangTrực --> HoànThành: Manager thay khẩn cấp (kết thúc lúc thay)
 ```
 
 #### 4.3.9 Đơn nghỉ phép
@@ -758,10 +756,10 @@ Giá trị mặc định cấu hình được trong mục `Parking` của cấu 
 | BR-33 | Giờ làm của một Staff: tối đa 2 ca (12 giờ) trong một ngày; không 3 ca liền nhau (kể cả qua nửa đêm); Staff dự phòng chỉ được xếp theo ngày | 12 giờ |
 | BR-34 | Nghỉ phép: tổng số ngày lịch của các đơn chờ duyệt và đã duyệt trong một tháng không quá N (đơn qua hai tháng tính riêng từng tháng); không trùng đơn khác; không nghỉ trong tháng vào làm nếu vào làm sau ngày 1; xin trước tối đa 6 tháng; không xin cho ngày đã qua hoặc ca đã bắt đầu | N = 7 ngày |
 | BR-35 | Ngày nghỉ có lương mỗi năm (Admin sửa được theo người); chỉ ngày có ca mới dùng hạn mức, hết hạn mức là nghỉ không lương | 12 ngày |
-| BR-36 | Lương: Staff chính thức và Manager theo tháng; Staff dự phòng và ca làm thêm của Staff chính thức theo giờ làm thực (vào → ra trong khung giờ ca, tính tới phút); làm tròn tới đồng ở từng dòng | 5.800.000đ; 10.000.000đ; 30.000đ/giờ |
+| BR-36 | Lương: Staff chính thức và Manager theo tháng; Staff dự phòng và ca làm thêm của Staff chính thức theo giờ làm thực (vào → ra trong khung giờ ca, mỗi ca tính số giờ nguyên); làm tròn tới đồng ở từng dòng | 5.800.000đ; 10.000.000đ; 30.000đ/giờ |
 | BR-37 | Khoản trừ của Staff chính thức: mỗi ngày Vắng hoặc nghỉ không lương trừ lương tháng / S (ngày có hai ca vắng vẫn tính một ngày); đi muộn không phạt; Manager không bị trừ. Tháng đầu vào làm sau ngày 1: lương cứng × số ngày từ ngày vào làm tới cuối tháng / số ngày của tháng; tháng nghỉ việc nhận đủ lương cứng | S = 26 (223.077đ/ngày) |
 | BR-38 | Ca làm thêm: ca của Staff chính thức vượt số ca của người đó trong tuần mẫu ngày hôm đó (ca thứ hai trong ngày, hoặc ca vào ngày nghỉ) | – |
-| BR-39 | Chấm công: bắt đầu ca sớm tối đa A phút; chưa vào ca sau B phút kể từ giờ bắt đầu là Vắng; chưa kết thúc sau C phút kể từ giờ hết ca thì tự kết thúc ở giờ hết ca | A = 30; B = 30; C = 15 phút |
+| BR-39 | Chấm công: bắt đầu ca sớm tối đa A phút trước giờ ca, muộn nhất tới giờ hết ca (sau giờ bắt đầu là Đi muộn); hết ca chưa vào là Vắng; ca đã bắt đầu tự kết thúc đúng giờ hết ca, không kết thúc sớm | A = 30 phút |
 
 Ví dụ tính phí (ô tô; 20.000đ/block 1 giờ, block đầu tính ngay khi vào, làm tròn lên; trần 150.000đ/ngày lịch; phí quá Exit Window 10.000đ):
 
@@ -799,8 +797,8 @@ Ví dụ tính phí (ô tô; 20.000đ/block 1 giờ, block đầu tính ngay khi
 | UC-18 | Yêu cầu cổng từ app | User, Staff | Đặt chỗ trong cửa sổ đến hoặc xe đang đỗ | Gửi yêu cầu → Staff thấy ở tab Check-in/Check-out → duyệt (kiểm tra cổng, mở barie) hoặc từ chối | Từ chối → khách thấy lý do | Xe vào/ra |
 | UC-19 | Mô phỏng vận hành | Admin | – | Bật mô phỏng → tạo xe vãng lai / lấp đầy bãi / đỗ nhầm slot đặt / báo mất vé → quan sát 3D và màn hình Staff → tắt | Bãi Bảo trì/Tạm đóng → không gửi xe | Dữ liệu có cờ mô phỏng |
 | UC-20 | Hỏi trợ lý AI | Guest, User, E6 | – | Mở khung chat → hỏi → hệ thống tìm đoạn kiến thức liên quan → mô hình trả lời kèm nguồn | Ngoài phạm vi → từ chối lịch sự; vượt giới hạn tần suất → báo thử lại sau | – |
-| UC-21 | Xếp lịch trực | Manager | Bãi thuộc phạm vi; có Staff đang hoạt động | Mở bảng phân công → bấm một ca → chọn người (danh sách người đủ điều kiện) hoặc để trống → chọn Chỉ ngày này / Tuần này và các tuần sau → lưu → người liên quan được báo | Người vi phạm BR-33 hoặc đang nghỉ → chặn kèm lý do; ca đã qua hoặc đã bắt đầu → từ chối; Staff dự phòng chọn tuần mẫu → từ chối | Bảng phân công cập nhật real-time |
-| UC-22 | Trực ca | Staff | Có ca của mình | Đăng nhập → (ngoài ca: trang Off duty) → tới giờ: Bắt đầu ca → POS mở → làm việc → Kết thúc ca | Không vào ca sau 30 phút → Vắng; quên kết thúc → tự kết thúc; thao tác POS ngoài ca → 403 | Chấm công được ghi |
+| UC-21 | Xếp lịch trực và thay ca khẩn cấp | Manager | Bãi thuộc phạm vi; có Staff đang hoạt động | Mở bảng phân công → bấm một ca → chọn Thay ca khẩn cấp (Staff dự phòng, riêng ngày đó, kể cả ca đang diễn ra) hoặc Đổi tuần mẫu (Staff chính thức, ca chưa bắt đầu) → chọn người hoặc để trống → lưu → người liên quan được báo | Người vi phạm BR-33 hoặc đang nghỉ → chặn kèm lý do; ca đã qua → từ chối; đổi tuần mẫu cho ca đã bắt đầu → từ chối | Bảng phân công cập nhật real-time; người bị thay khi đang trực kết thúc ca ngay |
+| UC-22 | Trực ca | Staff | Có ca của mình | Đăng nhập → (ngoài ca: trang Off duty) → tới giờ: Bắt đầu ca → POS mở → làm việc tới hết ca → hệ thống tự kết thúc ca | Vào sau giờ bắt đầu → Đi muộn; hết ca chưa vào → Vắng; thao tác POS ngoài ca → 403 | Chấm công được ghi |
 | UC-23 | Xin và duyệt nghỉ phép | Staff, Manager | Staff đang hoạt động | Staff chọn khoảng ngày, lý do → xem ca bị ảnh hưởng, ngày có/không lương → gửi → Manager xem → chọn người thay từng ca hoặc để trống → duyệt | Vượt BR-34 → không gửi được; Manager từ chối kèm lý do; Staff rút đơn | Ngày nghỉ được ghi; bảng phân công đổi người |
 | UC-24 | Trả lương tháng | Admin | Tháng đã kết thúc | Ngày 1 hệ thống tính lương và báo Admin → Admin xem bảng (lọc, chi tiết từng phiếu) → (điều chỉnh) → Trả tất cả → mỗi người được báo | Tháng chưa kết thúc → không trả được; đã trả hết → báo không còn phiếu | Phiếu Đã trả, bất biến |
 | UC-25 | Xem và giả lập nhận lương | Staff, Manager | Đăng nhập | Mở Phiếu lương của tôi → xem tháng đã nhận và chi tiết → (demo) Giả lập nhận lương: chọn lương cứng và/hoặc giờ làm thêm → Nhận | Giả lập tắt → không có nút; giờ ngoài 0–200 → từ chối | Phiếu Simulated hiện cho người đó và trong báo cáo Admin |
@@ -907,7 +905,7 @@ Chưa xây dựng ở v1.6 (FR-OPS-09). Thiết kế ở SRS v1.4 mục 9.3 đư
 | Đặt chỗ trước |  | ● (xem, hủy phía bãi) | ○ (tra cứu) | ● | ○ (chỉ xem) |
 | Thanh toán & Biên lai |  | ○ | ● | ● | ● |
 | Ví XXIV |  |  |  | ● |  |
-| Lịch trực & Chấm công |  | ● (bãi mình: xếp ca, sửa chấm công) | ○ (xem bảng, bắt đầu/kết thúc ca của mình) |  |  |
+| Lịch trực & Chấm công |  | ● (bãi mình: tuần mẫu, thay ca khẩn cấp) | ○ (xem bảng, bắt đầu/kết thúc ca của mình) |  |  |
 | Nghỉ phép | ○ (ngày phép năm) | ● (duyệt, chọn người thay) | ● (đơn của mình) |  |  |
 | Lương | ● (trả lương, điều chỉnh, báo cáo) | ○ (phiếu của mình) | ○ (phiếu của mình) |  |  |
 | Ngăn kéo tiền mặt |  | ● (xác nhận, duyệt bổ sung) | ● (ngăn kéo của mình) |  |  |
@@ -930,6 +928,7 @@ Câu hỏi cần nhóm xác nhận:
 
 | Phiên bản | Ngày | Thay đổi |
 | --- | --- | --- |
+| 1.6.1 | 2026-11-20 | Chấm công: vào muộn được tới hết ca (nhãn Đi muộn), Vắng khi hết ca chưa vào; bỏ kết thúc ca sớm, ca tự kết thúc đúng giờ; bỏ sửa chấm công của Manager (FR-HR-09); thay ca khẩn cấp bằng Staff dự phòng, kể cả ca đang diễn ra; đổi tuần mẫu chỉ với Staff chính thức; giờ làm thêm tính theo giờ nguyên (FR-HR-04, 05, 07, 08, 10, 11, 20; BR-36, BR-39); Manager vô hiệu hóa Staff thay vì xóa, không vô hiệu hóa được người đang trong ca |
 | 1.6 | 2026-11-19 | Thêm lịch trực 4 ca 6 giờ với tuần mẫu lặp lại và đổi một ngày, Staff chính thức/dự phòng, chấm công (vắng, tự kết thúc, Manager sửa), khóa POS ngoài ca và trang Off duty, nghỉ phép (7 ngày/tháng, 12 ngày có lương/năm), lương (5.800.000đ, 10.000.000đ, 30.000đ/giờ, trừ lương/26) với Trả tất cả, điều chỉnh, phiếu lương và giả lập nhận lương (mục 3.12, BR-32 → BR-39, UC-21 → UC-25, máy trạng thái 4.3.8 → 4.3.10); bản nháp giá và lịch sử giá (FR-PRC-07, 08); yêu cầu xóa tài khoản và chuông Admin; dự báo slot và khoảng đệm 30 phút giữa hai đặt chỗ, dời xe quá giờ rời (FR-RSV-14, 15); đối chiếu biển số tại làn (FR-OPS-25); buộc check-out mở POS; QR MoMo của app; lịch sử ví đầy đủ; ảnh đại diện 10 MB; email qua Brevo; trợ lý AI đã triển khai (Optimus Prime); thêm mục 2.5, ngoài phạm vi chuyển sang 2.6 |
 | 1.5.1 | 2026-11-15 | Ngăn kéo tiền mặt chỉ giữ một số tổng: bỏ đếm theo mệnh giá ở POS, khi mở và khi chốt; chốt không so chênh lệch; yêu cầu bổ sung tiền mặt theo số tiền |
 | 1.5 | 2026-11-08 | Đồng bộ với hệ thống đã xây dựng: đặt chỗ tới 30 ngày, cọc tùy chọn, hai chế độ đặt, xe máy nhận chỗ ngay; bỏ thời gian miễn phí, giá áp dụng ngay và thông báo đổi giá; slot đặt bị chiếm có bồi thường; bỏ bước cảm biến, barie ra chỉ ở tab Check-out, yêu cầu cổng từ app, buộc check-out từ 3D, camera làn và đọc biển số; Staff tự quyết mất vé với ảnh CCCD và cà vẹt; ngăn kéo tiền mặt theo mệnh giá, không giờ chốt, bổ sung tiền mặt; ví XXIV; xác minh xe Duyệt/Từ chối, biển số duy nhất, bỏ OCR và tranh chấp; bãi từ mẫu tòa nhà, mỗi bãi một Manager, trạng thái Ngừng hoạt động; chỉ đường Mapbox; báo cáo doanh thu và hiệu suất bãi; mô phỏng vận hành; trợ lý AI; mật khẩu 6 ký tự; chỉ ba loại xe; viết lại luồng nghiệp vụ, máy trạng thái, BR, UC, mô hình dữ liệu; thêm Phụ lục A |

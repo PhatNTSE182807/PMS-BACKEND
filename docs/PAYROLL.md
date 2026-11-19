@@ -19,7 +19,7 @@ Full-time Staff:
 - plus 30,000 per hour worked on **extra shifts**: shifts beyond the person's weekly pattern on that day
   (a second shift, or a shift on their day off).
 
-Hours worked = check-in to check-out inside the shift's hours, to the minute. Each line is rounded to
+Hours worked = check-in to check-out inside the shift's hours, counted in whole hours per shift. Each line is rounded to
 the dong. Late arrival has no penalty.
 
 First month: when someone joined after the 1st, the base salary is
@@ -40,7 +40,7 @@ Staff and Managers see the payslips they received (**My payslips**), line by lin
 
 **Simulate payday** (demo, `Payroll:AllowSimulation`): a Staff member or Manager creates a paid payslip
 for themselves only (the server takes the person from the token) with the base salary and/or a number
-of overtime hours (0–200, steps of 0.5). It is marked `IsSimulated`, listed in the Admin report with a
+of overtime hours (a whole number, 0–200). It is marked `IsSimulated`, listed in the Admin report with a
 "Simulated" label and its own total, never replaces the real payslip and is ignored by Pay all.
 
 ## Data

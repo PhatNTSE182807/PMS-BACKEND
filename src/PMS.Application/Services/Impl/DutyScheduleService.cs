@@ -212,7 +212,7 @@ public partial class DutyScheduleService(PmsDbContext db, DatabaseContext identi
                     OnLeaveName = onLeave,
                     LeavePending = showPrivate && a.EmployeeId != null && pending.Any(r => r.EmployeeId == a.EmployeeId && r.FromDate <= date && r.ToDate >= date),
                     AttendanceStatus = showPrivate ? record?.Status : null,
-                    IsAutoEnded = showPrivate && record?.IsAutoEnded == true,
+                    IsLate = showPrivate && IsLate(lot, record, a.AssignedAt),
                     CheckInAt = showPrivate ? record?.CheckInAt : null,
                     CheckOutAt = showPrivate ? record?.CheckOutAt : null,
                     IsPast = SlotEnd(lot, date, slot) <= Now,
@@ -310,10 +310,9 @@ public partial class DutyScheduleService(PmsDbContext db, DatabaseContext identi
             if (SlotEnd(lot, input.Date, input.Slot) <= Now) throw new BadRequestException("This shift is over and can no longer change.");
             var schedule = await LoadScheduleAsync(lotId, input.Date.AddDays(-1), input.Date.AddDays(1));
             var current = schedule.At(input.Date, input.Slot);
-            if (current.EmployeeId != null && SlotStart(lot, input.Date, input.Slot) <= Now
-                && await db.DutyShiftAttendances.AnyAsync(a => a.ParkingLotId == lotId && a.WorkDate == input.Date && a.Slot == input.Slot
-                    && a.EmployeeId == current.EmployeeId && a.CheckInAt != null))
-                throw new BadRequestException("The Staff on this shift has already started it.");
+            var started = SlotStart(lot, input.Date, input.Slot) <= Now;
+            if (started && input.Scope == FollowingScope)
+                throw new BadRequestException("This shift has already begun: replace the person for this day only.");
 
             var people = await PeopleAsync(lotId, current.EmployeeId is int c ? [c] : null);
             if (input.EmployeeId is int employeeId)
@@ -321,6 +320,9 @@ public partial class DutyScheduleService(PmsDbContext db, DatabaseContext identi
                 if (!people.TryGetValue(employeeId, out var person)) throw new BadRequestException("Choose a Staff member of this lot.");
                 if (input.Scope == FollowingScope && person.EmploymentType == EmploymentTypes.Backup)
                     throw new BadRequestException("Backup Staff are not part of the weekly pattern. Choose this day only.");
+                // A change for one day is an emergency replacement: backup Staff only (or back to the weekly pattern)
+                if (input.Scope == DayScope && person.EmploymentType != EmploymentTypes.Backup && employeeId != current.PatternEmployeeId)
+                    throw new BadRequestException("Replace someone for one day with a backup Staff member. Full-time Staff change through the weekly pattern.");
                 if (current.EmployeeId != employeeId)
                 {
                     var (blocked, _) = Check(schedule, person, input.Date, input.Slot, await LeavesAsync([employeeId], input.Date, input.Date));
@@ -328,6 +330,9 @@ public partial class DutyScheduleService(PmsDbContext db, DatabaseContext identi
                 }
             }
 
+            // Taken off a shift they are working: their shift ends now
+            if (started && current.EmployeeId is int replaced && replaced != input.EmployeeId)
+                await CloseReplacedAttendanceAsync(lotId, input.Date, input.Slot, replaced);
             if (input.Scope == FollowingScope) await ChangePatternAsync(lotId, input.Date, input.Slot, input.EmployeeId);
             else await ChangeDayAsync(lotId, input.Date, input.Slot, input.EmployeeId, current.PatternEmployeeId, reason);
 
