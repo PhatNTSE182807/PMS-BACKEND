@@ -612,16 +612,20 @@ public class ReservationService(
                 return Forecast(slot.Id, BayForecastState.Penalty, false);
             if (!slot.IsActive || !slot.ZoneActive || slot.Status == SlotStatus.Maintenance)
                 return Forecast(slot.Id, BayForecastState.OutOfService, false);
-            if (bookings[slot.Id].Any(b => Overlaps(arrival, to, b.StartTime, b.DepartureTime, b.BookingMode, gap)))
-                return Forecast(slot.Id, BayForecastState.Booked, false);
 
+            // Whether a vehicle parked now is still in the bay at arrival (no planned exit, or one after it): the map
+            // draws a car only then, whatever booking also covers that time
             var vehicles = parked[slot.Id].ToList();
+            var parkedThen = vehicles.Any(v => v.ExpectedLeave is not { } leave || (leave < Now ? Now : leave) > arrival);
+            if (bookings[slot.Id].Any(b => Overlaps(arrival, to, b.StartTime, b.DepartureTime, b.BookingMode, gap)))
+                return new BayForecastModel { SlotId = slot.Id, State = BayForecastState.Booked, Bookable = false, ParkedThen = parkedThen };
+
             if (vehicles.Count == 0)
                 return Forecast(slot.Id, BayForecastState.Free, true);
             var frees = vehicles.Select(v => BayForecast.FreeFrom(v, gap, Now)).ToList();
             if (frees.All(f => f != null && f <= arrival))
                 return new BayForecastModel { SlotId = slot.Id, State = BayForecastState.FreeingUp, Bookable = true, FreeFrom = Utc(frees.Max()!.Value) };
-            return Forecast(slot.Id, BayForecastState.Occupied, !closeToArrival);
+            return new BayForecastModel { SlotId = slot.Id, State = BayForecastState.Occupied, Bookable = !closeToArrival, ParkedThen = parkedThen };
         }).ToList();
 
         static BayForecastModel Forecast(int slotId, string state, bool bookable) =>
