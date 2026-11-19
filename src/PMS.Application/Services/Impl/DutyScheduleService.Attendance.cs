@@ -5,7 +5,11 @@ using PMS.DataAccess.Persistence.Entities;
 
 namespace PMS.Application.Services.Impl;
 
-/// <summary>Shift check-in / check-out, the POS shift check and the minutely absence / auto-end run.</summary>
+/// <summary>
+/// Shift check-in, the POS shift check and the minutely run. A Staff member may start their shift from
+/// 30 minutes before it begins until it ends (after the start time it is marked late); nobody started it by
+/// its end: absent. A started shift cannot be ended early: it ends by itself at the scheduled end.
+/// </summary>
 public partial class DutyScheduleService
 {
     private const string Working = "Working";
@@ -13,23 +17,21 @@ public partial class DutyScheduleService
     private const string Absent = "Absent";
 
     private TimeSpan Early => TimeSpan.FromMinutes(options.EarlyStartMinutes);
-    private TimeSpan AbsentAfter => TimeSpan.FromMinutes(options.AbsentAfterMinutes);
-    private TimeSpan Grace => TimeSpan.FromMinutes(options.EndGraceMinutes);
 
-    /// <summary>Last moment a shift can be started: its start + the absence delay, or later for someone put on it after it began.</summary>
-    private DateTime StartDeadline(LotInfo lot, DateOnly date, int slot, Assignment a)
+    /// <summary>Checked in after the shift's start time (or, when put on the shift after it began, after that moment).</summary>
+    private bool IsLate(LotInfo lot, DutyShiftAttendance record, DateTime? assignedAt = null)
     {
-        var start = SlotStart(lot, date, slot);
-        var from = a.AssignedAt is DateTime at && at > start ? at : start;
-        var end = SlotEnd(lot, date, slot);
-        return from + AbsentAfter < end ? from + AbsentAfter : end;
+        if (record?.CheckInAt is not DateTime checkIn) return false;
+        var start = SlotStart(lot, record.WorkDate, record.Slot);
+        var from = assignedAt is DateTime at && at > start ? at : start;
+        return checkIn > from.AddMinutes(1);
     }
 
-    private DutyShiftModel Shift(LotInfo lot, DateOnly date, int slot, DutyShiftAttendance record) => new()
+    private DutyShiftModel Shift(LotInfo lot, DateOnly date, int slot, DutyShiftAttendance record, DateTime? assignedAt = null) => new()
     {
         ParkingLotId = lot.Id, LotName = lot.Name, Date = date, Slot = slot,
         StartsAt = SlotStart(lot, date, slot), EndsAt = SlotEnd(lot, date, slot),
-        AttendanceStatus = record?.Status, IsAutoEnded = record?.IsAutoEnded == true,
+        AttendanceStatus = record?.Status, IsLate = IsLate(lot, record, assignedAt),
         CheckInAt = record?.CheckInAt, CheckOutAt = record?.CheckOutAt,
     };
 
@@ -46,24 +48,19 @@ public partial class DutyScheduleService
         var schedule = await LoadScheduleAsync(lot.Id, today.AddDays(-1), today.AddDays(28));
         var records = await db.DutyShiftAttendances.AsNoTracking()
             .Where(a => a.EmployeeId == me.EmployeeId && a.WorkDate >= today.AddDays(-1) && a.WorkDate <= today.AddDays(1)).ToListAsync();
-        var open = records.Where(r => r.Status == Working && r.CheckInAt != null && r.CheckOutAt == null)
+        // A started shift whose end has passed counts as finished even before the minutely run closes it
+        var open = records.Where(r => r.Status == Working && r.CheckInAt != null && r.CheckOutAt == null && Now < SlotEnd(lot, r.WorkDate, r.Slot))
             .OrderByDescending(r => r.CheckInAt).FirstOrDefault();
 
         DutyShiftModel current = null;
-        bool canStart = false, onShift = false;
-        if (open != null)
-        {
-            current = Shift(lot, open.WorkDate, open.Slot, open);
-            onShift = Now < current.EndsAt + Grace;
-        }
+        var canStart = false;
+        if (open != null) current = Shift(lot, open.WorkDate, open.Slot, open, schedule.At(open.WorkDate, open.Slot).AssignedAt);
         else
         {
             foreach (var ((date, slot), a) in schedule.Cells.Where(c => c.Value.EmployeeId == me.EmployeeId).OrderBy(c => c.Key.Item1).ThenBy(c => c.Key.Item2))
             {
-                var start = SlotStart(lot, date, slot);
-                if (Now < start - Early || Now >= StartDeadline(lot, date, slot, a)) continue;
-                var record = records.FirstOrDefault(r => r.WorkDate == date && r.Slot == slot);
-                if (record != null) continue;
+                if (Now < SlotStart(lot, date, slot) - Early || Now >= SlotEnd(lot, date, slot)) continue;
+                if (records.Any(r => r.WorkDate == date && r.Slot == slot)) continue;
                 current = Shift(lot, date, slot, null);
                 canStart = true;
                 break;
@@ -78,7 +75,7 @@ public partial class DutyScheduleService
 
         return new DutyStatusModel
         {
-            RequireShiftForPos = options.RequireShiftForPos, OnShift = onShift, CanStart = canStart, CanEnd = open != null,
+            RequireShiftForPos = options.RequireShiftForPos, OnShift = open != null, CanStart = canStart,
             Current = current, Next = next, EmploymentType = me.EmploymentType,
         };
     }
@@ -90,7 +87,7 @@ public partial class DutyScheduleService
         await WriteAsync(async () =>
         {
             var status = await StatusAsync(me, lot);
-            if (status.CanEnd) throw new BadRequestException("You are already on a shift. End it first.");
+            if (status.OnShift) throw new BadRequestException("You are already on a shift.");
             if (!status.CanStart || status.Current == null)
                 throw new BadRequestException("No shift of yours is open for check-in now. A shift opens 30 minutes before it starts.");
             db.DutyShiftAttendances.Add(new DutyShiftAttendance
@@ -104,25 +101,7 @@ public partial class DutyScheduleService
         return await StatusAsync(me, lot);
     }
 
-    public async Task<DutyStatusModel> EndShiftAsync()
-    {
-        var me = await CurrentStaffAsync();
-        var lot = await LotAsync(me.ParkingLotId!.Value);
-        await WriteAsync(async () =>
-        {
-            var open = await db.DutyShiftAttendances.Where(a => a.EmployeeId == me.EmployeeId && a.Status == Working && a.CheckOutAt == null)
-                .OrderByDescending(a => a.CheckInAt).FirstOrDefaultAsync()
-                ?? throw new BadRequestException("You are not on a shift.");
-            open.Status = Completed;
-            open.CheckOutAt = Now;
-            open.UpdatedAt = Now;
-            await SaveAndPublishAsync(open.ParkingLotId);
-            return true;
-        });
-        return await StatusAsync(me, lot);
-    }
-
-    /// <summary>The POS check: the Staff user is checked in to a shift that has not ended (plus the grace period).</summary>
+    /// <summary>The POS check: the Staff user is checked in to a shift that has not ended.</summary>
     public async Task<bool> IsOnShiftAsync(string userId)
     {
         var employeeId = await db.Employees.AsNoTracking().Where(e => e.UserId == userId).Select(e => (int?)e.Id).FirstOrDefaultAsync();
@@ -133,66 +112,12 @@ public partial class DutyScheduleService
         foreach (var a in open)
         {
             var lot = await LotAsync(a.ParkingLotId);
-            if (Now < SlotEnd(lot, a.WorkDate, a.Slot) + Grace) return true;
+            if (Now < SlotEnd(lot, a.WorkDate, a.Slot)) return true;
         }
         return false;
     }
 
-    /// <summary>The Manager records what really happened on a shift (forgot to check in, wrong time…). Both times empty: absent.</summary>
-    public async Task<DutyWeekModel> AdjustAttendanceAsync(int lotId, DutyAttendanceInput input)
-    {
-        await EnsureManagerAsync(lotId);
-        CheckSlot(input.Slot);
-        var reason = input.Reason?.Trim();
-        if (string.IsNullOrEmpty(reason) || reason.Length > 500) throw new BadRequestException("Give a reason of at most 500 characters.");
-        var lot = await LotAsync(lotId);
-        var people = await PeopleAsync(lotId, [input.EmployeeId]);
-        if (!people.TryGetValue(input.EmployeeId, out var person)) throw new BadRequestException("Choose a Staff member of this lot.");
-        var start = SlotStart(lot, input.Date, input.Slot);
-        var end = SlotEnd(lot, input.Date, input.Slot);
-        if (start > Now) throw new BadRequestException("This shift has not started yet.");
-        var checkIn = input.CheckInAt?.ToUniversalTime();
-        var checkOut = input.CheckOutAt?.ToUniversalTime();
-        if (checkOut != null && checkIn == null) throw new BadRequestException("Enter the check-in time too.");
-        if (checkIn > Now || checkOut > Now) throw new BadRequestException("Times cannot be in the future.");
-        if (checkOut < checkIn) throw new BadRequestException("Check-out cannot be before check-in.");
-        if (checkIn != null && (checkIn < start - Early || checkIn >= end)) throw new BadRequestException("Check-in must be within the shift.");
-        if (checkIn != null && checkOut == null && Now >= end + Grace) throw new BadRequestException("This shift is over: enter the check-out time too.");
-        await EnsureMonthOpenAsync(input.EmployeeId, input.Date);
-
-        await WriteAsync(async () =>
-        {
-            var record = await db.DutyShiftAttendances.SingleOrDefaultAsync(a => a.ParkingLotId == lotId && a.WorkDate == input.Date
-                && a.Slot == input.Slot && a.EmployeeId == input.EmployeeId);
-            if (record == null)
-            {
-                record = new DutyShiftAttendance { ParkingLotId = lotId, EmployeeId = input.EmployeeId, WorkDate = input.Date, Slot = input.Slot, CreatedAt = Now };
-                db.DutyShiftAttendances.Add(record);
-            }
-            record.CheckInAt = checkIn;
-            record.CheckOutAt = checkOut;
-            record.Status = checkIn == null ? Absent : checkOut == null ? Working : Completed;
-            record.IsAutoEnded = false;
-            record.AdjustedByUserId = scope.UserId;
-            record.AdjustReason = reason;
-            record.UpdatedAt = Now;
-            Notify(person.UserId, "DutyAttendanceChanged", "Attendance corrected",
-                $"The Manager corrected your {input.Date:dd/MM/yyyy} {DutySlots.Label(input.Slot)} shift: {reason}", lotId, input.Date);
-            await SaveAndPublishAsync(lotId);
-            return true;
-        });
-        return await WeekAsync(lot, input.Date, null);
-    }
-
-    /// <summary>Attendance of a month that is already paid cannot change.</summary>
-    private async Task EnsureMonthOpenAsync(int employeeId, DateOnly date)
-    {
-        var month = new DateOnly(date.Year, date.Month, 1);
-        if (await db.PaySlips.AnyAsync(p => p.EmployeeId == employeeId && p.Month == month && !p.IsSimulated && p.Status == "Paid"))
-            throw new BadRequestException("This month is already paid. Ask an Admin to add an adjustment to a later month.");
-    }
-
-    /// <summary>Minutely: marks missed shifts absent and ends shifts nobody ended. Returns the number of changes.</summary>
+    /// <summary>Minutely: ends started shifts at their scheduled end and marks shifts nobody started absent. Returns the number of changes.</summary>
     public async Task<int> UpdateDueAttendanceAsync()
     {
         var changes = 0;
@@ -215,28 +140,27 @@ public partial class DutyScheduleService
                     if (a.EmployeeId is not int employeeId || !people.TryGetValue(employeeId, out var person) || !person.IsActive) continue;
                     // Waiting for the Manager to decide a leave request: not absent
                     if (leaves.Any(r => r.EmployeeId == employeeId && r.FromDate <= date && r.ToDate >= date)) continue;
-                    var start = SlotStart(lot, date, slot);
-                    // Put on the shift after it began (or the board was created later): not marked absent automatically
-                    if (a.AssignedAt is not DateTime assignedAt || assignedAt > start) continue;
-                    if (Now <= StartDeadline(lot, date, slot, a) || records.Any(r => r.WorkDate == date && r.Slot == slot && r.EmployeeId == employeeId)) continue;
+                    var end = SlotEnd(lot, date, slot);
+                    // The board was set up after this shift began (not a later change for this day): nothing to mark
+                    if (a.Override == null && (a.AssignedAt is not DateTime planned || planned > SlotStart(lot, date, slot))) continue;
+                    if (Now < end || records.Any(r => r.WorkDate == date && r.Slot == slot && r.EmployeeId == employeeId)) continue;
                     db.DutyShiftAttendances.Add(new DutyShiftAttendance
                     {
                         ParkingLotId = lotId, EmployeeId = employeeId, WorkDate = date, Slot = slot, Status = Absent,
                         CreatedAt = Now, UpdatedAt = Now,
                     });
                     var when = $"{date:dd/MM/yyyy} {DutySlots.Label(slot)}";
-                    Notify(person.UserId, "DutyAbsent", "Marked absent", $"You did not start your {when} shift.", lotId, date);
-                    Notify(lot.ManagerUserId, "DutyAbsent", "Staff absent", $"{person.FullName} did not start the {when} shift.", lotId, date);
+                    Notify(person.UserId, "DutyAbsent", "Marked absent", $"You did not come to your {when} shift.", lotId, date);
+                    Notify(lot.ManagerUserId, "DutyAbsent", "Staff absent", $"{person.FullName} did not come to the {when} shift.", lotId, date);
                     count++;
                 }
 
                 foreach (var open in records.Where(r => r.Status == Working && r.CheckOutAt == null))
                 {
                     var end = SlotEnd(lot, open.WorkDate, open.Slot);
-                    if (Now <= end + Grace) continue;
+                    if (Now < end) continue;
                     open.Status = Completed;
                     open.CheckOutAt = open.CheckInAt > end ? open.CheckInAt : end;
-                    open.IsAutoEnded = true;
                     open.UpdatedAt = Now;
                     count++;
                 }
@@ -245,5 +169,16 @@ public partial class DutyScheduleService
             });
         }
         return changes;
+    }
+
+    /// <summary>Ends the shift of someone taken off it while working (emergency replacement).</summary>
+    private async Task CloseReplacedAttendanceAsync(int lotId, DateOnly date, int slot, int employeeId)
+    {
+        var record = await db.DutyShiftAttendances.SingleOrDefaultAsync(a => a.ParkingLotId == lotId && a.WorkDate == date && a.Slot == slot
+            && a.EmployeeId == employeeId && a.Status == Working && a.CheckOutAt == null);
+        if (record == null) return;
+        record.Status = Completed;
+        record.CheckOutAt = Now;
+        record.UpdatedAt = Now;
     }
 }

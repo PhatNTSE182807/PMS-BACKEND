@@ -28,9 +28,12 @@ Hours are constants (`DutySlots`); there is no shift template.
 
 The Manager clicks a shift on the board and picks a person (or leaves it empty):
 
-- **Only this day**: writes an override (removed again if it equals the pattern).
-- **This and following weeks**: starts a new pattern version on that date (copying the one in force)
-  and applies the same change to later versions; drops a hand-made override on that date.
+- **Emergency replacement** (this day only): backup Staff only (or back to the pattern person), also
+  for a shift in progress: someone working is taken off and their shift ends at that moment. Writes an
+  override (removed again if it equals the pattern).
+- **Change the weekly pattern** (this and following weeks): full-time Staff only, shifts that have not
+  begun. Starts a new pattern version on that date (copying the one in force) and applies the same change
+  to later versions; drops a hand-made override on that date.
 
 Rules when putting someone on a shift (`DutyScheduleService.Check`):
 
@@ -38,7 +41,9 @@ Rules when putting someone on a shift (`DutyScheduleService.Check`):
 - at most 2 shifts (12 hours) on one day, and never 3 shifts in a row across midnight;
 - a shift next to another is allowed but flagged "Back-to-back shift";
 - backup Staff only on one-day changes (never in the pattern);
-- a shift that is over, or that its Staff already started, cannot change.
+- a shift that is over cannot change; a shift in progress only takes an emergency replacement.
+
+A Manager cannot deactivate (or remove) a Staff member who is on shift.
 
 ## Employment
 
@@ -49,17 +54,17 @@ hour, put on single shifts). The Manager chooses it when creating or editing a S
 
 `DutyShiftAttendances` holds one row per person and shift: `Working`, `Completed` or `Absent`.
 
-- A Staff member starts their shift from 30 minutes before it begins until 30 minutes after
-  (`POST /api/staff/duty/shifts/start`), and ends it (`.../end`). Someone put on a shift after it
-  began has 30 minutes from that moment.
-- The minutely `DutyJobs` run marks a shift absent 30 minutes after its start when nobody checked in
-  (skipped while the person has leave waiting, and for shifts given out after they began), and ends a
-  shift 15 minutes after its end at the scheduled time (`IsAutoEnded`). The Staff and the Manager are told.
-- The Manager can record the real check-in / check-out (both empty = absent) with a reason, unless
-  the month is already paid.
+- A Staff member starts their shift from 30 minutes before it begins until it ends
+  (`POST /api/staff/duty/shifts/start`). Starting after the start time (or after being put on a shift
+  that had begun) shows **Late**; it is only a label, nothing is deducted.
+- A started shift cannot be ended early: there is no end action. The minutely `DutyJobs` run ends it at
+  the scheduled end, and marks a shift **absent** at its end when nobody started it (skipped while the
+  person has leave waiting, and when the board was set up after the shift began). The Staff and the
+  Manager are told.
+- The Manager cannot edit attendance (removed 2026-11-20).
 - **POS lock**: `[RequireOnShift]` refuses non-GET Staff actions of the gate, checkout, cash, booked-bay
   cases, gate requests and vehicle reviews (403 "You are not on shift") unless the Staff is checked in
-  to a shift that has not ended (+15 min). Handing in the cash drawer is still allowed after the shift
+  to a shift that has not ended. Handing in the cash drawer is still allowed after the shift
   (`[AllowOffShift]`). `WorkSchedule:RequireShiftForPos = false` turns the lock off (integration tests do).
 
 The frontend sends Staff to `/staff` after sign-in: the POS when on shift (or the shift is open to
@@ -86,12 +91,11 @@ Manager, `/api/manager/lots/{lotId}/duty`:
 | GET | `/week?start=yyyy-MM-dd` | One week of the board and the lot's Staff |
 | GET | `/candidates?date&slot&excludeEmployeeId` | Who can take a shift, with the reason someone cannot |
 | PUT | `/cells` | `{ date, slot, employeeId, scope: Day / Following, reason }` |
-| PUT | `/attendance` | Record check-in / check-out or absence with a reason |
 | GET | `/leave-requests` | Waiting requests first, with their shifts |
 | POST | `/leave-requests/{id}/approve` | `{ replacements: [{ date, slot, employeeId }] }` |
 | POST | `/leave-requests/{id}/reject` | `{ reason }` |
 
-Staff, `/api/staff/duty`: `GET status`, `GET week`, `POST shifts/start`, `POST shifts/end`, `GET leave`,
+Staff, `/api/staff/duty`: `GET status`, `GET week`, `POST shifts/start`, `GET leave`,
 `GET leave/preview?from&to`, `POST leave`, `POST leave/{id}/cancel`.
 
 Admin: `GET /api/admin/duty/leave-balances?year`, `PUT /api/admin/duty/leave-balances/{employeeId}/{year}`.
@@ -101,5 +105,5 @@ notices (`DutyShiftChanged`, `DutyAbsent`, `DutyAttendanceChanged`, `DutyLeaveRe
 
 ## Settings (`WorkSchedule`)
 
-`RequireShiftForPos` (true), `EarlyStartMinutes` (30), `AbsentAfterMinutes` (30), `EndGraceMinutes` (15),
+`RequireShiftForPos` (true), `EarlyStartMinutes` (30),
 `MaxLeaveDaysPerMonth` (7), `AnnualPaidLeaveDays` (12).

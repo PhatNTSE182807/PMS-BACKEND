@@ -58,7 +58,8 @@ public record PayAllResultModel(DateOnly Month, int PaidCount, decimal Total);
 public class SimulatePayInput
 {
     public bool IncludeBase { get; set; } = true;
-    public decimal OvertimeHours { get; set; }
+    /// <summary>Whole hours, 0–200.</summary>
+    public int OvertimeHours { get; set; }
 }
 
 public class PayAdjustmentInput
