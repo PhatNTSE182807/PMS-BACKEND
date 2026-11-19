@@ -211,13 +211,22 @@ public class EmployeeAccountService(
     public async Task<EmployeeAccountResponseModel> SetStaffStatusAsync(string managerId, string staffId, bool isActive)
     {
         var (user, employee, lot) = await FindManagedStaffAsync(managerId, staffId);
+        if (!isActive) await EnsureNotOnShiftAsync(employee);
         await SetActiveAsync(user, isActive, isActive ? "Active" : "Inactive");
         return ToResponse(user, employee, [lot]);
+    }
+
+    /// <summary>A Staff member checked in to a shift keeps their account until the shift ends.</summary>
+    private async Task EnsureNotOnShiftAsync(Employee employee)
+    {
+        if (await pmsContext.DutyShiftAttendances.AnyAsync(a => a.EmployeeId == employee.Id && a.Status == "Working" && a.CheckOutAt == null))
+            throw new BadRequestException($"{employee.FullName} is on shift now. Deactivate the account after the shift ends.");
     }
 
     public async Task<bool> DeleteStaffAsync(string managerId, string staffId)
     {
         var (user, employee, _) = await FindManagedStaffAsync(managerId, staffId);
+        await EnsureNotOnShiftAsync(employee);
         employee.TerminationDate = DateOnly.FromDateTime(DateTime.UtcNow);
         await SetActiveAsync(user, false, "Terminated");
         return true;
