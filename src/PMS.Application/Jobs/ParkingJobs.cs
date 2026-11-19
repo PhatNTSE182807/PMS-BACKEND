@@ -44,6 +44,9 @@ public class ParkingJobs(
     /// <summary>Everything that must happen within a minute of its deadline.</summary>
     public async Task<ParkingJobRun> RunMinutelyAsync()
     {
+        if (!await HasOpenWorkAsync())
+            return Idle;
+
         await DeadlineLock.WaitAsync();
         try
         {
@@ -79,6 +82,8 @@ public class ParkingJobs(
     {
         if (!options.IsSimulating)
             return null;
+        if (!await HasOpenWorkAsync())
+            return Idle;
 
         await DeadlineLock.WaitAsync();
         try
@@ -95,6 +100,31 @@ public class ParkingJobs(
         {
             DeadlineLock.Release();
         }
+    }
+
+    private static readonly ParkingJobRun Idle = new(0, 0, 0, 0, 0, 0, 0);
+
+    /// <summary>
+    /// One cheap query before the timed steps: is there anything any of them could act on? Every step starts from an
+    /// open booking, an open booked-bay case, a vehicle waiting at a lane or for its fee, a simulated walk-in due to
+    /// leave, or a gateway payment or refund still pending. With none of those (a quiet lot, a night) the run ends
+    /// here instead of sending a dozen queries every minute (or every second while the simulation is on).
+    /// Keep it a superset of what the steps read: a step whose input is missing here would never run.
+    /// </summary>
+    public async Task<bool> HasOpenWorkAsync()
+    {
+        // Anchored on the lots table so the checks go out as one round trip (no lot: no bookings or sessions either)
+        return await pmsContext.ParkingLots.IgnoreQueryFilters()
+            .Select(_ =>
+                pmsContext.Reservations.Any(r => ReservationStatus.Active.Contains(r.Status))
+                || pmsContext.BookedBayCases.Any(c => c.Status == BookedBayCaseStatus.Open)
+                || pmsContext.ParkingSessions.Any(s => s.Status == SessionStatus.PendingEntry || s.Status == SessionStatus.PendingPayment
+                                                       || (s.IsSimulated && s.SimulatedExitAt != null
+                                                           && (s.Status == SessionStatus.Active || s.Status == SessionStatus.Paid)))
+                || pmsContext.Payments.Any(p => p.GatewayProvider != null
+                                                && (p.Status == PaymentStatus.Pending
+                                                    || (p.Purpose == PaymentPurpose.Refund && p.Status == PaymentStatus.RefundPending))))
+            .FirstOrDefaultAsync();
     }
 
     /// <summary>The deposit was not paid in time → Expired, slot back to Available.</summary>
