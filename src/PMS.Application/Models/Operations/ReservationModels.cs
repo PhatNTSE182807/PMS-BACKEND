@@ -190,8 +190,9 @@ public class BayForecastModel
     public DateTime? FreeFrom { get; set; }
 
     /// <summary>
-    /// A vehicle parked in the bay now is still expected there at the arrival time. A bay Booked for that time by a
-    /// booking whose vehicle has not checked in yet is false: the map draws no car there.
+    /// A vehicle parked in the bay now is still expected there at the arrival time, or is past its planned exit and still
+    /// there (overdue), so the map keeps drawing that vehicle. A bay Booked for that time only by a booking whose vehicle
+    /// has not checked in yet is false: the map draws no car there.
     /// </summary>
     public bool ParkedThen { get; set; }
 }
