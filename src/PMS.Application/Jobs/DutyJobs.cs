@@ -12,7 +12,27 @@ public class DutyJobs(DutyScheduleService duty, PmsDbContext db, IUserNotificati
     public const string AttendanceJobId = "duty-attendance";
     public const string PayrollJobId = "duty-payroll-ready";
 
-    public Task<int> RunAttendanceAsync() => duty.UpdateDueAttendanceAsync();
+    /// <summary>When this API process last brought the attendance up to date (UTC); null before the first run.</summary>
+    private static DateTime? _attendanceCheckedAt;
+
+    /// <summary>
+    /// Shifts start and end on whole hours of the lot's local time, which always fall on a quarter hour in UTC
+    /// (every time zone is offset by a multiple of 15 minutes). Nothing falls due between two quarter hours, so the
+    /// minutely job only reads the duty boards on its first run after each one: 4 runs an hour instead of 60.
+    /// A board change for a shift that already ended is still picked up within 15 minutes.
+    /// </summary>
+    public async Task<int> RunAttendanceAsync()
+    {
+        var now = DateTime.UtcNow;
+        static long Quarter(DateTime utc) => utc.Ticks / TimeSpan.FromMinutes(15).Ticks;
+        if (_attendanceCheckedAt is DateTime last && Quarter(now) == Quarter(last) && now >= last)
+            return 0;
+
+        var changes = await duty.UpdateDueAttendanceAsync();
+        // Only after a full pass: a run that failed half way is tried again the next minute
+        _attendanceCheckedAt = now;
+        return changes;
+    }
 
     public Task<int> PreparePayrollAsync() => duty.PreparePayrollAsync();
 

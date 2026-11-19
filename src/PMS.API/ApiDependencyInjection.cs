@@ -2,6 +2,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Hangfire;
 using Hangfire.InMemory;
+using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -69,6 +70,9 @@ public static class ApiDependencyInjection
     /// SignalR pushes lot changes to the 3D views; Hangfire runs timed work (SQL Server storage, or
     /// in memory when the database is). Dashboard: /hangfire, local requests only.
     /// </summary>
+    /// <summary>Background workers: enough for the notices and the timed runs (the default was up to 20).</summary>
+    private const int HangfireWorkers = 4;
+
     public static void AddRealtimeAndJobs(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddSignalR();
@@ -93,9 +97,16 @@ public static class ApiDependencyInjection
             if (database.UseInMemoryDatabase)
                 config.UseInMemoryStorage();
             else
-                config.UseSqlServerStorage(hangfireConn);
+                config.UseSqlServerStorage(hangfireConn, new SqlServerStorageOptions
+                {
+                    // A job this API enqueues wakes its own workers at once (Hangfire signals them in process), so
+                    // notifications are not delayed; the poll only finds jobs enqueued by another instance and due
+                    // retries. The default polled the queue table many times a second, keeping the database busy.
+                    QueuePollInterval = TimeSpan.FromSeconds(15)
+                });
         });
-        services.AddHangfireServer();
+        // Each worker polls the queue on its own; the jobs here are short notices and the timed runs
+        services.AddHangfireServer(server => server.WorkerCount = HangfireWorkers);
 
         // Parking simulation: booking deadlines in seconds
         services.AddHostedService<PMS.API.Jobs.ParkingSimulationTicker>();
