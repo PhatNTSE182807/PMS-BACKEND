@@ -502,10 +502,18 @@ public static partial class AutomatedMigration
         // Bookings made before date-time booking: pay-as-you-go, and the active ones already hold their bay.
         // A bay can now carry several bookings at different times, so the old "one active booking per bay"
         // index gives way to "one booking holding the bay" (IX_Reservations_SlotId_Held below).
+        // The hold back-fill is a one-time conversion: it runs only while the new index does not exist yet. Since
+        // then a booking may wait unheld behind the one in its bay (booked back to back, or ahead), and marking it
+        // held at start-up broke the unique index and stopped the API. It also never marks a second booking of a bay.
         await pmsContext.Database.ExecuteSqlRawAsync($@"
             UPDATE [dbo].[Reservations] SET [BookingMode] = 'PayAsYouGo' WHERE [BookingMode] IS NULL;
-            UPDATE [dbo].[Reservations] SET [SlotHeldAt] = [CreatedAt]
-                WHERE [SlotHeldAt] IS NULL AND [SlotId] IS NOT NULL AND [Status] IN ({ActiveReservationStatuses});
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Reservations_SlotId_Held')
+                UPDATE r SET r.[SlotHeldAt] = r.[CreatedAt]
+                FROM [dbo].[Reservations] r
+                WHERE r.[SlotHeldAt] IS NULL AND r.[SlotId] IS NOT NULL AND r.[Status] IN ({ActiveReservationStatuses})
+                  AND NOT EXISTS (SELECT 1 FROM [dbo].[Reservations] o
+                                  WHERE o.[SlotId] = r.[SlotId] AND o.[Id] <> r.[Id] AND o.[Status] IN ({ActiveReservationStatuses})
+                                    AND (o.[SlotHeldAt] IS NOT NULL OR o.[Id] < r.[Id]));
             IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Reservations_SlotId_Active')
                 DROP INDEX [IX_Reservations_SlotId_Active] ON [dbo].[Reservations];");
 
