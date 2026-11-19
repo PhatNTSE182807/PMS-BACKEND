@@ -199,6 +199,9 @@ public class CashDrawerService(
 
         Decide(request, CashTopUpStatus.Cancelled, null);
         await pmsContext.SaveChangesAsync();
+        // Takes the request off the Manager's Approval Queue at once (the queue refreshes on cash alerts, not on a timer)
+        await AlertAsync(lotId, "CASH_TOPUP_CANCELLED",
+            $"{await StaffNameAsync(request.StaffUserId)} cancelled their request for {request.Total:#,0} VND in cash.");
         return (await ToTopUpModelsAsync([request]))[0];
     }
 
