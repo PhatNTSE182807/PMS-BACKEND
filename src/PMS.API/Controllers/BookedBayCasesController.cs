@@ -1,3 +1,4 @@
+using PMS.API.Filters;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PMS.Application.Models;
@@ -14,6 +15,7 @@ namespace PMS.API.Controllers;
 /// </summary>
 [Route("api/staff")]
 [Authorize(Roles = "Staff,Manager,Admin")]
+[RequireOnShift]
 public class BookedBayCasesController(BookedBayCaseService bookedBays) : ApiController
 {
     /// <summary>Cases of the lot, open ones first; <c>openOnly=false</c> adds the resolved ones.</summary>

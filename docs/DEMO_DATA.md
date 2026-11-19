@@ -62,6 +62,18 @@ The Admin comes from the base seed: `systemadmin` / `admin@gmail.com`, password 
 | `staff.fsoft2` | Võ Hoàng Nam | Staff | Fsoft | |
 | `staff.conghoa1` | Phan Thị Mai | Staff | Cong Hoa | |
 | `staff.conghoa2` | Bùi Đức Anh | Staff | Cong Hoa | **deactivated**: sign-in is refused |
+| `staff.fptu3` … `staff.fptu5` | Đỗ Thị Lan, Ngô Văn Hùng, Hồ Thị Thu | Staff (full-time) | FPT University | |
+| `staff.fsoft3` … `staff.fsoft5` | Mai Quốc Khánh, Tạ Thị Ngọc, Châu Minh Trí | Staff (full-time) | Fsoft | |
+| `staff.conghoa3` … `staff.conghoa6` | Lâm Thị Yến, Dương Văn Phúc, Kiều Thị Hạnh, Tôn Thất Vinh | Staff (full-time) | Cong Hoa | |
+| `backup.fptu1` … `backup.fptu5` | | Staff (backup) | FPT University | paid by the hour, only on shifts the Manager gives them |
+| `backup.fsoft1` … `backup.fsoft5` | | Staff (backup) | Fsoft | |
+| `backup.conghoa1` … `backup.conghoa5` | | Staff (backup) | Cong Hoa | |
+
+Every operating lot has five active full-time Staff and a weekly duty pattern (starting this week's Monday):
+each full-time Staff works one 6-hour shift a day with one day off, so all 28 shifts of the week are covered.
+The 4 shifts cover the whole day, so **someone is always on shift**: open the Manager's Work schedule to see who
+(the Staff on the current shift can start it and use the POS; the others see Off duty). Staff hired from
+`staff.fptu3` on joined on the 1st, four months ago, so they can ask for leave at once.
 
 ### Customers
 
