@@ -3,8 +3,10 @@
 __pycache__/
 datasets/
 runs/
-models/
 generated*/
 test-set/
 *.pt
 test/
+# The exported ONNX models are kept in git so a server can build the service from the repository
+models/*
+!models/*.onnx

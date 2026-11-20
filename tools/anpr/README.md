@@ -18,7 +18,10 @@ asks the Staff to confirm plates read below 0.85 (`Parking:Gate:AnprConfidenceTh
 | `train.py` | Trains both detectors, saves `models/plate.pt` and `models/chars.pt` |
 | `evaluate.py` | Measures the reader on a labelled test folder |
 | `read_plate.py` | Reads the plates in one picture |
+| `export_onnx.py` | Turns the trained `.pt` models into `.onnx` files for a server |
+| `detectors.py` | Runs a model from a `.pt` file (ultralytics) or a `.onnx` file (onnxruntime) |
 | `service.py` | HTTP service the Staff gate screen calls |
+| `Dockerfile`, `requirements-service.txt` | The service on a server, with the ONNX models only |
 
 ## Quick start (every command runs in `tools/anpr`)
 
@@ -32,6 +35,7 @@ python check_env.py                      # says GPU or CPU and the train command
 python prepare_dataset.py --src generated --out datasets
 python train.py --data datasets          # 20 epochs, GPU when PyTorch can use it
 python evaluate.py --src test-set
+python export_onnx.py                    # after every training run, for the server
 uvicorn service:app --port 8001          # for the Staff gate screen
 ```
 
@@ -182,19 +186,55 @@ wrong (keep that one near zero). `read_plate.py` prints every plate found (text,
 uvicorn service:app --port 8001
 ```
 
-- `GET /health` says whether `models/plate.pt` and `models/chars.pt` are there.
+- `GET /health` says whether the models are there and which kind it uses (`"format": "onnx"` or `"pt"`).
+  `models/plate.onnx` and `models/chars.onnx` are used when both exist, otherwise the `.pt` files.
 - `POST /read` takes one camera frame (JPEG or PNG body) and returns the plates read in it.
 - New model files are picked up on the next read, so training can finish while the service runs.
 - Only Staff screens served from this computer may call it (localhost / 127.0.0.1, any port, so both
   `npm run dev` on 5173 and the preview on 5174 work). Set `ANPR_ALLOWED_ORIGINS` (comma-separated) to allow
   other screen addresses instead.
-- The service uses the GPU when PyTorch can, otherwise the CPU (a read then takes longer).
+- With the `.pt` files the service uses the GPU when PyTorch can, otherwise the CPU. The `.onnx` files
+  always run on the CPU.
 
 On the Staff gate dashboard each camera shows the plate reader's state (ready, not trained, offline).
 When a vehicle stops at the camera, the frame (1280 × 720) is sent to the service and the camera
 shows what the AI read next to the recorded plate: **Match**, **Staff check** (below 0.85) or
 **Mismatch**, with a running "AI matched / read" count. The frontend calls
 `http://127.0.0.1:8001` in development; set `VITE_ANPR_SERVICE_URL` to change it.
+
+## 10. Put the service on a server (ONNX)
+
+PyTorch and ultralytics need well over 512 MB of RAM and a 2–3 GB image, too much for a small server.
+The `.onnx` files hold the same trained weights and run with onnxruntime alone: about 220 MB of RAM,
+about 0.25 s per frame on one CPU, and the same reads as the `.pt` files (92.2% exact on 708 test
+images with both).
+
+1. After training, export and commit the two ONNX files (they are the only files under `models/` that
+   git keeps):
+   ```powershell
+   python export_onnx.py
+   git add models/plate.onnx models/chars.onnx
+   ```
+2. Build and try the image locally (optional):
+   ```powershell
+   docker build -t pms-anpr .
+   docker run --rm -p 8001:8001 -m 512m --cpus 0.5 pms-anpr
+   ```
+3. On Render: **New → Web Service** from this repository, language **Docker**, **Root Directory**
+   `tools/anpr` (Render then finds `tools/anpr/Dockerfile`), **Health Check Path** `/health`.
+   Environment variables:
+
+   | Variable | Value |
+   | --- | --- |
+   | `ANPR_ALLOWED_ORIGINS` | The frontend address, e.g. `https://parking.example.com` (comma-separated for more) |
+   | `ANPR_THREADS` | CPU threads for onnxruntime; `1` (the default in the image) on Free or Starter |
+
+   Render sets `PORT` itself; the image listens on it.
+4. Build the frontend with `VITE_ANPR_SERVICE_URL` set to the service address, e.g.
+   `https://pms-anpr.onrender.com`.
+
+On the Free plan the service sleeps after 15 minutes without requests; the first read after that waits
+for it to start (up to a minute). `/read` has no sign-in: anyone who knows the address can send it frames.
 
 ## Troubleshooting
 
@@ -215,7 +255,8 @@ shows what the AI read next to the recorded plate: **Match**, **Staff check** (b
 
 - The models only know rendered plates. Before using a real camera, add real photos of plates
   (labelled with the same JSON, or in YOLO format) and train again.
-- Generated images, `datasets/`, `runs/`, `models/` and `.venv/` are not committed (see `.gitignore`):
-  every machine generates and trains its own, or copies `models/*.pt` from a machine that did.
+- Generated images, `datasets/`, `runs/`, the `.pt` models and `.venv/` are not committed (see `.gitignore`):
+  every machine generates and trains its own, or copies `models/*.pt` from a machine that did. Only the
+  exported `models/*.onnx` files are committed, for the server.
 - The 3D lanes replay vehicles that have already checked in or out, so the AI read is shown next to
   the recorded plate; it does not fill the check-in form yet.

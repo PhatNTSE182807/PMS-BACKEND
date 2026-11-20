@@ -5,8 +5,11 @@
 GET  /health  -> whether the trained models are there
 POST /read    -> body: one camera frame (image/jpeg or image/png); returns the plates read in it
 
-The models (models/plate.pt and models/chars.pt) are loaded on the first read and loaded again when
-the files change, so a model trained while the service runs is picked up without a restart.
+The models are loaded on the first read and loaded again when the files change, so a model trained
+while the service runs is picked up without a restart. models/plate.onnx and models/chars.onnx (from
+export_onnx.py, run with onnxruntime only) are used when both are there, otherwise models/plate.pt and
+models/chars.pt (need ultralytics and PyTorch). On a server only the ONNX files and
+requirements-service.txt are needed.
 Plates only go to the Staff screens that call this service. By default only screens served from this
 same computer (localhost or 127.0.0.1, any port: `npm run dev` uses 5173, the preview 5174) may call it;
 set ANPR_ALLOWED_ORIGINS (comma-separated) to list other screen origins instead.
@@ -25,8 +28,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from read_plate import PlateReader
 
 MODELS = Path(os.environ.get("ANPR_MODELS", Path(__file__).parent / "models"))
-PLATE_MODEL = MODELS / "plate.pt"
-CHARS_MODEL = MODELS / "chars.pt"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 ORIGINS = [o.strip() for o in os.environ.get("ANPR_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 # Any port on this computer, so the gate screen works whichever port the frontend runs on
@@ -43,13 +44,24 @@ app.add_middleware(
 
 _lock = threading.Lock()
 _reader: PlateReader | None = None
-_loaded_stamp: tuple[float, float] | None = None
+_loaded_stamp: tuple[str, float, float] | None = None
 
 
-def _stamp() -> tuple[float, float] | None:
-    if not (PLATE_MODEL.exists() and CHARS_MODEL.exists()):
+def _model_files() -> tuple[Path, Path] | None:
+    """The plate and character model files to use: the ONNX pair first, then the PyTorch pair."""
+    for suffix in (".onnx", ".pt"):
+        plate, chars = MODELS / f"plate{suffix}", MODELS / f"chars{suffix}"
+        if plate.exists() and chars.exists():
+            return plate, chars
+    return None
+
+
+def _stamp() -> tuple[str, float, float] | None:
+    files = _model_files()
+    if files is None:
         return None
-    return PLATE_MODEL.stat().st_mtime, CHARS_MODEL.stat().st_mtime
+    plate, chars = files
+    return plate.suffix, plate.stat().st_mtime, chars.stat().st_mtime
 
 
 def _get_reader() -> PlateReader:
@@ -57,17 +69,25 @@ def _get_reader() -> PlateReader:
     global _reader, _loaded_stamp
     stamp = _stamp()
     if stamp is None:
-        raise HTTPException(status_code=503, detail="The plate reader is not trained yet: models/plate.pt and models/chars.pt are missing.")
+        raise HTTPException(status_code=503, detail="The plate reader is not trained yet: the plate and character models are missing.")
     with _lock:
         if _reader is None or stamp != _loaded_stamp:
-            _reader = PlateReader(str(PLATE_MODEL), str(CHARS_MODEL))
+            plate, chars = _model_files()
+            _reader = PlateReader(str(plate), str(chars))
             _loaded_stamp = stamp
         return _reader
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"ready": _stamp() is not None, "plateModel": PLATE_MODEL.exists(), "charsModel": CHARS_MODEL.exists()}
+    files = _model_files()
+    return {
+        "ready": files is not None,
+        "plateModel": any((MODELS / f"plate{s}").exists() for s in (".onnx", ".pt")),
+        "charsModel": any((MODELS / f"chars{s}").exists() for s in (".onnx", ".pt")),
+        # "onnx" or "pt": which pair of model files the reader uses
+        "format": files[0].suffix.lstrip(".") if files else None,
+    }
 
 
 @app.post("/read")
