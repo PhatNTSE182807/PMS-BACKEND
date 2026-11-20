@@ -2,8 +2,10 @@
 
     python read_plate.py frame.jpg                 # prints the plates found, as JSON
     python read_plate.py frame.jpg --save out.jpg  # also draws them on a copy of the picture
+    python read_plate.py frame.jpg --plate-model models/plate.onnx --chars-model models/chars.onnx
 
-`PlateReader` is the part the gate service will reuse.
+`PlateReader` is the part the gate service reuses. It takes .pt files (ultralytics) or .onnx files
+(onnxruntime, see export_onnx.py) and reads the same way with both.
 """
 
 import argparse
@@ -12,9 +14,9 @@ from dataclasses import asdict, dataclass
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
 from anpr_common import CHARS_IMGSZ, CROP_MARGIN, PLATE_IMGSZ, format_plate
+from detectors import load_detector
 
 
 @dataclass
@@ -52,20 +54,16 @@ def group_rows(chars: list[tuple[str, float, float, float, float]]) -> list[str]
 class PlateReader:
     def __init__(self, plate_model: str = "models/plate.pt", chars_model: str = "models/chars.pt",
                  plate_conf: float = 0.35, char_conf: float = 0.25, device: str | None = None):
-        self.plates = YOLO(plate_model)
-        self.chars = YOLO(chars_model)
+        self.plates = load_detector(plate_model, device)
+        self.chars = load_detector(chars_model, device)
         self.plate_conf = plate_conf
         self.char_conf = char_conf
-        self.device = device
 
     def read(self, image: np.ndarray) -> list[PlateRead]:
         """Every plate found in a BGR picture, the most confident first."""
-        found = self.plates.predict(image, imgsz=PLATE_IMGSZ, conf=self.plate_conf, device=self.device, verbose=False)[0]
         height, width = image.shape[:2]
         reads = []
-        for box in found.boxes:
-            x0, y0, x1, y1 = (float(v) for v in box.xyxy[0])
-            plate_conf = float(box.conf[0])
+        for x0, y0, x1, y1, plate_conf, _ in self.plates.detect(image, PLATE_IMGSZ, self.plate_conf):
             mx, my = (x1 - x0) * CROP_MARGIN, (y1 - y0) * CROP_MARGIN
             cx0, cy0 = max(0, int(x0 - mx)), max(0, int(y0 - my))
             cx1, cy1 = min(width, int(x1 + mx)), min(height, int(y1 + my))
@@ -73,12 +71,10 @@ class PlateReader:
             if crop.size == 0:
                 continue
 
-            result = self.chars.predict(crop, imgsz=CHARS_IMGSZ, conf=self.char_conf, device=self.device, verbose=False)[0]
-            names = result.names
-            chars = []
-            for c in result.boxes:
-                a0, b0, a1, b1 = (float(v) for v in c.xyxy[0])
-                chars.append((names[int(c.cls[0])], float(c.conf[0]), (a0 + a1) / 2, (b0 + b1) / 2, b1 - b0))
+            chars = [
+                (name, conf, (a0 + a1) / 2, (b0 + b1) / 2, b1 - b0)
+                for a0, b0, a1, b1, conf, name in self.chars.detect(crop, CHARS_IMGSZ, self.char_conf)
+            ]
             rows = group_rows(chars)
             char_conf = float(np.mean([c[1] for c in chars])) if chars else 0.0
             reads.append(PlateRead(

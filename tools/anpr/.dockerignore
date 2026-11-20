@@ -1,0 +1,9 @@
+# Keep the build context small: only code, requirements and the ONNX models are copied
+.venv/
+__pycache__/
+datasets/
+runs/
+generated*/
+test-set/
+test/
+*.pt
